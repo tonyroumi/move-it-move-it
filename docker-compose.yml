@@ -1,0 +1,15 @@
+services:
+  amass-dev:
+    image: amass-dev:latest        
+    container_name: amass-dev   
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix      
+      - .:/workspace                      
+    devices:
+      - /dev/dri:/dev/dri                 
+    network_mode: "host"                   
+    ipc: host
+    privileged: true                       
+    command: sleep infinity
