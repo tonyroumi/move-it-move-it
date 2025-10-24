@@ -204,6 +204,49 @@ class AmassVisualizer:
         Image.fromarray(img.astype(np.uint8)).save(img_path)
         print(f"[INFO] Saved joint visualization → {img_path}")
         return img_path
+
+    def render_joints_and_parents(
+        self,
+        t: int = 0,
+        child: int = 0,
+        name: str = "body_joints",
+        include_hands: bool = False
+    ) -> str:
+        from body_visualizer.mesh.sphere import points_to_spheres
+
+        keys = ["pose_body", "betas"]
+        if include_hands and "pose_hand" in self.body_parms:
+            keys.append("pose_hand")
+
+        out = self._forward_subset(keys)
+        J = getattr(out, "Jtr", getattr(out, "J", None))
+        if J is None:
+            raise AttributeError("BodyModel output has no joints (expected Jtr or J).")
+
+        J = _to_numpy(J)
+        jt = J[t]
+        child_joint = jt[child]
+        parent_joint = jt[self.kintree_table[0,child]]
+
+        # # Remove hand joints by default
+        # if not include_hands:
+        #     jt = jt[:22]
+        points = np.vstack([parent_joint, child_joint])
+
+        # colors per joint: parent=red, child=blue
+        colors = np.array([
+            [255, 0, 0],   # parent
+            [0, 0, 255]    # child
+        ], dtype=np.uint8)
+
+        joints_mesh = points_to_spheres(points, point_color=colors, radius=0.005)
+
+        self.mv.set_static_meshes([joints_mesh])
+        img = self.mv.render(render_wireframe=False)
+        img_path = os.path.join(self.dirs["images"], f"{name}_t{t}_child{child}.png")
+        Image.fromarray(img.astype(np.uint8)).save(img_path)
+        print(f"[INFO] Saved joint visualization → {img_path}")
+        return img_path
     
     def render_offsets(
         self,
