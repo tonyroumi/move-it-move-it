@@ -64,3 +64,4 @@ if __name__ == "__main__":
         print("[DEBUG] Debugger attached.")
 
     run_tests()
+    print("All tests passed!")

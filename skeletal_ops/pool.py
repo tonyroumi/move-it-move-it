@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Dict, List, Tuple
 
 class SkeletalPooling(nn.Module):
@@ -9,7 +10,7 @@ class SkeletalPooling(nn.Module):
     Args
     ----
     adj_list  :   Dict[int, List[int]]
-                  Original adjaceny map.
+                  Original adjacency map.
 
     p         :   int
                   Maximum chain length per pooling region.
@@ -21,10 +22,12 @@ class SkeletalPooling(nn.Module):
         self, 
         adj_list: Dict[int, List[int]],
         p: int = 2,
-        mode: str = "mean"
+        mode: str = "mean",
+        downsampling_params: Dict[str, Tuple[int]] = None
     ):
         super().__init__()
         self.adj = adj_list
+        self.downsampling_params = downsampling_params
         self.p = p
         self.mode = mode
 
@@ -33,18 +36,21 @@ class SkeletalPooling(nn.Module):
 
     @staticmethod
     def _find_chains_and_split(adj: Dict[int, List[int]], p: int) -> List[List[int]]:
-        def degree(n): return len(adj.get(n,[]))
+        def degree(n): 
+            return len(adj.get(n, []))
+        
         visited = set()
         chains = []
 
         for node in sorted(adj.keys()):
+            # Only start from nodes that are degree 2 and not yet visited
             if node in visited or degree(node) != 2:
                 continue
-                
+
             chain = [node]
             visited.add(node)
 
-            #backward
+            # Walk backward until reaching a node whose degree != 2
             prev = node
             curr = adj[node][0]
             while curr not in visited and degree(curr) == 2:
@@ -52,8 +58,8 @@ class SkeletalPooling(nn.Module):
                 visited.add(curr)
                 nxt = [n for n in adj[curr] if n != prev][0]
                 prev, curr = curr, nxt
-            
-            #forward
+
+            # Walk forward similarly
             prev = node
             curr = adj[node][1]
             while curr not in visited and degree(curr) == 2:
@@ -62,9 +68,21 @@ class SkeletalPooling(nn.Module):
                 nxt = [n for n in adj[curr] if n != prev][0]
                 prev, curr = curr, nxt
 
+            # Now ensure the chain is bounded by non-degree-2 joints
+            # Include those boundary nodes to preserve connectivity
+            head, tail = chain[0], chain[-1]
+            if degree(head) != 1:  # possible root or branching point
+                parents = [n for n in adj[head] if n not in chain]
+                if parents:
+                    chain.insert(0, parents[0])
+            if degree(tail) != 1:
+                children = [n for n in adj[tail] if n not in chain]
+                if children:
+                    chain.append(children[0])
+
             chains.append(chain)
-        
-        # Split into <= p chunks
+
+        # Split long chains into ≤ p chunks
         pool_regions = []
         for chain in chains:
             N = len(chain)
@@ -73,18 +91,19 @@ class SkeletalPooling(nn.Module):
                 continue
 
             full = N // p
-            rem = N - full * p
+            rem = N % p
+
             if rem == 0:
                 for i in range(full):
-                    pool_regions.append(chain[i * p:(i+1) * p])
-            
+                    pool_regions.append(chain[i * p:(i + 1) * p])
             else:
-                # remainder belongs closest to the root (smallest node index)
-                # -> remainder at start of chain
+                # remainder belongs to the region closest to the root (front)
+                # -> remainder at the start of the chain
                 pool_regions.append(chain[:rem])
+                start = rem
                 for i in range(full):
-                    start = rem + i * p
                     pool_regions.append(chain[start:start + p])
+                    start += p
         return pool_regions
 
     @staticmethod
@@ -133,6 +152,10 @@ class SkeletalPooling(nn.Module):
                 else:
                     pooled.append(subset.max(dim=2).values)
             pooled = torch.stack(pooled, dim=2)                     # [B,T,R,C]
+
+            #Temporal downsampling
+            pooled = F.avg_pool2d(pooled.permute(0, 3, 2, 1), 
+                                  **(self.downsampling_params)).permute(0, 3, 2, 1)
         
         return pooled, self.pool_regions, self.new_adj
 
