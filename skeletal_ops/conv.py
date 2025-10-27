@@ -9,7 +9,7 @@ class SkeletalConv(nn.Module):
     Args
     ----
     adj_list      :   Dict[int, List[int]]
-                      N_i^d neighbors per edge i.
+                      N_i^d nbrs per edge i.
 
     conv_params   :   Dict[str, int]
                       Convolution parameters.
@@ -38,6 +38,7 @@ class SkeletalConv(nn.Module):
                     **(self.conv_params)
                 )
         self.support = nn.ModuleDict(support)
+        self.dynamic = self.support # For testing. 
     
     def forward(self, x: torch.Tensor):
         """
@@ -56,12 +57,13 @@ class SkeletalConv(nn.Module):
             for edge in self.edges:
                 acc = 0
                 deg = len(self.adj[edge])
-                for neighbor in self.adj[edge]:
-                    key = f"{edge}<-{neighbor}"
-                    out_ij = self.support[key](x[:, neighbor, :])
+                for nbr in self.adj[edge]:
+                    key = f"{edge}<-{nbr}"
+                    xj = x[:, nbr, :].unsqueeze(2)
+                    out_ij = self.support[key](xj)
                     acc += out_ij 
                 acc /= deg                                          # 1 / |N_i^d|
-                y_stat_out.append(acc)
+                y_stat_out.append(acc.squeeze(2))
             y_stat_feat = torch.stack(y_stat_out, dim=1)            # [B, J, Cout]
             return y_stat_feat
 
@@ -71,9 +73,9 @@ class SkeletalConv(nn.Module):
             for edge in self.edges:
                 acc = 0
                 deg = len(self.adj[edge])
-                for neighbor in self.adj[edge]:
-                    key = f"{edge}<-{neighbor}"
-                    xj = x[:, :, neighbor, :].transpose(1,2)        # [B, 4, T]
+                for nbr in self.adj[edge]:
+                    key = f"{edge}<-{nbr}"
+                    xj = x[:, :, nbr, :].transpose(1,2)        # [B, 4, T]
                     out_ij = self.dynamic[key](xj)
                     acc += out_ij
                 acc /= deg                                          # 1 / |N_i^d|
