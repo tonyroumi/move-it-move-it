@@ -8,19 +8,20 @@ class SkeletalConv(nn.Module):
 
     Args
     ----
-    adj: Dict[int, List[int]]       N_i^d neighpors per edge i
-    k: int                          Temporal kernel width
-    in_channels: int                Input channels per edge
-    out_channels: int               Output channels per edge
-    stride: int                     Temporal stride
+    adj_list      :   Dict[int, List[int]]
+                      N_i^d neighbors per edge i.
+
+    conv_params   :   Dict[str, int]
+                      Convolution parameters.
     """
+
     def __init__(
         self,
-        adj: Dict[int, List[int]],
-        conv_params: dict[str, int]
+        adj_list: Dict[int, List[int]],
+        conv_params: Dict[str, int]
     ):
         super().__init__()
-        self.adj = adj
+        self.adj = adj_list
         self.edges = sorted(self.adj.keys())
         self.E = len(self.edges)
 
