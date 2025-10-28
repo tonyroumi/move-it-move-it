@@ -146,7 +146,7 @@ class SkeletalPooling(nn.Module):
         else:
             pooled = []
             for region in self.pool_regions:
-                subset = x[:, :, region, :]                         # [B,T,len(region),C]
+                subset = x[:, :, region, :]                         # [B,T,R,C]
                 if self.mode == "mean":
                     pooled.append(subset.mean(dim=2))
                 else:
