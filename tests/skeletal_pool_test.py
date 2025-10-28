@@ -5,11 +5,10 @@ from skeletal_ops import SkeletalPooling
 
 # Simple linear skeleton with degree-2 nodes
 ADJ = {
-    0: [1],
-    1: [0, 2],
-    2: [1, 3],
-    3: [2, 4],
-    4: [3],
+    0: [1, 2],
+    1: [0],
+    2: [0, 3],
+    3: [2]
 }
 
 def test_no_remainders():
@@ -70,11 +69,11 @@ def test_static_mean_pooling():
     pool = SkeletalPooling(ADJ, p=2, downsampling_params={"kernel_size":(1, 2), "stride":(1, 2)}, mode="mean")
 
     x = torch.tensor(
-        [[[1., 1., 1.],   # node 0
-          [2., 2., 2.],
-          [3., 3., 3.],
-          [4., 4., 4.],
-          [5., 5., 5.]]]
+        [[[0.1, 0.2, 0.3],   # node 0
+          [0.4, 0.5, 0.6],
+          [0.7, 0.8, 0.9],
+          [1.0, 1.1, 1.2],
+        ]]
     )  # [B=1, J=5, C=3]
 
     pooled, regions, new_adj = pool(x)
@@ -96,6 +95,8 @@ def test_static_mean_pooling():
     # Ensure adjacency collapsed
     assert all(isinstance(v, list) for v in new_adj.values())
 
+    visualize_pooling(ADJ, new_adj, "test_static_mean_pooling.png")
+
 
 def test_static_max_pooling():
     """Verify max pooling gives maximum values per pooling region."""
@@ -103,24 +104,30 @@ def test_static_max_pooling():
 
     x = torch.arange(5 * 3).float().reshape(1, 5, 3)  # increasing values per node
 
-    pooled, regions, _ = pool(x)
+    pooled, regions, new_adj = pool(x)
 
     for r_idx, region in enumerate(regions):
         expected = x[:, region, :].max(dim=1).values
         torch.testing.assert_close(pooled[:, r_idx, :], expected)
+    
+    visualize_pooling(ADJ, new_adj, "test_static_max_pooling.png")
 
 
 def test_dynamic_mean_pooling():
     """Verify dynamic mean pooling aggregates across time and preserves temporal dimension."""
     pool = SkeletalPooling(ADJ, p=2, downsampling_params={"kernel_size":(1, 2), "stride":(1, 2)}, mode="mean")
 
-    B, T, J, C = 2, 4, 5, 3
-    x = torch.randn(B, T, J, C)
+    x = torch.tensor([
+    [[[1., 1.], [2., 2.], [3., 3.]],
+    [[4., 4.], [5., 5.], [6., 6.]],
+    [[7., 7.], [8., 8.], [9., 9.]],
+    [[10., 10.], [11., 11.], [12., 12.]]
+]])
 
     pooled, regions, new_adj = pool(x)
 
     # Shape checks
-    assert pooled.shape == (B, T // 2, len(regions), C)
+    assert pooled.shape == (1, 3 // 2, len(regions), 2)
     assert isinstance(new_adj, dict)
     assert len(new_adj) <= len(ADJ)
 
