@@ -140,18 +140,18 @@ class SkeletalPooling(nn.Module):
                     pooled.append(subset.mean(dim=1))
                 else:
                     pooled.append(subset.max(dim=1).values)
-            pooled = torch.stack(pooled, dim=1)                     #[B, R, C]
+            pooled = torch.stack(pooled, dim=1)                     #[B, J, C]
         
         #Dynamic branch
         else:
             pooled = []
             for region in self.pool_regions:
-                subset = x[:, :, region, :]                         # [B,T,R,C]
+                subset = x[:, :, region, :]                         # [B,T,J,C]
                 if self.mode == "mean":
                     pooled.append(subset.mean(dim=2))
                 else:
                     pooled.append(subset.max(dim=2).values)
-            pooled = torch.stack(pooled, dim=2)                     # [B,T,R,C]
+            pooled = torch.stack(pooled, dim=2)                     # [B,T,J,C]
 
             #Temporal downsampling
             pooled = F.avg_pool2d(pooled.permute(0, 3, 2, 1), 

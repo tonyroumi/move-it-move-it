@@ -18,14 +18,26 @@ class SkeletalConv(nn.Module):
     def __init__(
         self,
         adj_list: Dict[int, List[int]],
-        conv_params: Dict[str, int]
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+        padding: int,
+        padding_mode: str
     ):
         super().__init__()
         self.adj = adj_list
         self.edges = sorted(self.adj.keys())
         self.E = len(self.edges)
 
-        self.conv_params = conv_params
+        self.conv_params = {
+            "in_channels" : in_channels,
+            "out_channels" : out_channels,
+            "kernel_size" : kernel_size,
+            "stride" : stride,
+            "padding" : padding,
+            "padding_mode" : padding_mode
+        }
         
         self._init_net()
 
