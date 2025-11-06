@@ -10,7 +10,7 @@ class SkeletalBase(nn.Module):
     """
     def __init__(
         self,
-        adj_list: Dict[int, List[int]],
+        adj_list: List[List[int]],
         in_channels_per_joint: int,
         out_channels_per_joint: int
     ):

@@ -12,7 +12,7 @@ class SkeletalConv(SkeletalBase):
     """
     def __init__(
         self,
-        adj_list: List[int],
+        adj_list: List[List[int]],
         in_channels_per_joint: int,
         out_channels_per_joint: int,
         bias: bool,
