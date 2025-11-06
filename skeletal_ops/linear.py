@@ -1,0 +1,34 @@
+from skeletal_ops import SkeletalBase
+
+from typing import Dict, List, Literal, Optional
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class SkeletonLinear(SkeletalBase):
+    """
+    Skeletal-linear layer.
+
+    This layer is used for the static branch and to project offset features.
+    """
+    def __init__(
+        self,
+        adj_list: Dict[int, List[int]],
+        in_channels_per_joint: int,
+        out_channels_per_joint: int
+    ):
+        super().__init__(adj_list, in_channels_per_joint, out_channels_per_joint)
+
+        self.weight = torch.zeros(self.out_channels, self.in_channels)
+        self.mask = torch.zeros(self.out_channels, self.in_channels)
+        self.bias = torch.zeros(self.out_channels)
+
+        super()._init_weights()
+
+    def forward(self, x: torch.Tensor):
+        weight_masked = self.weight * self.mask
+        x = x.reshape(x.shape[0], -1)
+
+        out = F.linear(x, weight_masked, self.bias)
+        return out
+        

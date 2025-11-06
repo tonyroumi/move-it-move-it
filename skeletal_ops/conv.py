@@ -1,96 +1,68 @@
-from typing import Dict, List, Literal
+from skeletal_ops import SkeletalBase
+from skeletal_ops import SkeletonLinear
+
+from typing import Dict, List, Literal, Optional
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-class SkeletalConv(nn.Module):
+class SkeletalConv(SkeletalBase):
     """
     Skeletal-temporal convolution.
-
-    Args
-    ----
-    adj_list      :   Dict[int, List[int]]
-                      N_i^d nbrs per edge i.
-
-    conv_params   :   Dict[str, int]
-                      Convolution parameters.
     """
-
     def __init__(
         self,
         adj_list: Dict[int, List[int]],
-        in_channels: int,
-        out_channels: int,
+        in_channels_per_joint: int,
+        out_channels_per_joint: int,
+        bias: bool,
         kernel_size: int,
         stride: int,
         padding: int,
-        padding_mode: str
+        padding_mode: str,
+        dilation: int,
+        groups: int
     ):
-        super().__init__()
-        self.adj = adj_list
-        self.edges = sorted(self.adj.keys())
-        self.E = len(self.edges)
+        super().__init__(adj_list, in_channels_per_joint, out_channels_per_joint)
 
-        self.conv_params = {
-            "in_channels" : in_channels,
-            "out_channels" : out_channels,
-            "kernel_size" : kernel_size,
-            "stride" : stride,
-            "padding" : padding,
-            "padding_mode" : padding_mode
-        }
+        self.bias = bias
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = (padding, padding)
+        self.padding_mode = padding_mode
+        self.dilation = dilation
+        self.groups = groups
+
+        self.weight = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
+        self.mask = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
+        self.bias = torch.zeros(self.out_channels)
+
+        offset_in_channels = 0 * len(adj_list)
+        self.offset_encoder = SkeletonLinear(self.adj, offset_in_channels, self.out_channels)
         
-        self._init_net()
-
-    def _init_net(self):
-        support = {}
-        for i in self.edges:
-            for j in self.adj[i]:
-                key = f"{i}<-{j}"
-                support[key] = nn.Conv1d(
-                    **(self.conv_params)
-                )
-        self.support = nn.ModuleDict(support)
-        self.dynamic = self.support # For testing. 
+        super()._init_weights()
     
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor]):
         """
-        The input to the network should be a matrix where each slice along the second dim corresponds to the same
-        edge as specified in self.adj.
-
-        For static inputs:
-        B, J, 3
-
-        For dynamic inputs:
-        B, T, J, 4
+        Args:
+            x:      [B, C, T]
+            offset: [B, C]
         """
-        #Static branch
-        if x.dim() == 3:
-            y_stat_out = []
-            for edge in self.edges:
-                acc = 0
-                deg = len(self.adj[edge])
-                for nbr in self.adj[edge]:
-                    key = f"{edge}<-{nbr}"
-                    xj = x[:, nbr, :].unsqueeze(2)
-                    out_ij = self.support[key](xj)
-                    acc += out_ij 
-                acc /= deg                                          # 1 / |N_i^d|
-                y_stat_out.append(acc.squeeze(2))
-            y_stat_feat = torch.stack(y_stat_out, dim=1)            # [B, J, Cout]
-            return y_stat_feat
+        weight_masked = self.weight * self.mask
 
-        #Dynamic branch
-        else:
-            y_dyn_out = []
-            for edge in self.edges:
-                acc = 0
-                deg = len(self.adj[edge])
-                for nbr in self.adj[edge]:
-                    key = f"{edge}<-{nbr}"
-                    xj = x[:, :, nbr, :].transpose(1,2)        # [B, 4, T]
-                    out_ij = self.dynamic[key](xj)
-                    acc += out_ij
-                acc /= deg                                          # 1 / |N_i^d|
-                y_dyn_out.append(acc.transpose(1,2))                # [B, T, Cout]
-            y_dyn_feat = torch.stack(y_dyn_out, dim=2)              # [B, T, J, Cout]
-            return y_dyn_feat
+        x = F.pad(x, padding=self.padding, mode=self.padding_mode)
+        output = F.conv1d(x, 
+                          weight_masked, 
+                          self.bias, 
+                          self.stride,
+                          self.dilation, 
+                          self.groups, 
+                          padding=0,) #Padding already applied.
+        
+        if offset:
+            offset_out = self.offset_encoder(self.offset)
+            offset_out = offset_out.reshape(offset_out.shape + (1, ))
+            output += offset_out / 100
+
+        return output
