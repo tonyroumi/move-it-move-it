@@ -1,4 +1,4 @@
-from skeletal_ops import SkeletalBase
+from .base import SkeletalBase
 
 from typing import List
 import torch

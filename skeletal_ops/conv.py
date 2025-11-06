@@ -1,5 +1,5 @@
-from skeletal_ops import SkeletalBase
-from skeletal_ops import SkeletonLinear
+from .base import SkeletalBase
+from .linear import SkeletonLinear
 
 from typing import List, Optional
 
@@ -37,12 +37,12 @@ class SkeletalConv(SkeletalBase):
         self.mask = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
         self.bias = torch.zeros(self.out_channels)
 
-        offset_in_channels = 0 * len(adj_list)
-        self.offset_encoder = SkeletonLinear(self.adj, offset_in_channels, self.out_channels)
+        offset_in_channels = 0 * self.E
+        self.offset_encoder = SkeletonLinear(self.adj, offset_in_channels, out_channels_per_joint)
         
         super()._init_weights()
     
-    def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor]):
+    def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):
         """
         Args:
             x:      [B, C, T]
@@ -50,14 +50,13 @@ class SkeletalConv(SkeletalBase):
         """
         weight_masked = self.weight * self.mask
 
-        x = F.pad(x, padding=self.padding, mode=self.padding_mode)
+        x = F.pad(x, pad=self.padding, mode=self.padding_mode)
         output = F.conv1d(x, 
                           weight_masked, 
                           self.bias, 
                           self.stride,
                           self.dilation, 
-                          self.groups, 
-                          padding=0,) #Padding already applied.
+                          self.groups) 
         
         if offset:
             offset_out = self.offset_encoder(self.offset)

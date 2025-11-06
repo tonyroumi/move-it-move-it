@@ -16,8 +16,7 @@ class SkeletalBase(nn.Module):
     ):
        super().__init__()
        self.adj = adj_list
-       self.edges = sorted(self.adj.keys())
-       self.E = len(self.edges)
+       self.E = len(self.adj)
 
        self.in_channels = in_channels_per_joint * self.E
        self.out_channels = out_channels_per_joint * self.E 
@@ -36,6 +35,10 @@ class SkeletalBase(nn.Module):
 
     def _init_weights(self):
         #go ahead and take the time to understand how they initialize parameters.
+
+        #resume HERE>
+        # we need to set the mask. Understand initalization. of parameters wtfis fanning
+        # then move into pooling ops. PROGRESS
         pass
 
 
