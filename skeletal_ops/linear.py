@@ -1,8 +1,7 @@
 from skeletal_ops import SkeletalBase
 
-from typing import Dict, List, Literal, Optional
+from typing import List
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 class SkeletonLinear(SkeletalBase):
@@ -13,7 +12,7 @@ class SkeletonLinear(SkeletalBase):
     """
     def __init__(
         self,
-        adj_list: Dict[int, List[int]],
+        adj_list: List[int],
         in_channels_per_joint: int,
         out_channels_per_joint: int
     ):
