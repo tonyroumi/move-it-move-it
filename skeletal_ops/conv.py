@@ -43,7 +43,7 @@ class SkeletalConv(SkeletalBase):
         
         super()._init_weights()
     
-    def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):
+    def forward(self, x: torch.Tensor):
         """
         Args:
             x:      [B, C, T]
@@ -58,10 +58,9 @@ class SkeletalConv(SkeletalBase):
                           self.stride,
                           self.dilation, 
                           self.groups) 
-        
-        if offset:
-            offset_out = self.offset_encoder(self.offset)
-            offset_out = offset_out.reshape(offset_out.shape + (1, ))
-            output += offset_out / 100
+
+        offset_out = self.offset_encoder(self.offset)
+        offset_out = offset_out.reshape(offset_out.shape + (1, ))
+        output += offset_out / 100
 
         return output

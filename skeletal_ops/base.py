@@ -37,11 +37,11 @@ class SkeletalBase(nn.Module):
        ]
 
     def _init_weights(self):
-        #go ahead and take the time to understand how they initialize parameters.
+        """ 
+        Kaiming uniform initialization to prevent exploding / vanishing gradients.
 
-        #resume HERE>
-        # we need to set the mask. Understand initalization. of parameters wtfis fanning
-        # then move into pooling ops. PROGRESS
+        Ensures variance stability for Leaky-ReLU activation.        
+        """
         for edge, nbors in enumerate(self.expanded_adj_list):
             start_idx = edge * self.out_channels_per_joint
             end_idx = (edge + 1) * self.out_channels_per_joint
