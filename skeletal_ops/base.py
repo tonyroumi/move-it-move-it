@@ -1,5 +1,6 @@
-from typing import Dict, List, Literal, Optional
+from typing import List
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,8 +19,10 @@ class SkeletalBase(nn.Module):
        self.adj = adj_list
        self.E = len(self.adj)
 
-       self.in_channels = in_channels_per_joint * self.E
-       self.out_channels = out_channels_per_joint * self.E 
+       self.in_channels_per_joint = in_channels_per_joint
+       self.out_channels_per_joint = out_channels_per_joint
+       self.in_channels = self.in_channels_per_joint * self.E
+       self.out_channels = self.out_channels_per_joint * self.E 
 
        # Map each neighbor edge to its channel range. 
        # E.x. (in_channels_per_joint = 2)
@@ -39,8 +42,21 @@ class SkeletalBase(nn.Module):
         #resume HERE>
         # we need to set the mask. Understand initalization. of parameters wtfis fanning
         # then move into pooling ops. PROGRESS
-        pass
+        for edge, nbors in enumerate(self.expanded_adj_list):
+            start_idx = edge * self.out_channels_per_joint
+            end_idx = (edge + 1) * self.out_channels_per_joint
 
+            self.mask[start_idx:end_idx, nbors, ...] = 1
 
+            tmp = torch.zeros_like(self.weight[start_idx:end_idx, nbors, ...])
+            nn.init.kaiming_uniform_(tmp, a=math.sqrt(5))
+            self.weight[start_idx:end_idx, nbors, ...] = tmp
 
+        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+        bound = 1 / math.sqrt(fan_in)
+        nn.init.uniform_(self.bias, -bound, bound)
 
+        self.weight = nn.Parameter(self.weight)
+        self.bias = nn.Parameter(self.bias)
+
+        self.mask = nn.Parameter(self.mask, requires_grad=False)

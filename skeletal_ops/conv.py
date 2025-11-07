@@ -34,8 +34,9 @@ class SkeletalConv(SkeletalBase):
         self.groups = groups
 
         self.weight = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
-        self.mask = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
         self.bias = torch.zeros(self.out_channels)
+
+        self.mask = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
 
         offset_in_channels = 0 * self.E
         self.offset_encoder = SkeletonLinear(self.adj, offset_in_channels, out_channels_per_joint)

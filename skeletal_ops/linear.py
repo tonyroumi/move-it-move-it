@@ -19,8 +19,9 @@ class SkeletonLinear(SkeletalBase):
         super().__init__(adj_list, in_channels_per_joint, out_channels_per_joint)
 
         self.weight = torch.zeros(self.out_channels, self.in_channels)
-        self.mask = torch.zeros(self.out_channels, self.in_channels)
         self.bias = torch.zeros(self.out_channels)
+
+        self.mask = torch.zeros(self.out_channels, self.in_channels)
 
         super()._init_weights()
 
