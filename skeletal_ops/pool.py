@@ -9,153 +9,99 @@ class SkeletalPooling(nn.Module):
 
     Args
     ----
-    adj_list  :   Dict[int, List[int]]
-                  Original adjacency map.
-
-    p         :   int
-                  Maximum chain length per pooling region.
+    edge_list  :  List[Tuple[int, int]]
+                  A list of edges described by (parent, child) joint nodes. 
 
     mode      :   str       
                   Pooling mode: 'mean' or 'max'.
+
+    last_pool :   Whether or not to pool edges.
     """
     def __init__(
         self, 
-        adj_list: Dict[int, List[int]],
-        p: int = 2,
-        mode: str = "mean",
-        downsampling_params: Dict[str, Tuple[int]] = None
+        edge_list: List[Tuple[int, int]],
+        channels_per_joint: int,
+        last_pool: bool = False
     ):
         super().__init__()
-        self.adj = adj_list
-        self.downsampling_params = downsampling_params
-        self.p = p
-        self.mode = mode
+        self.edge_list = edge_list
+        self.E = len(self.edge_list) + 1
+        self.channels_per_joint = channels_per_joint
 
         # Precompute pooling regions and new adjacency
-        self.pool_regions, self.new_adj = self._compute_pooling(self.adj, p)
+        self.pooled_regions, self.new_edge_list = self._compute_pooling(edge_list, last_pool)
 
-    @staticmethod
-    def _find_chains_and_split(adj: Dict[int, List[int]], p: int) -> List[List[int]]:
-        def degree(n): 
-            return len(adj.get(n, []))
-        
+        self._init_net()
+    
+    def _init_net(self):
+        rows = len(self.pooled_regions) * self.channels_per_joint
+        cols = self.E * self.channels_per_joint
+
+        # Build fixed averaging matrix
+        weight = torch.zeros(rows, cols)
+        for i, group in enumerate(self.pooled_regions):
+            scale = 1.0 / len(group)
+            for j in group:
+                idx = torch.arange(self.channels_per_joint)
+                weight[i * self.channels_per_joint + idx, j * self.channels_per_joint + idx] = scale
+
+        self.weight = nn.Parameter(weight, requires_grad=False)
+
+    def _compute_pooling(self, edges, last_pool=False):
+        from collections import defaultdict, deque
+
+        # Build degree and adjacency
+        degree = defaultdict(int)
+        adj = defaultdict(list)
+        for idx, (u, v) in enumerate(edges):
+            degree[u] += 1
+            degree[v] += 1
+            adj[u].append((v, idx))
+
+        seq_list = []
         visited = set()
-        chains = []
 
-        for node in sorted(adj.keys()):
-            # Only start from nodes that are degree 2 and not yet visited
-            if node in visited or degree(node) != 2:
-                continue
-
-            chain = [node]
+        # DFS to collect edge sequences
+        def dfs(node, seq):
+            if node in visited:
+                return
             visited.add(node)
 
-            # Walk backward until reaching a node whose degree != 2
-            prev = node
-            curr = adj[node][0]
-            while curr not in visited and degree(curr) == 2:
-                chain.insert(0, curr)
-                visited.add(curr)
-                nxt = [n for n in adj[curr] if n != prev][0]
-                prev, curr = curr, nxt
+            # Stop sequence at branching or leaf
+            if degree[node] > 2 and node != 0:
+                seq_list.append(seq)
+                seq = []
+            elif degree[node] == 1 and seq:
+                seq_list.append(seq)
+                return
 
-            # Walk forward similarly
-            prev = node
-            curr = adj[node][1]
-            while curr not in visited and degree(curr) == 2:
-                chain.append(curr)
-                visited.add(curr)
-                nxt = [n for n in adj[curr] if n != prev][0]
-                prev, curr = curr, nxt
+            for nxt, e_idx in adj[node]:
+                if e_idx not in {i for s in seq_list for i in s}:  # prevent reuse
+                    dfs(nxt, seq + [e_idx])
 
-            # Now ensure the chain is bounded by non-degree-2 joints
-            # Include those boundary nodes to preserve connectivity
-            head, tail = chain[0], chain[-1]
-            if degree(head) != 1:  # possible root or branching point
-                parents = [n for n in adj[head] if n not in chain]
-                if parents:
-                    chain.insert(0, parents[0])
-            if degree(tail) != 1:
-                children = [n for n in adj[tail] if n not in chain]
-                if children:
-                    chain.append(children[0])
+        dfs(0, [])
 
-            chains.append(chain)
-
-        # Split long chains into ≤ p chunks
-        pool_regions = []
-        for chain in chains:
-            N = len(chain)
-            if N <= p:
-                pool_regions.append(chain)
+        pooling_list, new_edges = [], []
+        for seq in seq_list:
+            if last_pool:
+                pooling_list.append(seq)
                 continue
 
-            full = N // p
-            rem = N % p
+            # Handle odd-length path
+            if len(seq) % 2 == 1:
+                pooling_list.append([seq[0]])
+                new_edges.append(edges[seq[0]])
+                seq = seq[1:]
 
-            if rem == 0:
-                for i in range(full):
-                    pool_regions.append(chain[i * p:(i + 1) * p])
-            else:
-                # remainder belongs to the region closest to the root (front)
-                # -> remainder at the start of the chain
-                pool_regions.append(chain[:rem])
-                start = rem
-                for i in range(full):
-                    pool_regions.append(chain[start:start + p])
-                    start += p
-        return pool_regions
+            # Pairwise pooling
+            for i in range(0, len(seq), 2):
+                pooling_list.append([seq[i], seq[i + 1]])
+                new_edges.append([edges[seq[i]][0], edges[seq[i + 1]][1]])
 
-    @staticmethod
-    def _collapse_adj(adj: Dict[int, List[int]], pool_regions: List[List[int]]) -> Dict[int, List[int]]:
-        mapping = {}
-        for pid, region in enumerate(pool_regions):
-            for n in region:
-                mapping[n] = pid
-        
-        new_adj = {}
-        for i, nbrs in adj.items():
-            i_new = mapping.get(i, i)
-            for j in nbrs:
-                j_new = mapping.get(j, j)
-                if i_new == j_new:
-                    continue
-                new_adj.setdefault(i_new, set()).add(j_new)
-        
-        return {i: sorted(list(v)) for i, v in new_adj.items()}
+        # Add global position pooling
+        pooling_list.append([self.E - 1])
 
-    @classmethod
-    def _compute_pooling(cls, adj: Dict[int, List[int]], p: int):
-        pool_regions = cls._find_chains_and_split(adj, p)
-        new_adj = cls._collapse_adj(adj, pool_regions)
-        return pool_regions, new_adj
+        return pooling_list, new_edges
     
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List[List[int]], Dict[int, List[int]]]:
-        #Static branch pooling
-        if x.dim() == 3:
-            pooled = []
-            for region in self.pool_regions:
-                subset = x[:, region, :]
-                if self.mode == "mean":
-                    pooled.append(subset.mean(dim=1))
-                else:
-                    pooled.append(subset.max(dim=1).values)
-            pooled = torch.stack(pooled, dim=1)                     #[B, J, C]
-        
-        #Dynamic branch
-        else:
-            pooled = []
-            for region in self.pool_regions:
-                subset = x[:, :, region, :]                         # [B,T,J,C]
-                if self.mode == "mean":
-                    pooled.append(subset.mean(dim=2))
-                else:
-                    pooled.append(subset.max(dim=2).values)
-            pooled = torch.stack(pooled, dim=2)                     # [B,T,J,C]
-
-            #Temporal downsampling
-            pooled = F.avg_pool2d(pooled.permute(0, 3, 2, 1), 
-                                  **(self.downsampling_params)).permute(0, 3, 2, 1)
-        
-        return pooled, self.pool_regions, self.new_adj
-
+    def forward(self, x: torch.Tensor):
+        return self.weight @ x
