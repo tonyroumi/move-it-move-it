@@ -7,7 +7,11 @@ import torch.nn.functional as F
 
 class SkeletalBase(nn.Module):
     """
-    Base class for some skeletal ops.
+    Base class for skeletal linear and pooling operations.
+
+    We represent the skeleton as an adjacency list where each index contains neighbor edges
+    up to a certain distance d. The weight matrix is built to mirror this adjacency structure 
+    but expanded across channel dimensions. 
     """
     def __init__(
         self,
@@ -38,9 +42,12 @@ class SkeletalBase(nn.Module):
 
     def _init_weights(self):
         """ 
-        Kaiming uniform initialization to prevent exploding / vanishing gradients.
+        After we have mapped each neighbor edge to its channel range, we assign ones in the mask at
+        those positions to mark valid connections. This mask, zeros out weights not connected via
+        adjacency list. 
 
-        Ensures variance stability for Leaky-ReLU activation.        
+        Kaiming uniform initialization to prevent exploding / vanishing gradients.
+        Ensures variance stability among all weights and bias.         
         """
         for edge, nbors in enumerate(self.expanded_adj_list):
             start_idx = edge * self.out_channels_per_joint

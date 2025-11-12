@@ -9,6 +9,9 @@ import torch.nn.functional as F
 class SkeletalConv(SkeletalBase):
     """
     Skeletal-temporal convolution.
+
+    The weights of this layer are created to learn how each edge aggregates information from its
+    neighboring edges over time. 
     """
     def __init__(
         self,

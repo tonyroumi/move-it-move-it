@@ -11,24 +11,22 @@ class SkeletalPooling(nn.Module):
 
     Args
     ----
-    edge_list  :  List[Tuple[int, int]]
-                  A list of edges described by (parent, child) joint nodes. 
+    edge_list: A list of edges described by (parent, child) joint nodes. 
 
-    mode      :   str       
-                  Pooling mode: 'mean' or 'max'.
+    channels_per_edge: Channels per edge lol.
 
-    last_pool :   Whether or not to pool edges.
+    last_pool: Whether or not to pool edges.
     """
     def __init__(
         self, 
         edge_list: List[Tuple[int, int]],
-        channels_per_joint: int,
+        channels_per_edge: int,
         last_pool: bool = False
     ):
         super().__init__()
         self.edge_list = edge_list
         self.E = len(self.edge_list) + 1
-        self.channels_per_joint = channels_per_joint
+        self.channels_per_edge = channels_per_edge
 
         # Precompute pooling regions and new adjacency
         self.pooled_regions, self.new_edge_list = self._compute_pooling(edge_list, last_pool)
@@ -36,8 +34,8 @@ class SkeletalPooling(nn.Module):
         self._init_net()
     
     def _init_net(self):
-        rows = len(self.pooled_regions) * self.channels_per_joint
-        cols = self.E * self.channels_per_joint
+        rows = len(self.pooled_regions) * self.channels_per_edge
+        cols = self.E * self.channels_per_edge
 
         # Pooling operation
         # Block-diagonal averaging matrix that groups edges into pooled regions:
@@ -46,8 +44,8 @@ class SkeletalPooling(nn.Module):
         for i, group in enumerate(self.pooled_regions):
             scale = 1.0 / len(group)
             for j in group:
-                idx = torch.arange(self.channels_per_joint)
-                weight[i * self.channels_per_joint + idx, j * self.channels_per_joint + idx] = scale
+                idx = torch.arange(self.channels_per_edge)
+                weight[i * self.channels_per_edge + idx, j * self.channels_per_edge + idx] = scale
 
         self.weight = nn.Parameter(weight, requires_grad=False)
 
