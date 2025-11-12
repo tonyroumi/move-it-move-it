@@ -7,6 +7,8 @@ class SkeletalPooling(nn.Module):
     """
     Skeletal pooling layer. 
 
+    Pooling is applied to pairs of edges that connect to (joint) nodes of degree 2. 
+
     Args
     ----
     edge_list  :  List[Tuple[int, int]]
@@ -37,7 +39,9 @@ class SkeletalPooling(nn.Module):
         rows = len(self.pooled_regions) * self.channels_per_joint
         cols = self.E * self.channels_per_joint
 
-        # Build fixed averaging matrix
+        # Pooling operation
+        # Block-diagonal averaging matrix that groups edges into pooled regions:
+        # weight: (region-to-pool-features, edge-features)
         weight = torch.zeros(rows, cols)
         for i, group in enumerate(self.pooled_regions):
             scale = 1.0 / len(group)
