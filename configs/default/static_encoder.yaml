@@ -1,0 +1,10 @@
+static_encoder:
+- conv_params:
+  in_channels_per_joint: 3
+  out_channels_per_joint: 6
+  bias: true
+  kernel_size: 1
+  stride: 1
+  padding_mode: constant
+  dilation: 1
+  groups: 1
