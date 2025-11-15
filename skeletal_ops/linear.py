@@ -8,7 +8,7 @@ class SkeletonLinear(SkeletalBase):
     """
     Skeletal-linear layer.
 
-    This layer is used for the static branch and to project offset features.
+    This layer is used to project offset features for intercept with dynamic branch.
     """
     def __init__(
         self,

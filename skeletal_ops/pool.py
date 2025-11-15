@@ -8,14 +8,6 @@ class SkeletalPooling(nn.Module):
     Skeletal pooling layer. 
 
     Pooling is applied to pairs of edges that connect to (joint) nodes of degree 2. 
-
-    Args
-    ----
-    edge_list: A list of edges described by (parent, child) joint nodes. 
-
-    channels_per_edge: Channels per edge lol.
-
-    last_pool: Whether or not to pool edges.
     """
     def __init__(
         self, 
