@@ -13,7 +13,8 @@ class SkeletalPooling(nn.Module):
     ----
     edge_list: A list of edges described by (parent, child) joint nodes. 
 
-    channels_per_edge: Channels per edge lol.
+    channels_per_edge: Channels per edge. This would be out_channels_per_edge of the conv layer
+                       before pool.
 
     last_pool: Whether or not to pool edges.
     """
