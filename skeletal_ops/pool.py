@@ -79,6 +79,7 @@ class SkeletalPooling(nn.Module):
         for seq in seq_list:
             if last_pool:
                 pooling_list.append(seq)
+                new_edges = edge_list
                 continue
 
             # Handle odd-length path

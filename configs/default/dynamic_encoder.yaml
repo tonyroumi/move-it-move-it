@@ -15,8 +15,8 @@ block1:
 
 block2:
   conv_params:
-    in_channels_per_joint: 4
-    out_channels_per_joint: 8
+    in_channels_per_joint: 8
+    out_channels_per_joint: 16
     offset_in_channels_per_joint: 6
     bias: true
     kernel_size: 15
@@ -25,6 +25,5 @@ block2:
     padding_mode: reflect
     dilation: 1
     groups: 1
-    type: dynamic
   pool: True
   last_pool: True

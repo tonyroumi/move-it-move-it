@@ -8,8 +8,7 @@ def simple_test():
     static_params = load_params("configs/default/static_encoder.yaml")
     dynamic_params = load_params("configs/default/dynamic_encoder.yaml")
 
-    # I don't know why this is 4
-    offsets = torch.rand((4, len(ADJ)*3))
+    offsets = torch.rand((256, len(ADJ)*3))
     dynamic_input = torch.rand((BATCH_SIZE, len(ADJ)*4, WINDOW_SIZE))
 
     static_encder = SkeletalEncoder(adj_init=ADJ, 
@@ -22,8 +21,10 @@ def simple_test():
                                       encoder_params=dynamic_params,
                                       type="dynamic")
     
-    offset_features = static_encder(offsets.unsqueeze(-1))
-    dynamic_features = dynamic_encoder(dynamic_input, offsets)
+    offset_features, skips = static_encder(offsets.unsqueeze(-1))
+
+    offset_features = skips["intermediate_features"]
+    dynamic_features = dynamic_encoder(dynamic_input, offset_features)
 
 if __name__ == "__main__":
 

@@ -55,8 +55,8 @@ class SkeletalConv(SkeletalBase):
         """
         weight_masked = self.weight * self.mask
 
-        x = F.pad(x, pad=self.padding, mode=self.padding_mode)
-        output = F.conv1d(x, 
+        padded_x = F.pad(x, pad=self.padding, mode=self.padding_mode)
+        output = F.conv1d(padded_x, 
                           weight_masked, 
                           self.bias, 
                           stride=self.stride,

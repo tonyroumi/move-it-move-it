@@ -21,12 +21,11 @@ class SkeletalEncBlock(nn.Module):
         super().__init__()
 
         self.conv = SkeletalConv(adj_list=adj_list, **(conv_params))
-        self.act = nn.LeakyReLU(negative_slope=0.2)
-
         # The second block of the static encoder does not contain a pooling operation. 
         self.pool = pool if not pool else SkeletalPooling(edge_list=edge_list, 
                                                       channels_per_edge=conv_params["out_channels_per_joint"], 
                                                       last_pool=last_pool)
+        self.act = nn.LeakyReLU(negative_slope=0.2)
 
     def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor]):
         pool_regions, post_edge_list, post_adj = None, None, None
@@ -61,12 +60,14 @@ class SkeletalEncoder(nn.Module):
 
         self.block2: Optional[SkeletalEncBlock] = None
 
-    def forward(self, x: torch.Tensor, offset: Optional[torch.tensor] = None):
-        adjs, edges, pool_regions = [], [], []
+    def forward(self, x: torch.Tensor, offset: Optional[List[torch.tensor]] = None):
+        intermediate_features, adjs, edges, pool_regions = [], [], [], []
+        intermediate_features.append(x)
         adjs.append(self.adj_init)
         edges.append(self.edge_init)
 
-        y, pooled_edges, post_edge_list, post_adj = self.block1(x, offset=offset)
+        y, pooled_edges, post_edge_list, post_adj = self.block1(x, offset=offset[0] if offset else None)
+        intermediate_features.append(y)
         adjs.append(post_adj)
         edges.append(post_edge_list)
         pool_regions.append(pooled_edges)
@@ -79,14 +80,17 @@ class SkeletalEncoder(nn.Module):
                 **(self.encoder_params["block2"])).to(y.device)
 
         # --- Block 2 ---
-        y, pooled_edges, post_edge_list, post_adj = self.block2(y, offset=offset)
+        y, pooled_edges, post_edge_list, post_adj = self.block2(y, offset=offset[1] if offset else None)
+        intermediate_features.append(y)
         adjs.append(post_adj)
         edges.append(post_edge_list)
         pool_regions.append(pooled_edges)
 
         skips = {
+            "intermediate_features": intermediate_features,
             "adjs": adjs,
             "pool_regions": pool_regions,
         }
+
         return y, skips
     
