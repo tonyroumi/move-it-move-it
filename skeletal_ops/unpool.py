@@ -4,20 +4,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class SkeletalUnpooling(nn.Module):
+class SkeletalUnpool(nn.Module):
     """
     Skeletal unpooling layer.
     """
 
     def __init__(
         self,
-        pooled_regions: List[List[int]],
+        pooled_edges: List[List[int]],
         channels_per_edge: int,
     ):
         super().__init__()
-        self.pooled_regions = pooled_regions
-        self.input_edge_num = len(pooled_regions)
-        self.output_edge_num = sum(len(t) for t in pooled_regions)
+        self.pooled_edges = pooled_edges
+        self.input_edge_num = len(pooled_edges)
+        self.output_edge_num = sum(len(t) for t in pooled_edges)
         self.channels_per_edge = channels_per_edge
 
         self._init_net()
