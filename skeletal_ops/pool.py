@@ -121,8 +121,7 @@ class SkeletalPooling(nn.Module):
         return neighbor_list
     
     def forward(self, x: torch.Tensor):
-        output = self.weight @ x
-        return output, self.pooled_regions, self.new_edge_list, self.new_adj_list
+        return self.weight @ x
 
 # I will later implement a pooler to assist with these operations. 
 def calc_edge_mat(edges):

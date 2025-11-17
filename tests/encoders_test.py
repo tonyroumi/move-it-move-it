@@ -8,10 +8,10 @@ def simple_test():
     static_params = load_params("configs/default/static_encoder.yaml")
     dynamic_params = load_params("configs/default/dynamic_encoder.yaml")
 
-    offsets = torch.rand((256, len(ADJ)*3))
+    offsets = torch.rand((1, len(ADJ)*3))
     dynamic_input = torch.rand((BATCH_SIZE, len(ADJ)*4, WINDOW_SIZE))
 
-    static_encder = SkeletalEncoder(adj_init=ADJ, 
+    static_encoder = SkeletalEncoder(adj_init=ADJ, 
                                     edge_init=EDGE_LIST, 
                                     encoder_params=static_params, 
                                     type='static')
@@ -21,10 +21,9 @@ def simple_test():
                                       encoder_params=dynamic_params,
                                       type="dynamic")
     
-    offset_features, skips = static_encder(offsets.unsqueeze(-1))
+    offset_features, offset_features = static_encoder(offsets.unsqueeze(-1))
 
-    offset_features = skips["intermediate_features"]
-    dynamic_features = dynamic_encoder(dynamic_input, offset_features)
+    dynamic_features, _ = dynamic_encoder(dynamic_input, offset_features)
 
 if __name__ == "__main__":
 
@@ -55,7 +54,7 @@ if __name__ == "__main__":
 
 ## 2.) Block2:
 #### a.) SkeletalLinear(in_channels=6*(NEW)num_joints (12 for them), out_channels = 12*num_joints)
-#### Out of this comes (4, 138, 1) 
+#### Out of this comes (4, 144, 1) 
 #### c.) LeakyRELU
 
 ## So the output they return is of len(output)=3. Before anything, after one block, after second block. 

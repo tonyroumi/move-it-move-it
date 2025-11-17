@@ -9,6 +9,7 @@ block1:
     padding_mode: constant
     dilation: 1
     groups: 1
+
   pool: True
 
 block2:
@@ -22,4 +23,5 @@ block2:
     padding_mode: constant
     dilation: 1
     groups: 1
+    
   pool: False
