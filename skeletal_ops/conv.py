@@ -1,5 +1,5 @@
 from .base import SkeletalBase
-from .linear import SkeletonLinear
+from .linear import SkeletalLinear
 
 from typing import List, Optional
 
@@ -24,7 +24,8 @@ class SkeletalConv(SkeletalBase):
         padding: int,
         padding_mode: str,
         dilation: int,
-        groups: int
+        groups: int,
+        offset_in_channels_per_joint: int = 0
     ):
         super().__init__(adj_list, in_channels_per_joint, out_channels_per_joint)
 
@@ -41,12 +42,12 @@ class SkeletalConv(SkeletalBase):
 
         self.mask = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
 
-        offset_in_channels = 0 * self.E
-        self.offset_encoder = SkeletonLinear(self.adj, offset_in_channels, out_channels_per_joint)
+        if offset_in_channels_per_joint:
+            self.offset_encoder = SkeletalLinear(self.adj, offset_in_channels_per_joint, out_channels_per_joint)
         
         super()._init_weights()
     
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):
         """
         Args:
             x:      [B, C, T]
@@ -58,12 +59,13 @@ class SkeletalConv(SkeletalBase):
         output = F.conv1d(x, 
                           weight_masked, 
                           self.bias, 
-                          self.stride,
-                          self.dilation, 
-                          self.groups) 
+                          stride=self.stride,
+                          dilation=self.dilation, 
+                          groups=self.groups) 
 
-        offset_out = self.offset_encoder(self.offset)
-        offset_out = offset_out.reshape(offset_out.shape + (1, ))
-        output += offset_out / 100
+        if offset is not None:
+            offset_out = self.offset_encoder(offset)
+            offset_out = offset_out.reshape(offset_out.shape + (1, ))
+            output += offset_out / 100
 
         return output

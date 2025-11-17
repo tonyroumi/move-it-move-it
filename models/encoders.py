@@ -15,20 +15,27 @@ class SkeletalEncBlock(nn.Module):
         adj_list: List[List[int]],
         edge_list: List[Tuple[int]],
         conv_params: Dict[str, Any],
-        last_pool: bool = False
+        pool: bool = True,
+        last_pool: bool = False,
     ):
         super().__init__()
+
         self.conv = SkeletalConv(adj_list=adj_list, **(conv_params))
         self.act = nn.LeakyReLU(negative_slope=0.2)
-        self.pool = SkeletalPooling(edge_list=edge_list, 
-                                    channels_per_edge=conv_params["out_channels_per_joint"], 
-                                    last_pool=last_pool)
 
-    def forward(self, x: torch.Tensor):
-        y = self.conv(x)
+        # The second block of the static encoder does not contain a pooling operation. 
+        self.pool = pool if not pool else SkeletalPooling(edge_list=edge_list, 
+                                                      channels_per_edge=conv_params["out_channels_per_joint"], 
+                                                      last_pool=last_pool)
+
+    def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor]):
+        pool_regions, post_edge_list, post_adj = None, None, None
+        
+        y = self.conv(x, offset=offset)
+        if self.pool:
+            y, pool_regions, post_edge_list, post_adj = self.pool(y)
         y = self.act(y)
-        y, pool_regions, post_adj = self.pool(y)
-        return y, pool_regions, post_adj 
+        return y, pool_regions, post_edge_list, post_adj 
 
 class SkeletalEncoder(nn.Module):
     def __init__(
@@ -36,11 +43,12 @@ class SkeletalEncoder(nn.Module):
         adj_init: List[List[int]],
         edge_init: List[Tuple[int]],
         encoder_params: Dict[str, Any],
-        type: Literal["static", "dynamic"] = 'static'
+        type: Literal["static", "dynamic"] = "static"
     ):
         super().__init__()
 
         self.adj_init = adj_init
+        self.edge_init = edge_init
         self.encoder_params = encoder_params
         self.type = type
 
@@ -48,32 +56,33 @@ class SkeletalEncoder(nn.Module):
         self.block1 = SkeletalEncBlock(
             adj_list=adj_init,
             edge_list=edge_init,
-            conv_params=self.encoder_params[0],
+            **(self.encoder_params["block1"]),
         )
 
         self.block2: Optional[SkeletalEncBlock] = None
 
     def forward(self, x: torch.Tensor, offset: Optional[torch.tensor] = None):
-        adjs, pool_regions = [], []
+        adjs, edges, pool_regions = [], [], []
         adjs.append(self.adj_init)
+        edges.append(self.edge_init)
 
-        y, pooled_eges, post_adj = self.block1(x, offset[0])
-
+        y, pooled_edges, post_edge_list, post_adj = self.block1(x, offset=offset)
         adjs.append(post_adj)
-        pool_regions.append(pooled_eges)
+        edges.append(post_edge_list)
+        pool_regions.append(pooled_edges)
 
         # --- Lazy init Block 2 ---
-        if self.block2 is None and self.type == "dynamic":
+        if self.block2 is None:
             self.block2 = SkeletalEncBlock(
                 adj_list=post_adj,
-                edge_list=pooled_eges,
-                conv_params=self.encoder_params[1],
-                last_pool=True).to(y.device)
+                edge_list=post_edge_list,
+                **(self.encoder_params["block2"])).to(y.device)
 
         # --- Block 2 ---
-        y, pooled_eges, post_adj = self.block2(y, offset[1])
+        y, pooled_edges, post_edge_list, post_adj = self.block2(y, offset=offset)
         adjs.append(post_adj)
-        pool_regions.append(pooled_eges)
+        edges.append(post_edge_list)
+        pool_regions.append(pooled_edges)
 
         skips = {
             "adjs": adjs,
