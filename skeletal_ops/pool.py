@@ -21,19 +21,19 @@ class SkeletalPooling(nn.Module):
         self.channels_per_edge = channels_per_edge
 
         # Precompute pooling regions and new adjacency
-        self.pooled_regions, self.new_edge_list, self.new_adj_list = self._compute_pooling(edge_list, last_pool)
+        self.pooled_edges, self.new_edge_list, self.new_adj_list = self._compute_pooling(edge_list, last_pool)
 
         self._init_net()
     
     def _init_net(self):
-        rows = len(self.pooled_regions) * self.channels_per_edge
+        rows = len(self.pooled_edges) * self.channels_per_edge
         cols = self.E * self.channels_per_edge
 
         # Pooling operation
         # Block-diagonal averaging matrix that groups edges into pooled regions:
         # weight: (region-to-pool-features, edge-features)
         weight = torch.zeros(rows, cols)
-        for i, group in enumerate(self.pooled_regions):
+        for i, group in enumerate(self.pooled_edges):
             scale = 1.0 / len(group)
             for j in group:
                 idx = torch.arange(self.channels_per_edge)
@@ -41,7 +41,7 @@ class SkeletalPooling(nn.Module):
 
         self.weight = nn.Parameter(weight, requires_grad=False)
 
-    def _compute_pooling(self, edge_list, last_pool=False):
+    def _compute_pooling(self, edge_list: List[List[int]], last_pool: bool = False):
         from collections import defaultdict, deque
 
         # Build degree and adjacency

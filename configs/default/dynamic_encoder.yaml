@@ -10,7 +10,8 @@ block1:
     padding_mode: reflect
     dilation: 1
     groups: 1
-  pool: True
+
+  pool_features: True
 
 
 block2:
@@ -25,5 +26,6 @@ block2:
     padding_mode: reflect
     dilation: 1
     groups: 1
-  pool: True
+    
+  pool_features: True
   last_pool: True

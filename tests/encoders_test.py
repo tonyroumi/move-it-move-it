@@ -13,13 +13,11 @@ def simple_test():
 
     static_encoder = SkeletalEncoder(adj_init=ADJ, 
                                     edge_init=EDGE_LIST, 
-                                    encoder_params=static_params, 
-                                    type='static')
+                                    encoder_params=static_params)
     
     dynamic_encoder = SkeletalEncoder(adj_init=ADJ,
                                       edge_init=EDGE_LIST,
-                                      encoder_params=dynamic_params,
-                                      type="dynamic")
+                                      encoder_params=dynamic_params)
     
     offset_features, offset_features = static_encoder(offsets.unsqueeze(-1))
 

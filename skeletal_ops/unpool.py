@@ -27,7 +27,7 @@ class SkeletalUnpool(nn.Module):
         cols = self.input_edge_num * self.channels_per_edge
         weight = torch.zeros(rows, cols)
 
-        for i, group in enumerate(self.pooling_list):
+        for i, group in enumerate(self.pooled_edges):
             idx = torch.arange(self.channels_per_edge)
             for j in group:
                 weight[j * self.channels_per_edge + idx, i * self.channels_per_edge + idx] = 1

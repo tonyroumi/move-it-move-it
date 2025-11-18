@@ -10,7 +10,8 @@ block1:
     dilation: 1
     groups: 1
 
-  pool: True
+  pool_features: True
+  last_pool: False
 
 block2:
   conv_params:
@@ -24,4 +25,5 @@ block2:
     dilation: 1
     groups: 1
     
-  pool: False
+  pool_features: False 
+  last_pool: False #Need to verify this

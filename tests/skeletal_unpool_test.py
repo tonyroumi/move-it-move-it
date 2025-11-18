@@ -1,5 +1,5 @@
 import torch
-from skeletal_ops import SkeletalPooling, SkeletalUnpooling
+from skeletal_ops import SkeletalPooling, SkeletalUnpool
 
 
 def make_static_input():
@@ -28,7 +28,7 @@ def test_static_pool_unpool_identity_mean():
     pooled, regions, new_adj = pool(x)
 
     # Unpool step
-    unpool = SkeletalUnpooling(adj, regions)
+    unpool = SkeletalUnpool(adj, regions)
     x_unpooled = unpool(pooled)
 
     # ---- Expected behavior ----
@@ -55,7 +55,7 @@ def test_static_pool_unpool_max():
     pool = SkeletalPooling(adj, p=2, mode="max")
     pooled, regions, new_adj = pool(x)
 
-    unpool = SkeletalUnpooling(adj, regions)
+    unpool = SkeletalUnpool(adj, regions)
     x_unpooled = unpool(pooled)
 
     region01_max = x[:, [0], :]
@@ -79,7 +79,7 @@ def test_dynamic_pool_unpool_mean_no_upsampling():
     pool = SkeletalPooling(adj, p=2, mode="mean", downsampling_params={"kernel_size": (1, 1)})
     pooled, regions, new_adj = pool(x)
 
-    unpool = SkeletalUnpooling(adj, regions)
+    unpool = SkeletalUnpool(adj, regions)
     x_unpooled = unpool(pooled)
 
     region01_mean = x[:, :, [0], :]
@@ -104,7 +104,7 @@ def test_dynamic_pool_unpool_mean_with_upsampling():
     pooled, regions, new_adj = pool(x)
 
     # Temporal upsampling: double time dimension
-    unpool = SkeletalUnpooling(
+    unpool = SkeletalUnpool(
         adj,
         regions,
         upsampling_params={"scale_factor": (1, 2), "mode": "nearest"},
@@ -125,14 +125,14 @@ def test_pool_unpool_roundtrip_preserves_shape():
     x_static = make_static_input()
     pool_static = SkeletalPooling(adj, p=2)
     pooled_s, regions_s, _ = pool_static(x_static)
-    unpool_static = SkeletalUnpooling(adj, regions_s)
+    unpool_static = SkeletalUnpool(adj, regions_s)
     x_static_restored = unpool_static(pooled_s)
     assert x_static_restored.shape == x_static.shape
 
     x_dynamic = make_dynamic_input()
     pool_dynamic = SkeletalPooling(adj, p=2, downsampling_params={"kernel_size": (1, 1)})
     pooled_d, regions_d, _ = pool_dynamic(x_dynamic)
-    unpool_dynamic = SkeletalUnpooling(adj, regions_d)
+    unpool_dynamic = SkeletalUnpool(adj, regions_d)
     x_dynamic_restored = unpool_dynamic(pooled_d)
     assert x_dynamic_restored.shape == x_dynamic.shape
     print("✓ test_pool_unpool_roundtrip_preserves_shape passed")
