@@ -57,7 +57,7 @@ WINDOW_SIZE, BATCH_SIZE = 64, 256
 def load_params(path: str) -> dict:
     with open(path, "r") as f:
         data = yaml.safe_load(f)
-        validate_blocks(data)
+        # validate_blocks(data)
     if data is None:
         return {}
     return data

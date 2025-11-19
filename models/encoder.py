@@ -1,29 +1,10 @@
-from skeletal_ops import SkeletalConv, SkeletalPooling, SkeletalLinear
+from skeletal_ops import SkeletalConv, SkeletalPooling, SkeletalLinear, PoolingInfo
 
-from dataclasses import dataclass, astuple
 from typing import Dict, List, Tuple, Optional, Any, Literal
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
-@dataclass
-class PoolingInfo:
-    """Contains all information needed for pooling/unpooling operations"""
-    adj_list: List[List[int]]
-    edge_list: List[List[int]]
-    pooled_edges: List[List[int]] = None
-    
-    def to_dict(self):
-        return {
-            'adj_list': self.adj_list,
-            'edge_list': self.edge_list,
-            'pooled_edges': self.pooled_edges
-        }
-    
-    def __iter__(self):
-        return iter(astuple(self))
 
 
 class SkeletalEncBlock(nn.Module):
@@ -47,11 +28,7 @@ class SkeletalEncBlock(nn.Module):
                                     last_pool=last_pool)
         self.act = nn.LeakyReLU(negative_slope=0.2)
 
-        self.pooling_info = PoolingInfo(
-            adj_list=self.pool.new_adj_list,
-            edge_list= self.pool.new_edge_list,
-            pooled_edges=self.pool.pooled_edges
-        )
+        self.pooling_info = self.pool.pooled_info
 
         self.pool_features = pool_features
 

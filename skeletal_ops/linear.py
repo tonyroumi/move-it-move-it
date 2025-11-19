@@ -4,6 +4,7 @@ from typing import List
 import torch
 import torch.nn.functional as F
 
+
 class SkeletalLinear(SkeletalBase):
     """
     Skeletal-linear layer.

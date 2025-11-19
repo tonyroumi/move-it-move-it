@@ -1,7 +1,27 @@
+from dataclasses import dataclass, astuple
+from typing import Dict, List, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, List, Tuple
+
+
+@dataclass
+class PoolingInfo:
+    """Contains all information needed for pooling/unpooling operations"""
+    adj_list: List[List[int]]
+    edge_list: List[List[int]]
+    pooled_edges: List[List[int]] = None
+    
+    def to_dict(self):
+        return {
+            'adj_list': self.adj_list,
+            'edge_list': self.edge_list,
+            'pooled_edges': self.pooled_edges
+        }
+    
+    def __iter__(self):
+        return iter(astuple(self))
+
 
 class SkeletalPooling(nn.Module):
     """
@@ -21,19 +41,21 @@ class SkeletalPooling(nn.Module):
         self.channels_per_edge = channels_per_edge
 
         # Precompute pooling regions and new adjacency
-        self.pooled_edges, self.new_edge_list, self.new_adj_list = self._compute_pooling(edge_list, last_pool)
+        pooling_list, new_edges, new_adj_list = self._compute_pooling(edge_list, last_pool)
+        self.pooled_info = PoolingInfo(new_adj_list, new_edges, pooling_list)
 
         self._init_net()
     
     def _init_net(self):
-        rows = len(self.pooled_edges) * self.channels_per_edge
+        pooled_edges = self.pooled_info.pooled_edges
+        rows = len(pooled_edges) * self.channels_per_edge
         cols = self.E * self.channels_per_edge
 
         # Pooling operation
         # Block-diagonal averaging matrix that groups edges into pooled regions:
         # weight: (region-to-pool-features, edge-features)
         weight = torch.zeros(rows, cols)
-        for i, group in enumerate(self.pooled_edges):
+        for i, group in enumerate(pooled_edges):
             scale = 1.0 / len(group)
             for j in group:
                 idx = torch.arange(self.channels_per_edge)

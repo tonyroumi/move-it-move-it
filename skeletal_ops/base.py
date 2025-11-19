@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class SkeletalBase(nn.Module):
     """
     Base class for skeletal linear and pooling operations.
