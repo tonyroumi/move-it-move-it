@@ -1,4 +1,5 @@
-*/__pycache__
+__pycache__/
 amass_vis_out
 motion_data
 .vscode
+data

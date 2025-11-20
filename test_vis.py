@@ -3,15 +3,15 @@ import sys
 import numpy as np
 import torch
 from os import path as osp
-
+from pathlib import Path
 # --- Visualization / Body Model Imports ---
 import trimesh
 from body_visualizer.mesh.mesh_viewer import MeshViewer
 from body_visualizer.tools.vis_tools import colors as vis_colors
 from human_body_prior.body_model.body_model import BodyModel
 from human_body_prior.tools.omni_tools import copy2cpu as c2c
-from utils.amass_visualizer import AmassVisualizer
-
+from dataset_utils.amass_visualizer import AmassVisualizer
+from src.data_processing import AMASSTAdapter
 # root_orient: global orientation (rotation of the root joint)
 # pose_body: body pose (joint rotations excluding hands)
 # pose_hand: hand pose (finger articulations)
@@ -24,7 +24,7 @@ from utils.amass_visualizer import AmassVisualizer
 # ============================================================
 
 CONFIG = {
-    "motion_dir": "motion_data/HUMAN4D/Subject4_Carine/INF_JumpingJack_S4_01_poses.npz",
+    "motion_dir": "/workspace/data/amass/raw/Aude/INF_Basketball_S2_01_poses.npz",
     "support_dir": "motion_data/",
     "gender": "female",                # "male" | "female" | "neutral"
     "num_betas": 16,
@@ -81,7 +81,7 @@ def load_body_model(cfg: dict) -> tuple[BodyModel, str]:
         num_dmpls=cfg["num_dmpls"],
         dmpl_fname=dmpl_path,
     ).to(torch.device(cfg["device"]))
-    return bm, dmpl_path
+    return bm
 
 
 def load_colors() -> dict:
@@ -108,22 +108,25 @@ def main():
     cfg = parse_debug_flag(CONFIG)
 
     # 1. Load dataset and model
-    amass_npz_fname = load_amass_data(cfg)
-    bm, dmpl_fname = load_body_model(cfg)
+    # amass_npz_fname = load_amass_data(cfg)
+    # bm, dmpl_fname = load_body_model(cfg)
 
     # 2. Prepare viewer and visualization environment
     mv = MeshViewer(**cfg["viewer"])
-    faces = c2c(bm.f)
+
+    adapter = AMASSTAdapter()
+    adapter._post_init(Path("/workspace/data/amass/raw/Aude"))
+
+    faces = c2c(adapter.body_model.f)
     color_map = load_colors()
 
     # 3. Build the visualizer
     vis = AmassVisualizer.build_from_amass(
-        amass_npz_fname=amass_npz_fname,
-        bm=bm,
+        amass_npz_fname="/workspace/data/amass/raw/Aude/INF_Basketball_S2_01_poses.npz",
+        bm=adapter.body_model,
         mv=mv,
         faces=faces,
         colors=color_map,
-        dmpl_fname=dmpl_fname,
         comp_device=cfg["device"],
     )
 
@@ -131,11 +134,16 @@ def main():
     # Visualization calls
     # ========================================================
     vis.render_joints(0)
-    T_pose_offsets = vis.offsets(0) #(1, J, 3)
-    vis.render_offsets(0)
-    orientations = vis.orientations(all=True) #(T,n_joints,4)
-    print(T_pose_offsets.shape)
-    print(orientations.shape)
+    vis.render_joints(0, joint_idx=10)
+    vis.render_joints(0,  joint_idx=11)
+    vis.render_joints(0,  joint_idx=15)
+    vis.render_joints(0,  joint_idx=20)
+    vis.render_joints(0,  joint_idx=21)
+    # T_pose_offsets = vis.offsets(0) #(1, J, 3)
+    # vis.render_offsets(0)
+    # orientations = vis.orientations(all=True) #(T,n_joints,4)
+    # print(T_pose_offsets.shape)
+    # print(orientations.shape)
     # vis.render_default_pose(t=cfg["render"]["default_pose_t"])
     # vis.joints(t=25)
     # vis.render_joints(t=25)
@@ -148,10 +156,10 @@ def main():
     #     step=cfg["render"]["step"],
     #     fps=cfg["render"]["fps"],
     # )
-    T = orientations.shape[0]
-    num_joints = orientations.shape[1]
-    eo_tiled = np.tile(T_pose_offsets, (T, 1, 1))
-    M_eo = np.concatenate([eo_tiled, orientations], axis=-1)
+    # T = orientations.shape[0]
+    # num_joints = orientations.shape[1]
+    # eo_tiled = np.tile(T_pose_offsets, (T, 1, 1))
+    # M_eo = np.concatenate([eo_tiled, orientations], axis=-1)
 
 if __name__ == "__main__":
     main()

@@ -172,7 +172,8 @@ class AmassVisualizer:
         self,
         t: int = 0,
         name: str = "body_joints",
-        include_hands: bool = False
+        include_hands: bool = False,
+        joint_idx: int = 5
     ) -> str:
         from body_visualizer.mesh.sphere import points_to_spheres
 
@@ -191,19 +192,23 @@ class AmassVisualizer:
         # Remove hand joints by default
         if not include_hands:
             jt = jt[:22]
+        other_points = np.concatenate((jt[:joint_idx], jt[joint_idx + 1:]), axis=0)
+        point = np.expand_dims(jt[joint_idx], axis=0)
+        points = np.vstack([other_points, point])
+        colors = np.vstack([
+        np.tile([255, 0, 0], (21, 1)),   # first 21 joints red
+        np.array([[0, 255, 0]])          # last one green
+    ])
 
-        joints_mesh = points_to_spheres(
-            jt,
-            point_color=self.colors.get("red", np.array([255, 0, 0], dtype=np.uint8)),
-            radius=0.005,
-        )
+        joints_mesh = points_to_spheres(points, point_color=colors, radius=0.005)
 
         self.mv.set_static_meshes([joints_mesh])
         img = self.mv.render(render_wireframe=False)
-        img_path = os.path.join(self.dirs["images"], f"{name}_t{t}.png")
-        Image.fromarray(img.astype(np.uint8)).save(img_path)
-        print(f"[INFO] Saved joint visualization → {img_path}")
-        return img_path
+        out_path = os.path.join(self.dirs["images"], f"{name}_t{joint_idx}.png")
+        Image.fromarray(img.astype(np.uint8)).save(out_path)
+
+        print(f"[INFO] Saved joint visualization → {out_path}")
+        return out_path
 
     def render_joints_and_parents(
         self,
