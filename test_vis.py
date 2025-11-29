@@ -133,12 +133,12 @@ def main():
     # ========================================================
     # Visualization calls
     # ========================================================
-    vis.render_joints(0)
-    vis.render_joints(0, joint_idx=10)
-    vis.render_joints(0,  joint_idx=11)
-    vis.render_joints(0,  joint_idx=15)
-    vis.render_joints(0,  joint_idx=20)
-    vis.render_joints(0,  joint_idx=21)
+    # render_joints
+    vis.render_joints(0, joint_idx=1)
+    # vis.render_joints(0,  joint_idx=2)
+    # vis.render_joints(0,  joint_idx=3)
+    # vis.render_joints(0,  joint_idx=20)
+    # vis.render_joints(0,  joint_idx=21)
     # T_pose_offsets = vis.offsets(0) #(1, J, 3)
     # vis.render_offsets(0)
     # orientations = vis.orientations(all=True) #(T,n_joints,4)

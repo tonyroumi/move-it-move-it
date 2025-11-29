@@ -168,13 +168,15 @@ class AmassVisualizer:
             print(f"[INFO] Saved relative joint orientations → orientations_t{t}.npy")
             return local_quats
     
+    from body_visualizer.mesh import CylinderMesh
+
     def render_joints(
-        self,
-        t: int = 0,
-        name: str = "body_joints",
-        include_hands: bool = False,
-        joint_idx: int = 5
-    ) -> str:
+            self,
+            t: int = 0,
+            name: str = "body_joints",
+            include_hands: bool = False,
+            joint_idx: int = 5
+        ) -> str:
         from body_visualizer.mesh.sphere import points_to_spheres
 
         keys = ["pose_body", "betas"]
@@ -189,21 +191,67 @@ class AmassVisualizer:
         J = _to_numpy(J)
         jt = J[t]
 
-        # Remove hand joints by default
+        # Remove hand joints
         if not include_hands:
             jt = jt[:22]
-        other_points = np.concatenate((jt[:joint_idx], jt[joint_idx + 1:]), axis=0)
+
+        # --------------------------------------------
+        # Height axis detection
+        # --------------------------------------------
+        mins = jt.min(axis=0)
+        maxs = jt.max(axis=0)
+        ranges = maxs - mins
+
+        axis = int(np.argmax(ranges))  # 0=x, 1=y, 2=z
+        height = float(ranges[axis])
+
+        print("[INFO] axis ranges (x,y,z):", ranges)
+        print("[INFO] Using axis", axis, "as up-axis")
+        print("[INFO] Height:", height)
+
+        # Build bottom and top of the height line
+        center = jt.mean(axis=0)
+        p0 = center.copy()
+        p1 = center.copy()
+        p0[axis] = mins[axis]
+        p1[axis] = maxs[axis]
+
+        # Offset sideways so it doesn't overlap skeleton
+        side_axis = (axis + 1) % 3
+        offset_amount = 0.1 * ranges[side_axis] if ranges[side_axis] > 0 else 0.05
+        p0[side_axis] += offset_amount
+        p1[side_axis] += offset_amount
+
+        # --------------------------------------------
+        # Build cylinder height line (THIN vertical line)
+        # --------------------------------------------
+        height_line_mesh = CylinderMesh(
+            p0=p0,
+            p1=p1,
+            radius=0.005,
+            color=[0, 128, 255]           # blue-ish
+        ).to_mesh()
+
+        # --------------------------------------------
+        # Build joints mesh (same as your version)
+        # --------------------------------------------
+        other_points = np.concatenate((jt[:joint_idx], jt[joint_idx+1:]), axis=0)
         point = np.expand_dims(jt[joint_idx], axis=0)
         points = np.vstack([other_points, point])
+
         colors = np.vstack([
-        np.tile([255, 0, 0], (21, 1)),   # first 21 joints red
-        np.array([[0, 255, 0]])          # last one green
-    ])
+            np.tile([255, 0, 0], (len(points) - 1, 1)),   # red
+            np.array([[0, 255, 0]])                       # green for selected joint
+        ])
 
         joints_mesh = points_to_spheres(points, point_color=colors, radius=0.005)
 
-        self.mv.set_static_meshes([joints_mesh])
+        # --------------------------------------------
+        # Render
+        # --------------------------------------------
+        self.mv.set_static_meshes([joints_mesh, height_line_mesh])
         img = self.mv.render(render_wireframe=False)
+
         out_path = os.path.join(self.dirs["images"], f"{name}_t{joint_idx}.png")
         Image.fromarray(img.astype(np.uint8)).save(out_path)
 
@@ -316,6 +364,121 @@ class AmassVisualizer:
         self.mv.set_static_meshes([mesh])
         img = self.mv.render(render_wireframe=False)
         return self._save_image(img, name)
+    
+    def render_offset_2d(
+        self,
+        t: int = 0,
+        name: str = "offset2d",
+        include_hands: bool = False,
+        offset_idx: int = 5,
+        W: int = 1024,
+        H: int = 1024
+        ) -> str:
+        """
+        Render all joints + all edges, highlighting the specific offset (parent->child)
+        in red. Prints the XYZ offset vector + length.
+        """
+        # ---- 1. Forward pass ----
+        keys = ["pose_body", "betas"]
+        if include_hands and "pose_hand" in self.body_parms:
+            keys.append("pose_hand")
+
+        out = self._forward_subset(keys)
+        J = getattr(out, "Jtr", getattr(out, "J", None))
+        if J is None:
+            raise AttributeError("BodyModel output has no joints (expected Jtr or J).")
+
+        J = _to_numpy(J)
+        jt = J[t]
+
+        # ---- 2. Kintree + valid joints ----
+        parents = _to_numpy(self.kintree_table[0])
+        n_joints = len(parents)
+
+        valid = np.arange(1, n_joints)
+        if not include_hands:
+            valid = valid[valid < 22]
+
+        if offset_idx not in valid:
+            raise ValueError(f"offset_idx {offset_idx} not in valid joints {valid.tolist()}")
+
+        child = offset_idx
+        parent = parents[child]
+
+        parent_xyz = jt[parent]
+        child_xyz  = jt[child]
+        offset_xyz = child_xyz - parent_xyz
+        offset_len = np.linalg.norm(offset_xyz)
+
+        # ---- 3. Print info ----
+        print("\n[OFFSET INFO]")
+        print(f"  parent idx: {parent}")
+        print(f"  child  idx: {child}\n")
+        print(f"  parent xyz: {parent_xyz}")
+        print(f"  child  xyz: {child_xyz}\n")
+        print(f"  offset xyz: {offset_xyz}")
+        print(f"  length:     {offset_len}\n")
+
+        # ---- 4. Normalize to 2D ----
+        jt_min, jt_max = jt.min(axis=0), jt.max(axis=0)
+        pad = 0.25 * (jt_max - jt_min)
+        jt_min -= pad
+        jt_max += pad
+        norm = (jt - jt_min) / (jt_max - jt_min + 1e-8)
+
+        px = (norm[:, 0] * (W - 1)).astype(int)
+        py = ((1 - norm[:, 1]) * (H - 1)).astype(int)
+
+        # ---- 5. Canvas ----
+        img = np.ones((H, W, 3), dtype=np.uint8) * 255
+
+        # ---- 6. Draw all joints ----
+        for j in range(n_joints):
+            if not include_hands and j >= 22:
+                continue
+            img[py[j], px[j]] = [180, 180, 180]  # grey
+
+        # ---- 7. Highlight parent + child ----
+        img[py[parent], px[parent]] = [255, 0, 0]   # red
+        img[py[child],  px[child]]  = [0, 255, 0]   # green
+
+        # ---- 8. Draw all edges (grey) ----
+        for j in range(1, n_joints):
+            p_idx = parents[j]
+            if p_idx < 0:
+                continue
+            if not include_hands and (j >= 22 or p_idx >= 22):
+                continue
+
+            p = (px[p_idx], py[p_idx])
+            c = (px[j],     py[j])
+
+            rr = np.linspace(p[1], c[1], 60).astype(int)
+            cc = np.linspace(p[0], c[0], 60).astype(int)
+            mask = (rr >= 0) & (rr < H) & (cc >= 0) & (cc < W)
+
+            img[rr[mask], cc[mask]] = [120, 120, 120]  # grey edges
+
+        # ---- 9. Highlight the chosen offset edge in RED ----
+        p = (px[parent], py[parent])
+        c = (px[child],  py[child])
+
+        rr = np.linspace(p[1], c[1], 80).astype(int)
+        cc = np.linspace(p[0], c[0], 80).astype(int)
+        mask = (rr >= 0) & (rr < H) & (cc >= 0) & (cc < W)
+
+        img[rr[mask], cc[mask]] = [255, 0, 0]  # *** RED OFFSET ***
+
+        # ---- 10. Save ----
+        out_path = os.path.join(self.dirs["images"], f"{name}_offset{offset_idx}.png")
+        Image.fromarray(img).save(out_path)
+
+        print(f"[INFO] Saved 2D offset visualization → {out_path}")
+        return out_path
+
+
+
+
 
     def render_default_pose(self, t: int = 0, name: str = 'default_pose') -> Tuple[str, str]:
         # Use the same subset as pose_body + betas (avoids bird's-eye bug)

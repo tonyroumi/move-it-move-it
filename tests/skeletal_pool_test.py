@@ -1,4 +1,4 @@
-from skeletal_ops import SkeletalPooling
+from src.skeletal_ops import SkeletalPooling
 from typing import Dict, List
 import numpy as np
 import torch
@@ -55,7 +55,7 @@ EDGE_LIST = [
 ]
 
 def simple_test():
-    pool = SkeletalPooling(EDGE_LIST, channels_per_joint=8)
+    pool = SkeletalPooling(EDGE_LIST, channels_per_edge=8)
 
 
     # Expect 3 pooled regions of length 2
