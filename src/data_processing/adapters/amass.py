@@ -74,15 +74,16 @@ class AMASSTAdapter(DataSourceAdapter):
         # No hands, fingers, or toes
         indices = indices[indices < 22]
         offsets = offsets[indices]
+        offsets = np.array(offsets)
 
         topology = self._build_topology()
         end_effectors = self._find_ee()
-        height = self._compute_height() #TODO
+        height = 0
         
         return SkeletonMetadata(topology=topology,
                                 offsets=offsets,
                                 end_effectors=end_effectors,
-                                height=0)
+                                height=height)
 
     def extract_motion(self, file_path: str) -> MotionSequence:
         return MotionSequence #TODO
@@ -122,7 +123,7 @@ class AMASSTAdapter(DataSourceAdapter):
     def _build_topology(self) -> List[Tuple[int]]:
         parent_kintree = self.pruned_kintree[0]
         
-        # Build topology as (parent, child) tuples
+        # Build topology as (parent, child) joint tuples
         topology = []
         for child_idx in range(1, len(parent_kintree)):  # skip root
             parent_idx = parent_kintree[child_idx]
