@@ -1,14 +1,15 @@
 from ..base import DataSourceAdapter
 from ..metadata import SkeletonMetadata, MotionSequence
-from src.utils import _to_torch
 
-from pathlib import Path
-from typing import List, Tuple
-
-from scipy.spatial.transform import Rotation as R
-import numpy as np
+from src.utils.data import _to_torch, _to_numpy
+from src.utils.rotation import axis_angle_to_quat
+from src.utils.skeleton import prune_joints
+from src.utils.transforms import global_aa_to_local_quat_batched
 
 from human_body_prior.body_model.body_model import BodyModel
+from tqdm import tqdm
+from typing import List, Tuple
+import numpy as np
 
 class AMASSTAdapter(DataSourceAdapter):
     dataset_name = "amass"
@@ -22,76 +23,13 @@ class AMASSTAdapter(DataSourceAdapter):
     
     def __init__(self): super().__init__(self.dataset_name)
 
-    def download(self, **kwargs) -> None:
-        print("=" * 70)
-        print("AMASS Dataset Setup Instructions")
-        print("=" * 70)
-        
-        print("\n1. Download AMASS Motion Data:")
-        print("   Visit: https://amass.is.tue.mpg.de/")
-        print("   - Create account (free for research)")
-        print("   - Download desired subsets (CMU, BMLrub, ACCAD, etc.)")
-        print(f"   - Extract NPZ files to: {self.data_dir}")
-        
-        print("\n2. Download SMPL Body Models:")
-        print("   Visit: https://smpl.is.tue.mpg.de/")
-        print("   - Register and download SMPL+H model")
-        print(f"   - Extract to: .../smplh/")
-        print("   Expected structure:")
-        print(f"     {self.data_dir}/")
-        print("         male/model.npz")
-        print("         female/model.npz")
-        print("         neutral/model.npz")
-        
-        print("\n3. Install Dependencies:")
-        print("   pip install torch")
-        print("   pip install git+https://github.com/nghorbani/human_body_prior")
-        print("   pip install git+https://github.com/nghorbani/body_visualizer")
-        
-        print("=" * 70) 
-    
-    def extract_skeleton(self, file_path: str = None) -> SkeletonMetadata:
-        """
-        Extract skeleton metadata from body model.
-        
-        Args:
-            file_path: Path to the raw character directory
-        
-        Returns:
-            SkeletonMetadata with topology, offsets, end effectors, and height
-        """
-        self._post_init(file_path)
-        
-        body = self.body_model(betas=self.betas.unsqueeze(0)) # BodyModel expects shape [1, num_betas]
-        parent_kintree = self.full_kintree[0]
-        
-        J0 = body.Jtr[0] # T pose
-        offsets = J0 - J0[parent_kintree]
-
-        n_joints = len(parent_kintree)
-        indices = np.arange(1, n_joints)
-
-        # No hands, fingers, or toes
-        indices = indices[indices < 22]
-        offsets = offsets[indices]
-        offsets = np.array(offsets)
-
-        topology = self._build_topology()
-        end_effectors = self._find_ee()
-        height = 0
-        
-        return SkeletonMetadata(topology=topology,
-                                offsets=offsets,
-                                end_effectors=end_effectors,
-                                height=height)
-
-    def extract_motion(self, file_path: str) -> MotionSequence:
-        return MotionSequence #TODO
-
-    def _post_init(self, file_path: Path):
-        character_skeleton = np.load(file_path / "shape.npz")
+    def _post_init(self, character: str):
+        character_dir = self.raw_dir / character
+        character_skeleton = np.load(character_dir / "shape.npz")
         character_gender = character_skeleton["gender"]
         character_betas = character_skeleton["betas"]
+
+        self.motion_seqs = [f for f in character_dir.glob("*.npz") if f.name != "shape.npz"]
 
         num_betas = len(character_betas)
         self.betas = _to_torch(character_betas, self.device)
@@ -100,7 +38,120 @@ class AMASSTAdapter(DataSourceAdapter):
         self.body_model = BodyModel(bm_path, num_betas=num_betas).to(self.device)  
 
         self.full_kintree = self.body_model.kintree_table
+        self.parent_kintree = self.full_kintree[0]
         self.pruned_kintree = self._prune_kintree()
+
+        self.num_joints = len(self.parent_kintree)
+
+    def download(self, **kwargs) -> None:
+        print("=" * 70)
+        print("AMASS Dataset Setup Instructions")
+        print("=" * 70)
+
+        print("\n1. Download AMASS Motion Data:")
+        print("   Visit: https://amass.is.tue.mpg.de/")
+        print("   - Create an account (free for research)")
+        print("   - Download the desired subsets (HUMAN4D, ACCAD, CMU, etc.)")
+        print("   - Extract the downloaded archives")
+
+        print("\n   Required directory structure:")
+        print(f"   {self.raw_dir}/...")
+        print("           <character_001>/")
+        print("               motion_0001.npz")
+        print("               motion_0002.npz")
+        print("               ...")
+        print("               shape.npz")
+        print("           <character_002>/")
+        print("               ...")
+
+        print(f"\n   Place all extracted character folders into: {self.raw_dir}")
+
+        print("\n2. Download SMPL Body Models:")
+        print("   Visit: https://smpl.is.tue.mpg.de/")
+        print("   - Register and download the SMPL+H model package")
+        print("   - Extract the model files")
+
+        print("\n   Required directory structure:")
+        print("   data/amass/body_models/")
+        print("       female/model.npz")
+        print("       male/model.npz")
+        print("       neutral/model.npz")
+
+        print("=" * 70)
+    
+    def extract_skeleton(self, character: str) -> SkeletonMetadata:
+        """
+        Extract and save skeleton metadata from a particular character.
+        
+        Args:
+            character: Character name as it exists in amass/raw.
+        
+        Returns:
+            SkeletonMetadata: A particular character's skeleton metadata.
+        """
+        self._post_init(character)
+        
+        body = self.body_model(betas=self.betas.unsqueeze(0)) # BodyModel expects shape [1, num_betas]
+        
+        J0 = body.Jtr[0] # T pose
+        offsets = J0 - J0[self.parent_kintree]
+
+        offsets = prune_joints(offsets, self.joint_cutoff, exclude_root=True)
+
+        topology = self._build_topology()
+        end_effectors = self._find_ee()
+        height = self._compute_height(offsets, 10, 15) #This is hard coded head and foot idxs.
+
+        skeleton = SkeletonMetadata(topology=_to_numpy(topology),
+                                    offsets=offsets,
+                                    end_effectors=_to_numpy(end_effectors),
+                                    height=_to_numpy(height))
+        skeleton.save(self.skeleton_dir / character / ".npz")
+
+    def extract_motion(self, character: str) -> List[MotionSequence]:
+        """
+        Extract and save all skeleton motion data for a particular character.
+        
+        Args:
+            character: Character name as it exists in amass/raw.
+        
+        Returns:
+            List[MotionSequence]: List of all motion sequences for a particular character. 
+        """
+        self._post_init(character)
+
+        sequences : List[MotionSequence] = []
+
+        for npz_file in tqdm(self.motion_seqs, desc="Extracting motion sequences"):
+            tqdm.write(f"Processing: {npz_file}")
+            data = np.load(npz_file)
+
+            pose_body = _to_torch(data["poses"], self.device)
+            trans = _to_torch(data["trans"], self.device)
+            
+            out = self.body_model(
+                root_orient = pose_body[:,0:3],
+                pose_body=pose_body[:,3:66],
+                trans=trans,
+                betas=self.betas.unsqueeze(0)
+            )
+
+            aa = out.full_pose.reshape(-1, self.num_joints, 3)
+            aa = prune_joints(aa, cutoff=self.joint_cutoff, exclude_root=True)
+            quat_rotations = global_aa_to_local_quat_batched(aa, self.parent_kintree, include_root=False)
+
+            root_pos = out.Jtr[:, 0]                              # [T, 3]
+            root_quat = axis_angle_to_quat(out.full_pose[:, :3])  # [T, 4]
+            root_global = np.concatenate([root_pos, root_quat], axis=-1)
+
+            motion_sequence = MotionSequence(root_orient=_to_numpy(root_global),
+                                             rotations=_to_numpy(quat_rotations),
+                                             fps=_to_numpy(data['mocap_framerate']))
+            motion_sequence.save(self.cache_dir / character / npz_file)
+
+            sequences.append(motion_sequence)
+
+        return sequences
     
     def _prune_kintree(self):
         parent = self.full_kintree[0]
@@ -141,6 +192,20 @@ class AMASSTAdapter(DataSourceAdapter):
         leaves = [j for j, c in children.items() if len(c) == 0]
         return leaves
 
-    def _compute_height(self):
-        return 0 #TODO
-    
+    def _compute_height(self, offset: np.ndarray, parents: np.ndarray, foot_idx: int, head_idx: int):
+        # foot to pelvis
+        h1 = 0.0
+        p = foot_idx
+        while p != 0:
+            h1 += np.linalg.norm(offset[p])
+            p = self.parent_kintree[p]
+
+        # pelvis to head
+        h2 = 0.0
+        p = head_idx
+        while p != 0:
+            h2 += np.linalg.norm(offset[p])
+            p = self.parent_kintree[p]
+
+        return h1 + h2
+        

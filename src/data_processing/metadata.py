@@ -1,14 +1,12 @@
 from dataclasses import dataclass
-from typing import Tuple, List, Optional
 import numpy as np
 
 @dataclass
 class SkeletonMetadata:
-    topology: List[Tuple[int, int]]
+    topology: np.ndarray
     offsets: np.ndarray
-    end_effectors: List[int]
-    height: float
-    root_joint: int = 0
+    end_effectors: np.ndarray
+    height: np.ndarray
 
     def save(self, path: str):
         """
@@ -16,12 +14,13 @@ class SkeletonMetadata:
         """
         np.savez_compressed(
             path,
-            topology=np.asarray(self.topology, dtype=np.int32),
-            offsets=self.offsets.astype(np.float32),
-            end_effectors=np.asarray(self.end_effectors, dtype=np.int32),
-            height=np.float32(self.height),
-            root_joint=np.int32(self.root_joint),
+            topology=self.topology, #float32
+            offsets=self.offsets, #float32
+            end_effectors=self.end_effectors, # int32
+            height=self.height, #float32
+            root_joint=self.root_joint, #int32
         )
+        print(f"SAVED SKELETON TO: {path}")
 
     @classmethod
     def load(cls, path: str) -> "SkeletonMetadata":
@@ -30,11 +29,11 @@ class SkeletonMetadata:
         """
         d = np.load(path, allow_pickle=False)
 
-        topology = [tuple(x) for x in d["topology"]]
+        topology = d["topology"]
         offsets = d["offsets"]
-        end_effectors = d["end_effectors"].tolist()
-        height = float(d["height"])
-        root_joint = int(d["root_joint"])
+        end_effectors = d["end_effectors"]
+        height = d["height"]
+        root_joint = d["root_joint"]
 
         return cls(
             topology=topology,
@@ -46,10 +45,9 @@ class SkeletonMetadata:
 
 @dataclass
 class MotionSequence:
+    root_orient: np.ndarray
     rotations: np.ndarray
-    positions: Optional[np.ndarray] = None
-    fps: float = 30.0
-    sequence_name: str = ""
+    fps: float
 
     def save(self, path: str):
         """
@@ -57,11 +55,11 @@ class MotionSequence:
         """
         np.savez_compressed(
             path,
-            rotations=self.rotations.astype(np.float32),
-            positions=self.positions.astype(np.float32) if self.positions is not None else None,
-            fps=np.float32(self.fps),
-            sequence_name=np.string_(self.sequence_name),
+            root_orient=self.root_orient, #float32
+            rotations=self.rotations, #float32
+            fps=self.fps,  #float32
         )
+        print(f"SAVED MOTION TO: {path}")
 
     @classmethod
     def load(cls, path: str) -> "MotionSequence":
@@ -70,15 +68,12 @@ class MotionSequence:
         """
         d = np.load(path, allow_pickle=False)
 
+        root_orient = d["root_orient"]
         rotations = d["rotations"]
-        positions = d["positions"] if d["positions"] is not None else None
-
-        fps = float(d["fps"])
-        sequence_name = str(d["sequence_name"].astype(str))
+        fps = d["fps"]
 
         return cls(
+            root_orient=root_orient,
             rotations=rotations,
-            positions=positions,
             fps=fps,
-            sequence_name=sequence_name,
         )
