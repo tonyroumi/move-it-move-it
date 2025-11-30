@@ -18,7 +18,6 @@ class SkeletonMetadata:
             offsets=self.offsets, #float32
             end_effectors=self.end_effectors, # int32
             height=self.height, #float32
-            root_joint=self.root_joint, #int32
         )
         print(f"SAVED SKELETON TO: {path}")
 

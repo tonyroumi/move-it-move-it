@@ -29,7 +29,10 @@ class AMASSTAdapter(DataSourceAdapter):
         character_gender = character_skeleton["gender"]
         character_betas = character_skeleton["betas"]
 
-        self.motion_seqs = [f for f in character_dir.glob("*.npz") if f.name != "shape.npz"]
+        cache_dir = self.cache_dir / character
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        self.motion_seqs = [str(f) for f in character_dir.glob("*.npz") if f.name != "shape.npz"]
 
         num_betas = len(character_betas)
         self.betas = _to_torch(character_betas, self.device)
@@ -106,7 +109,9 @@ class AMASSTAdapter(DataSourceAdapter):
                                     offsets=offsets,
                                     end_effectors=_to_numpy(end_effectors),
                                     height=_to_numpy(height))
-        skeleton.save(self.skeleton_dir / character / ".npz")
+        skeleton.save(self.skeleton_dir / (str(character) + ".npz") )
+
+        return skeleton
 
     def extract_motion(self, character: str) -> List[MotionSequence]:
         """
@@ -123,7 +128,8 @@ class AMASSTAdapter(DataSourceAdapter):
         sequences : List[MotionSequence] = []
 
         for npz_file in tqdm(self.motion_seqs, desc="Extracting motion sequences"):
-            tqdm.write(f"Processing: {npz_file}")
+            fname = npz_file.split('/')[-1]
+            tqdm.write(f"Processing: {fname}")
             data = np.load(npz_file)
 
             pose_body = _to_torch(data["poses"], self.device)
@@ -147,7 +153,7 @@ class AMASSTAdapter(DataSourceAdapter):
             motion_sequence = MotionSequence(root_orient=_to_numpy(root_global),
                                              rotations=_to_numpy(quat_rotations),
                                              fps=_to_numpy(data['mocap_framerate']))
-            motion_sequence.save(self.cache_dir / character / npz_file)
+            motion_sequence.save(self.cache_dir / character / fname)
 
             sequences.append(motion_sequence)
 
@@ -192,7 +198,7 @@ class AMASSTAdapter(DataSourceAdapter):
         leaves = [j for j, c in children.items() if len(c) == 0]
         return leaves
 
-    def _compute_height(self, offset: np.ndarray, parents: np.ndarray, foot_idx: int, head_idx: int):
+    def _compute_height(self, offset: np.ndarray, foot_idx: int, head_idx: int):
         # foot to pelvis
         h1 = 0.0
         p = foot_idx
@@ -208,4 +214,3 @@ class AMASSTAdapter(DataSourceAdapter):
             p = self.parent_kintree[p]
 
         return h1 + h2
-        
