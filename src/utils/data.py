@@ -10,7 +10,7 @@ def _is_tensor(x: Any) -> bool:
 def _to_numpy(x: Any) -> np.ndarray:
     if _is_tensor(x):
         return x.detach().cpu().numpy()
-    return np.asarray(x)
+    return np.asarray(x, dtype=np.float32)
 
 def _to_torch(x: Any, device: torch.device) -> torch.Tensor:
     if _is_tensor(x):
