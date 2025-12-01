@@ -5,7 +5,7 @@ import numpy as np
 class SkeletonMetadata:
     topology: np.ndarray
     offsets: np.ndarray
-    end_effectors: np.ndarray
+    ee_ids: np.ndarray
     height: np.ndarray
 
     def save(self, path: str):
@@ -14,12 +14,12 @@ class SkeletonMetadata:
         """
         np.savez_compressed(
             path,
-            topology=self.topology, #float32
-            offsets=self.offsets, #float32
-            end_effectors=self.end_effectors, # int32
-            height=self.height, #float32
+            topology=self.topology,
+            offsets=self.offsets,
+            ee_ids=self.ee_ids,
+            height=self.height,
         )
-        print(f"SAVED SKELETON TO: {path}")
+        print(f"Saving motion sequence: {path}")
 
     @classmethod
     def load(cls, path: str) -> "SkeletonMetadata":
@@ -30,23 +30,21 @@ class SkeletonMetadata:
 
         topology = d["topology"]
         offsets = d["offsets"]
-        end_effectors = d["end_effectors"]
+        ee_ids = d["ee_ids"]
         height = d["height"]
-        root_joint = d["root_joint"]
 
         return cls(
             topology=topology,
             offsets=offsets,
-            end_effectors=end_effectors,
+            ee_ids=ee_ids,
             height=height,
-            root_joint=root_joint,
         )
 
 @dataclass
 class MotionSequence:
     root_orient: np.ndarray
     rotations: np.ndarray
-    fps: float
+    fps: float = 60
 
     def save(self, path: str):
         """
@@ -54,11 +52,11 @@ class MotionSequence:
         """
         np.savez_compressed(
             path,
-            root_orient=self.root_orient, #float32
-            rotations=self.rotations, #float32
-            fps=self.fps,  #float32
+            root_orient=self.root_orient,
+            rotations=self.rotations,
+            fps=self.fps,
         )
-        print(f"SAVED MOTION TO: {path}")
+        print(f"Saving motion sequence: {path}")
 
     @classmethod
     def load(cls, path: str) -> "MotionSequence":
@@ -70,6 +68,8 @@ class MotionSequence:
         root_orient = d["root_orient"]
         rotations = d["rotations"]
         fps = d["fps"]
+
+        print(f"Loading motion sequence file: {path}. Total number of frames: {rotations.shape[0]}. FPS: {fps}")
 
         return cls(
             root_orient=root_orient,

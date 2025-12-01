@@ -6,24 +6,29 @@ from src.utils.rotation import axis_angle_to_quat
 from src.utils.skeleton import prune_joints
 from src.utils.transforms import global_aa_to_local_quat_batched
 
-from human_body_prior.body_model.body_model import BodyModel
 from tqdm import tqdm
 from typing import List, Tuple
 import numpy as np
+import torch
 
 class AMASSTAdapter(DataSourceAdapter):
     dataset_name = "amass"
     support_name = "body_models"
     joint_cutoff = 22 # Joints > 22 are hands, fingers, toes
+    head_idx = 15
+    foot_idx = 10
     """
     Adapter for AMASS dataset using the SMPL BodyModel.
     
-    Extracts skeleton topology, offsets, and other metadata.
+    Extracts skeleton topology, offsets, motion sequences, and other metadata.
     """
     
-    def __init__(self): super().__init__(self.dataset_name)
+    def __init__(self, device: torch.device = 'cpu'): super().__init__(self.dataset_name, device)
 
     def _post_init(self, character: str):
+        """ Initialize character specific BodyModel """
+        from human_body_prior.body_model.body_model import BodyModel
+
         character_dir = self.raw_dir / character
         character_skeleton = np.load(character_dir / "shape.npz")
         character_gender = character_skeleton["gender"]
@@ -87,10 +92,10 @@ class AMASSTAdapter(DataSourceAdapter):
         Extract and save skeleton metadata from a particular character.
         
         Args:
-            character: Character name as it exists in amass/raw.
+            character: character name as it exists in amass/raw.
         
         Returns:
-            SkeletonMetadata: A particular character's skeleton metadata.
+            SkeletonMetadata: topology, offsets, ee_idsor indices, and height.
         """
         self._post_init(character)
         
@@ -102,12 +107,12 @@ class AMASSTAdapter(DataSourceAdapter):
         offsets = prune_joints(offsets, self.joint_cutoff, exclude_root=True)
 
         topology = self._build_topology()
-        end_effectors = self._find_ee()
-        height = self._compute_height(offsets, 10, 15) #This is hard coded head and foot idxs.
+        ee_ids = self._find_ee()
+        height = self._compute_height(offsets)
 
         skeleton = SkeletonMetadata(topology=_to_numpy(topology),
                                     offsets=offsets,
-                                    end_effectors=_to_numpy(end_effectors),
+                                    ee_ids=_to_numpy(ee_ids),
                                     height=_to_numpy(height))
         skeleton.save(self.skeleton_dir / (str(character) + ".npz") )
 
@@ -118,10 +123,10 @@ class AMASSTAdapter(DataSourceAdapter):
         Extract and save all skeleton motion data for a particular character.
         
         Args:
-            character: Character name as it exists in amass/raw.
+            character: character name as it exists in amass/raw.
         
         Returns:
-            List[MotionSequence]: List of all motion sequences for a particular character. 
+            List[MotionSequence]: root orientations, quat rotations, fps. 
         """
         self._post_init(character)
 
@@ -130,6 +135,7 @@ class AMASSTAdapter(DataSourceAdapter):
         for npz_file in tqdm(self.motion_seqs, desc="Extracting motion sequences"):
             fname = npz_file.split('/')[-1]
             tqdm.write(f"Processing: {fname}")
+
             data = np.load(npz_file)
 
             pose_body = _to_torch(data["poses"], self.device)
@@ -160,6 +166,7 @@ class AMASSTAdapter(DataSourceAdapter):
         return sequences
     
     def _prune_kintree(self):
+        """ Removes joints from the kintree based outside of the joint_cutoff """
         parent = self.full_kintree[0]
         children = self.full_kintree[1]
 
@@ -178,6 +185,7 @@ class AMASSTAdapter(DataSourceAdapter):
         return kintree
     
     def _build_topology(self) -> List[Tuple[int]]:
+        """ Constructs the topology for a skeleton as (parent, child) joint tuples. """
         parent_kintree = self.pruned_kintree[0]
         
         # Build topology as (parent, child) joint tuples
@@ -189,6 +197,7 @@ class AMASSTAdapter(DataSourceAdapter):
         return topology
 
     def _find_ee(self):
+        """ Finds the skeleton's end effectors by traversiing the tree for leaf joints. """
         parent_kintree = self.pruned_kintree[0]
         children = {i: [] for i in range(len(parent_kintree))}
         for j, p in enumerate(parent_kintree):
@@ -198,17 +207,18 @@ class AMASSTAdapter(DataSourceAdapter):
         leaves = [j for j, c in children.items() if len(c) == 0]
         return leaves
 
-    def _compute_height(self, offset: np.ndarray, foot_idx: int, head_idx: int):
+    def _compute_height(self, offset: np.ndarray):
+        """ Computes the height by summing the size of each offset vector from the head to the feet. """
         # foot to pelvis
         h1 = 0.0
-        p = foot_idx
+        p = self.foot_idx
         while p != 0:
             h1 += np.linalg.norm(offset[p])
             p = self.parent_kintree[p]
 
         # pelvis to head
         h2 = 0.0
-        p = head_idx
+        p = self.head_idx
         while p != 0:
             h2 += np.linalg.norm(offset[p])
             p = self.parent_kintree[p]

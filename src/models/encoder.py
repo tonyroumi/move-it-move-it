@@ -1,6 +1,6 @@
-from skeletal_ops import SkeletalConv, SkeletalPooling, SkeletalLinear, PoolingInfo
+from skeletal_ops import SkeletalConv, SkeletalPooling, PoolingInfo
 
-from typing import Dict, List, Tuple, Optional, Any, Literal
+from typing import Dict, List, Tuple, Optional, Any
 
 import torch
 import torch.nn as nn

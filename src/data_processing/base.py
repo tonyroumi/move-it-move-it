@@ -1,12 +1,13 @@
 from .metadata import SkeletonMetadata, MotionSequence
+
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import List
 import torch
 
 class DataSourceAdapter(ABC):
     """Abstract base class for processing different motion capture data sources"""
-    def __init__(self, dataset_name: str):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, dataset_name: str, device: torch.device):
         root = Path(__file__).resolve().parent.parent.parent
 
         data_dir = root / "data"
@@ -21,6 +22,8 @@ class DataSourceAdapter(ABC):
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+        self.device = device
+
     @abstractmethod
     def download(self, **kwargs) -> None:
         """ Abstract method to download mocap data. """
@@ -32,6 +35,6 @@ class DataSourceAdapter(ABC):
         pass
     
     @abstractmethod
-    def extract_motion(self, file_path: str) -> MotionSequence:
+    def extract_motion(self, file_path: str) -> List[MotionSequence]:
         """ Abstract method to extract a sequence of motions """
         pass

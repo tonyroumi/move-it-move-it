@@ -13,7 +13,7 @@ def prune_joints(data: ArrayLike, cutoff: int, exclude_root: bool = True) -> Arr
     Returns:
         Pruned joint data.
 
-    NOTE: exclude_root assumes that joint 0 is the root joint. 
+    NOTE: assumes that joint 0 is the root joint. 
     """
     if _is_tensor(data):
         all_idx = torch.arange(cutoff, device=data.device)
