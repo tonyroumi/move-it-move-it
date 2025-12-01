@@ -83,5 +83,5 @@ class SkeletalEncoder(nn.Module):
         y = self.block2(y, offset=offset[1] if offset else None)
         intermediate_features.append(y)
 
-        return y, intermediate_features
+        return intermediate_features
     
