@@ -1,12 +1,11 @@
-from .encoder import SkeletalEncoder
 from .autoencoder import SkeletalAutoEncoder
 from .discriminator import SkeletalDiscriminator
+from .encoder import SkeletalEncoder
 
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, Any, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class SkeletalDomainModule(nn.Module):
     def __init__(
@@ -17,14 +16,13 @@ class SkeletalDomainModule(nn.Module):
         discriminator_params: Dict[str, Any],
     ):
         super().__init__()
-
         self.static_encoder = SkeletalEncoder(adj_init=topology['adj'],
                                               edge_init=topology['edges'],
                                               encoder_params=static_encoder_params)
-        
         self.auto_encoder = SkeletalAutoEncoder(adj_init=topology['adj'],
                                                 edge_init=topology['edges'],
                                                 auto_encoder_params=auto_encoder_params)
+        
         pooled_info = self.static_encoder.pooling_hierarchy
         self.discriminator = SkeletalDiscriminator(pooled_info=pooled_info,
                                                    discriminator_params=discriminator_params)
@@ -56,10 +54,7 @@ class SkeletalGAN(nn.Module):
         topologies: Tuple[Dict[str, Any], Dict[str, Any]],
         gan_params: Dict[str, Any],
     ):
-        super().__init__()
-        
-        self.logger = logger
-        
+        super().__init__()        
         self.topology_A, self.topology_B = topologies
         
         self.domain_A = SkeletalDomainModule(self.topology_A, **gan_params)
@@ -93,7 +88,7 @@ class SkeletalGAN(nn.Module):
         """ Decode latent motion for a given domain. """
         return self.domains[domain].decode_latent_motion(latent, offsets)
 
-    def encode_motion_in_domain(
+    def encode_motion(
         self,
         domain: str,
         motion: torch.Tensor,
@@ -102,7 +97,7 @@ class SkeletalGAN(nn.Module):
         """Encode motion into latent representation for a given domain. """
         return self.domains[domain].encode_motion(motion, offsets)
     
-    def discriminate_motion(
+    def discriminate(
         self,
         domain: str,
         motion: torch.Tensor,
@@ -110,5 +105,3 @@ class SkeletalGAN(nn.Module):
     ):
         """ Evaluate the discriminator for a given domain. """
         return self.domains[domain].discriminate_motion(motion, offsets)
-
-
