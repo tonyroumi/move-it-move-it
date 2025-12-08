@@ -26,7 +26,7 @@ def global_aa_to_local_quat(
     
     # Convert to numpy for scipy operations
     aa_np = _to_numpy(axis_angles)
-    parents_np =_to_numpy(parent_kintree)
+    parent_kintree =_to_numpy(parent_kintree)
 
     # Convert axis-angles to rotation matrices
     Rmats = axis_angle_to_matrix(aa_np)
@@ -37,7 +37,7 @@ def global_aa_to_local_quat(
     local_quats = []
     
     for i in range(start_idx, num_joints):
-        parent_idx = parents_np[i]
+        parent_idx = parent_kintree[i]
         
         # Get parent and child rotation matrices
         R_parent = Rmats[parent_idx]

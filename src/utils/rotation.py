@@ -17,7 +17,7 @@ def axis_angle_to_quat(axis_angles: ArrayLike, return_torch: bool = False, devic
     return _to_torch(out, device) if return_torch else out
 
 
-def axis_angle_to_matrix(axis_angles: ArrayLike, return_torch: bool = False, device: torch.device = None):
+def axis_angle_to_rotmat(axis_angles: ArrayLike, return_torch: bool = False, device: torch.device = None):
     """
     Convert axis-angle representations to rotation matrices.
     
