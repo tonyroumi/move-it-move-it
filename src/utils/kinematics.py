@@ -1,10 +1,11 @@
+from pickletools import int4
 import torch
 
 from typing import List, Tuple
 
 class ForwardKinematics:
    def __init__(self, topology: List[Tuple[int]]):
-      self.topology = topology
+      self.topology = torch.tensor(topology, dtype=torch.int64).tolist()
 
    def forward(
       self,
@@ -34,34 +35,32 @@ class ForwardKinematics:
         added_batch = True
 
     *batch_dims, J, _ = quaternions.shape
-
+    
     P = torch.zeros(*batch_dims, J, 3, device=quaternions.device)
     R = torch.zeros(*batch_dims, J, 3, 3, device=quaternions.device)
 
-    R[..., 0] = torch.eye(3, device=quaternions.device)
-    P[..., 0] = root_pos
+    P[..., 0, :] = root_pos
 
     rotmats = self.quat_to_rotmat(quaternions)
 
-    for joint, parent in enumerate(self.topology, start=1):
+    for (parent, joint) in self.topology:
 
-        R[..., joint] = R[..., parent] @ rotmats[..., joint]
+        R[..., joint,: ,:] = R[..., parent, :, :] @ rotmats[..., joint, :, :]
 
-        local_pos = (R[..., parent] @ offsets[..., joint].unsqueeze(-1)).squeeze(-1)
+        local_pos = (R[..., parent, :, :] @ offsets[:, joint, None, :, None]).squeeze(-1)
 
-        if world:
-            P[..., joint] = P[..., parent] + local_pos
-        else:
-            P[..., joint] = local_pos
+        # if world:
+        #     P[..., joint] = P[..., parent] + local_pos.unsqueeze(-2)
+        # else:
+        P[..., joint, :] = local_pos
 
     if added_batch:
         P = P.squeeze(0)
 
     return P
 
-   @classmethod
-   def quat_to_rotmat(quaternions: torch.Tensor) -> torch.Tensor:
-    """
+   def quat_to_rotmat(self, quaternions: torch.Tensor, pad_root: bool = True) -> torch.Tensor:
+    """     
     Convert quaternions to rotation matrices.
 
     Args:
