@@ -1,4 +1,4 @@
-from .rotation import axis_angle_to_matrix, matrix_to_quat
+from .rotation import axis_angle_to_rotmat, matrix_to_quat
 from .data import ArrayLike, _is_tensor, _to_torch, _to_numpy
 
 from typing import Union, List
@@ -29,7 +29,7 @@ def global_aa_to_local_quat(
     parent_kintree =_to_numpy(parent_kintree)
 
     # Convert axis-angles to rotation matrices
-    Rmats = axis_angle_to_matrix(aa_np)
+    Rmats = axis_angle_to_rotmat(aa_np)
     
     start_idx = 0 if include_root else 1
     num_joints = len(axis_angles)
@@ -60,7 +60,6 @@ def global_aa_to_local_quat(
 def global_aa_to_local_quat_batched(
     axis_angles: ArrayLike,
     parent_kintree: Union[np.ndarray, list],
-    include_root: bool = False
 ) -> ArrayLike:
     """
     Batched conversion of global axis-angle rotations to local quaternions.
@@ -80,17 +79,15 @@ def global_aa_to_local_quat_batched(
     parent_kintree = _to_numpy(parent_kintree)         # (J,)
     T, J, _ = aa.shape
 
-    # Convert all global AA → rotation matrices in one call
     # result: (T*J, 3, 3)
-    R_global = axis_angle_to_matrix(aa.reshape(-1, 3))
+    R_global = axis_angle_to_rotmat(aa.reshape(-1, 3))
     R_global = R_global.reshape(T, J, 3, 3)
 
     local_quats = []
 
-    start = 0 if include_root else 1
-    local_quats = np.zeros((T, J-start, 4), dtype=np.float32)
+    local_quats = np.zeros((T, J, 4), dtype=np.float32)
 
-    for j in range(start, J):
+    for j in range(J):
         p = parent_kintree[j]
 
         # R_rel = R_parent^T * R_child
@@ -102,7 +99,7 @@ def global_aa_to_local_quat_batched(
         # Convert batch of R_rel to quats
         q_rel = matrix_to_quat(R_rel)      # (T, 4)
 
-        local_quats[:,j-start] = q_rel
+        local_quats[:,j] = q_rel
 
     result = local_quats
     if is_tensor:
