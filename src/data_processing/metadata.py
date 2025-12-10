@@ -7,6 +7,7 @@ class SkeletonMetadata:
     offsets: np.ndarray
     ee_ids: np.ndarray
     height: np.ndarray
+    kintree: np.ndarray
 
     def save(self, path: str):
         """
@@ -18,6 +19,7 @@ class SkeletonMetadata:
             offsets=self.offsets,
             ee_ids=self.ee_ids,
             height=self.height,
+            kintree=self.kintree,
         )
         print(f"Saving motion sequence: {path}")
 
@@ -32,17 +34,18 @@ class SkeletonMetadata:
         offsets = d["offsets"]
         ee_ids = d["ee_ids"]
         height = d["height"]
-
+        kintree = d["kintree"]
         return cls(
             topology=topology,
             offsets=offsets,
             ee_ids=ee_ids,
             height=height,
+            kintree=kintree,
         )
 
 @dataclass
 class MotionSequence:
-    root_orient: np.ndarray
+    positions: np.ndarray
     rotations: np.ndarray
     fps: float = 60
 
@@ -52,11 +55,11 @@ class MotionSequence:
         """
         np.savez_compressed(
             path,
-            root_orient=self.root_orient,
+            positions=self.positions,
             rotations=self.rotations,
             fps=self.fps,
         )
-        print(f"Saving motion sequence: {path}")
+        print(f"Saved motion sequence: {path}")
 
     @classmethod
     def load(cls, path: str) -> "MotionSequence":
@@ -65,14 +68,14 @@ class MotionSequence:
         """
         d = np.load(path, allow_pickle=False)
 
-        root_orient = d["root_orient"]
+        positions = d["positions"]
         rotations = d["rotations"]
         fps = d["fps"]
 
-        print(f"Loading motion sequence file: {path}. Total number of frames: {rotations.shape[0]}. FPS: {fps}")
+        print(f"Loaded motion sequence file: {path}. Total number of frames: {rotations.shape[0]}. FPS: {fps}")
 
         return cls(
-            root_orient=root_orient,
+            positions=positions,
             rotations=rotations,
             fps=fps,
         )

@@ -12,18 +12,18 @@ import numpy as np
 import torch
 
 class AMASSTAdapter(DataSourceAdapter):
-    dataset_name = "amass"
-    support_name = "body_models"
-    joint_cutoff = 22 # Joints > 22 are hands, fingers, toes
-    head_idx = 15
-    foot_idx = 10
+    DATASET_NAME = "amass"
+    SUPPORT_NAME = "body_models"
+    JOINT_CUTOFF = 22 # Joints > 21 are hands, fingers, toes.
+    HEAD_IDX = 15
+    FOOT_IDX = 10
     """
     Adapter for AMASS dataset using the SMPL BodyModel.
     
     Extracts skeleton topology, offsets, motion sequences, and other metadata.
     """
     
-    def __init__(self, device: torch.device = 'cpu'): super().__init__(self.dataset_name, device)
+    def __init__(self, device: torch.device = 'cpu'): super().__init__(self.DATASET_NAME, device)
 
     def _post_init(self, character: str):
         """ Initialize character specific BodyModel """
@@ -42,7 +42,7 @@ class AMASSTAdapter(DataSourceAdapter):
         num_betas = len(character_betas)
         self.betas = _to_torch(character_betas, self.device)
 
-        bm_path = str(self.dataset_dir / self.support_name / character_gender / "model.npz")
+        bm_path = str(self.dataset_dir / self.SUPPORT_NAME / character_gender / "model.npz")
         self.body_model = BodyModel(bm_path, num_betas=num_betas).to(self.device)  
 
         self.full_kintree = self.body_model.kintree_table
@@ -104,7 +104,7 @@ class AMASSTAdapter(DataSourceAdapter):
         J0 = body.Jtr[0] # T pose
         offsets = J0 - J0[self.parent_kintree]
 
-        offsets = prune_joints(offsets, self.joint_cutoff, exclude_root=True)
+        offsets = prune_joints(offsets, self.JOINT_CUTOFF)
 
         topology = self._build_topology()
         ee_ids = self._find_ee()
@@ -113,7 +113,8 @@ class AMASSTAdapter(DataSourceAdapter):
         skeleton = SkeletonMetadata(topology=_to_numpy(topology),
                                     offsets=offsets,
                                     ee_ids=_to_numpy(ee_ids),
-                                    height=_to_numpy(height))
+                                    height=_to_numpy(height),
+                                    kintree=_to_numpy(self.pruned_kintree))
         skeleton.save(self.skeleton_dir / (str(character) + ".npz") )
 
         return skeleton
@@ -142,23 +143,23 @@ class AMASSTAdapter(DataSourceAdapter):
             trans = _to_torch(data["trans"], self.device)
             
             out = self.body_model(
-                root_orient = pose_body[:,0:3],
+                root_orient=pose_body[:,0:3],
                 pose_body=pose_body[:,3:66],
                 trans=trans,
                 betas=self.betas.unsqueeze(0)
             )
 
             aa = out.full_pose.reshape(-1, self.num_joints, 3)
-            aa = prune_joints(aa, cutoff=self.joint_cutoff, exclude_root=True)
-            quat_rotations = global_aa_to_local_quat_batched(aa, self.parent_kintree, include_root=False)
+            aa = prune_joints(aa, cutoff=self.JOINT_CUTOFF)
+            quat_rotations = global_aa_to_local_quat_batched(aa, self.parent_kintree)
 
-            root_pos = out.Jtr[:, 0]                              # [T, 3]
-            root_quat = axis_angle_to_quat(out.full_pose[:, :3])  # [T, 4]
-            root_global = np.concatenate([root_pos, root_quat], axis=-1)
+            positions = out.Jtr                            # [T, 3]
 
-            motion_sequence = MotionSequence(root_orient=_to_numpy(root_global),
+            #TODO(anthony) save contacts
+
+            motion_sequence = MotionSequence(positions=_to_numpy(positions),
                                              rotations=_to_numpy(quat_rotations),
-                                             fps=_to_numpy(data['mocap_framerate']))
+                                             fps=_to_numpy(data['mocap_framerate']),)
             motion_sequence.save(self.cache_dir / character / fname)
 
             sequences.append(motion_sequence)
@@ -170,14 +171,14 @@ class AMASSTAdapter(DataSourceAdapter):
         parent = self.full_kintree[0]
         children = self.full_kintree[1]
 
-        pruned_parent   = [p if p <= self.joint_cutoff else -1 for p in parent]
-        pruned_children = [c if c <= self.joint_cutoff else -1 for c in children]
+        pruned_parent   = [p if p <= self.JOINT_CUTOFF else -1 for p in parent]
+        pruned_children = [c if c <= self.JOINT_CUTOFF else -1 for c in children]
 
         # Remove (-1,-1) pairs
         out_parent = []
         out_child  = []
         for j, (p, c) in enumerate(zip(pruned_parent, pruned_children)):
-            if not (p == -1 and c == -1) and j < 22:
+            if (p != -1 and c != -1) and j < 22:
                 out_parent.append(p)
                 out_child.append(c)
         kintree = np.vstack([out_parent, out_child])
@@ -190,8 +191,7 @@ class AMASSTAdapter(DataSourceAdapter):
         
         # Build topology as (parent, child) joint tuples
         topology = []
-        for child_idx in range(1, len(parent_kintree)):  # skip root
-            parent_idx = parent_kintree[child_idx]
+        for child_idx, parent_idx in enumerate(parent_kintree, start=1):  # skip root
             topology.append((int(parent_idx), int(child_idx)))
 
         return topology
@@ -211,14 +211,14 @@ class AMASSTAdapter(DataSourceAdapter):
         """ Computes the height by summing the size of each offset vector from the head to the feet. """
         # foot to pelvis
         h1 = 0.0
-        p = self.foot_idx
+        p = self.FOOT_IDX
         while p != 0:
             h1 += np.linalg.norm(offset[p])
             p = self.parent_kintree[p]
 
         # pelvis to head
         h2 = 0.0
-        p = self.head_idx
+        p = self.HEAD_IDX
         while p != 0:
             h2 += np.linalg.norm(offset[p])
             p = self.parent_kintree[p]
