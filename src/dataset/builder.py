@@ -19,6 +19,7 @@ class MotionDatasetBuilder:
 
         self.window_size = data_config['window_size']
         self.downsample_fps = data_config['downsample_fps']
+        self.include_root_quat = data_config['include_root_quat']
 
         self.device = device
 
@@ -71,9 +72,12 @@ class MotionDatasetBuilder:
     def _process_motion_sequence(self, motion: MotionSequence):
         # T x (J*4)
         rotations = motion.rotations.reshape(motion.rotations.shape[0], -1)
-        root_orient = motion.root_orient
+        if not self.include_root_quat:
+            rotations = rotations[:, 4:]
+                        
+        root_pos = motion.positions[:,0]
 
-        full_motion = np.hstack([root_orient, rotations])
+        full_motion = np.hstack([root_pos, rotations])
         full_motion = self._downsample(motion=full_motion, fps_in=motion.fps)
 
         # window into [num_windows, window_size, feature_dim]
