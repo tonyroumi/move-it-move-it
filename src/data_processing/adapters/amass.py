@@ -2,7 +2,7 @@ from ..base import DataSourceAdapter
 from ..metadata import SkeletonMetadata, MotionSequence
 
 from src.utils.data import _to_torch, _to_numpy
-from src.utils.rotation import axis_angle_to_quat
+from src.utils.rotation import aa_to_quat
 from src.utils.skeleton import prune_joints
 from src.utils.transforms import global_aa_to_local_quat_batched
 
@@ -111,7 +111,7 @@ class AMASSTAdapter(DataSourceAdapter):
         height = self._compute_height(offsets)
 
         skeleton = SkeletonMetadata(topology=_to_numpy(topology),
-                                    offsets=offsets,
+                                    offsets=_to_numpy(offsets),
                                     ee_ids=_to_numpy(ee_ids),
                                     height=_to_numpy(height),
                                     kintree=_to_numpy(self.pruned_kintree))
@@ -150,10 +150,12 @@ class AMASSTAdapter(DataSourceAdapter):
             )
 
             aa = out.full_pose.reshape(-1, self.num_joints, 3)
-            aa = prune_joints(aa, cutoff=self.JOINT_CUTOFF)
-            quat_rotations = global_aa_to_local_quat_batched(aa, self.parent_kintree)
+            quat_rotations = aa_to_quat(aa.reshape(-1, 3))
+            quat_rotations = quat_rotations.reshape(-1, self.num_joints, 4)
+            quat_rotations = prune_joints(quat_rotations, cutoff=self.JOINT_CUTOFF)
 
             positions = out.Jtr                            # [T, 3]
+            positions = prune_joints(positions, cutoff=self.JOINT_CUTOFF)
 
             #TODO(anthony) save contacts
 
