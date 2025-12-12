@@ -1,4 +1,6 @@
-""" MotionDataset builder to construct MotionDataset for a single motion domain. """
+"""
+MotionDataset builder to construct MotionDataset for a single motion domain.
+"""
 
 from src.data_processing import DataSourceAdapter
 from src.data_processing import SkeletonMetadata, MotionSequence
