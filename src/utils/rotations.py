@@ -1,4 +1,4 @@
-from .data import ArrayLike, ArrayUtils
+from .array import ArrayLike, ArrayUtils
 
 from scipy.spatial.transform import Rotation as R
 import torch

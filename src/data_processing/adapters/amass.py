@@ -95,7 +95,7 @@ class AMASSTAdapter(DataSourceAdapter):
         J0 = body.Jtr[0] # T pose
         offsets = J0 - J0[self.parent_kintree]
 
-        offsets = JointUtils.prune_joints(offsets, self.JOINT_CUTOFF)
+        offsets = JointUtils.prune_joints(offsets, self.JOINT_CUTOFF, discard_root=True)
 
         topology = self._build_topology()
         ee_ids = self._find_ee()
@@ -163,7 +163,7 @@ class AMASSTAdapter(DataSourceAdapter):
         out_parent = []
         out_child  = []
         for j, (p, c) in enumerate(zip(pruned_parent, pruned_children)):
-            if (p != -1 and c != -1) and j < 22:
+            if (j == 0 or (p != -1 and c != -1)) and j < 22:
                 out_parent.append(p)
                 out_child.append(c)
         kintree = np.vstack([out_parent, out_child])
@@ -176,7 +176,7 @@ class AMASSTAdapter(DataSourceAdapter):
         
         # Build topology as (parent, child) joint tuples
         topology = []
-        for child_idx, parent_idx in enumerate(parent_kintree, start=1):  # skip root
+        for child_idx, parent_idx in enumerate(parent_kintree[1:], start=1):  # skip root
             topology.append((int(parent_idx), int(child_idx)))
 
         return topology

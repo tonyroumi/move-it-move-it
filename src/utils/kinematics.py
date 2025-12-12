@@ -24,7 +24,7 @@ class ForwardKinematics:
         
         for (parent, joint) in topology:
             R[:, joint, :, :] = R[:, parent, :, :] @ rotmats[:, joint, :, :] 
-            local_pos = ( R[:, parent, :, :] @ offsets[joint, :, None] ).squeeze(-1) 
+            local_pos = ( R[:, parent, :, :] @ offsets[joint-1, :, None] ).squeeze(-1) 
             
             P[:, joint, :] = P[:, parent, :] + local_pos 
         
@@ -50,7 +50,7 @@ class ForwardKinematics:
         
         for (parent, joint) in topology: 
             R[:, :, joint, :, :] = R[:, :, parent, :, :] @ rotmats[:, :, joint, :, :] 
-            local_pos = ( R[:, :, parent, :, :] @ offsets[joint, :, None] ).squeeze(-1) 
+            local_pos = ( R[:, :, parent, :, :] @ offsets[joint-1, :, None] ).squeeze(-1) 
             
             P[:, :, joint, :] = P[:, :, parent, :] + local_pos 
         return P
