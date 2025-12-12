@@ -1,10 +1,13 @@
+"""
+Adapter for AMASS dataset using the SMPL BodyModel.
+    
+Extracts skeleton topology, offsets, motion sequences, and other metadata.
+"""
+
 from ..base import DataSourceAdapter
 from ..metadata import SkeletonMetadata, MotionSequence
 
-from src.utils.data import _to_torch, _to_numpy
-from src.utils.rotation import aa_to_quat
-from src.utils.skeleton import prune_joints
-from src.utils.transforms import global_aa_to_local_quat_batched
+from src.utils import ArrayUtils, RotationUtils, JointUtils
 
 from tqdm import tqdm
 from typing import List, Tuple
@@ -17,12 +20,7 @@ class AMASSTAdapter(DataSourceAdapter):
     JOINT_CUTOFF = 22 # Joints > 21 are hands, fingers, toes.
     HEAD_IDX = 15
     FOOT_IDX = 10
-    """
-    Adapter for AMASS dataset using the SMPL BodyModel.
-    
-    Extracts skeleton topology, offsets, motion sequences, and other metadata.
-    """
-    
+
     def __init__(self, device: torch.device = 'cpu'): super().__init__(self.DATASET_NAME, device)
 
     def _post_init(self, character: str):
@@ -40,7 +38,7 @@ class AMASSTAdapter(DataSourceAdapter):
         self.motion_seqs = [str(f) for f in character_dir.glob("*.npz") if f.name != "shape.npz"]
 
         num_betas = len(character_betas)
-        self.betas = _to_torch(character_betas, self.device)
+        self.betas = ArrayUtils.to_torch(character_betas, self.device)
 
         bm_path = str(self.dataset_dir / self.SUPPORT_NAME / character_gender / "model.npz")
         self.body_model = BodyModel(bm_path, num_betas=num_betas).to(self.device)  
@@ -88,15 +86,8 @@ class AMASSTAdapter(DataSourceAdapter):
         print("=" * 70)
     
     def extract_skeleton(self, character: str) -> SkeletonMetadata:
-        """
-        Extract and save skeleton metadata from a particular character.
-        
-        Args:
-            character: character name as it exists in amass/raw.
-        
-        Returns:
-            SkeletonMetadata: topology, offsets, ee_idsor indices, and height.
-        """
+        """ Extract and save skeleton metadata from a particular character. """
+
         self._post_init(character)
         
         body = self.body_model(betas=self.betas.unsqueeze(0)) # BodyModel expects shape [1, num_betas]
@@ -104,31 +95,23 @@ class AMASSTAdapter(DataSourceAdapter):
         J0 = body.Jtr[0] # T pose
         offsets = J0 - J0[self.parent_kintree]
 
-        offsets = prune_joints(offsets, self.JOINT_CUTOFF)
+        offsets = JointUtils.prune_joints(offsets, self.JOINT_CUTOFF)
 
         topology = self._build_topology()
         ee_ids = self._find_ee()
         height = self._compute_height(offsets)
 
-        skeleton = SkeletonMetadata(topology=_to_numpy(topology),
-                                    offsets=_to_numpy(offsets),
-                                    ee_ids=_to_numpy(ee_ids),
-                                    height=_to_numpy(height),
-                                    kintree=_to_numpy(self.pruned_kintree))
+        skeleton = SkeletonMetadata(topology=ArrayUtils.to_numpy(topology),
+                                    offsets=ArrayUtils.to_numpy(offsets),
+                                    ee_ids=ArrayUtils.to_numpy(ee_ids),
+                                    height=ArrayUtils.to_numpy(height),
+                                    kintree=ArrayUtils.to_numpy(self.pruned_kintree))
         skeleton.save(self.skeleton_dir / (str(character) + ".npz") )
 
         return skeleton
 
     def extract_motion(self, character: str) -> List[MotionSequence]:
-        """
-        Extract and save all skeleton motion data for a particular character.
-        
-        Args:
-            character: character name as it exists in amass/raw.
-        
-        Returns:
-            List[MotionSequence]: root orientations, quat rotations, fps. 
-        """
+        """ Extract and save all skeleton motion data for a particular character. """
         self._post_init(character)
 
         sequences : List[MotionSequence] = []
@@ -139,8 +122,8 @@ class AMASSTAdapter(DataSourceAdapter):
 
             data = np.load(npz_file)
 
-            pose_body = _to_torch(data["poses"], self.device)
-            trans = _to_torch(data["trans"], self.device)
+            pose_body = ArrayUtils.to_torch(data["poses"], self.device)
+            trans = ArrayUtils.to_torch(data["trans"], self.device)
             
             out = self.body_model(
                 root_orient=pose_body[:,0:3],
@@ -150,18 +133,18 @@ class AMASSTAdapter(DataSourceAdapter):
             )
 
             aa = out.full_pose.reshape(-1, self.num_joints, 3)
-            quat_rotations = aa_to_quat(aa.reshape(-1, 3))
+            quat_rotations = RotationUtils.aa_to_quat(aa.reshape(-1, 3))
             quat_rotations = quat_rotations.reshape(-1, self.num_joints, 4)
-            quat_rotations = prune_joints(quat_rotations, cutoff=self.JOINT_CUTOFF)
+            quat_rotations = JointUtils.prune_joints(quat_rotations, cutoff=self.JOINT_CUTOFF)
 
             positions = out.Jtr                            # [T, 3]
-            positions = prune_joints(positions, cutoff=self.JOINT_CUTOFF)
+            positions = JointUtils.prune_joints(positions, cutoff=self.JOINT_CUTOFF)
 
             #TODO(anthony) save contacts
 
-            motion_sequence = MotionSequence(positions=_to_numpy(positions),
-                                             rotations=_to_numpy(quat_rotations),
-                                             fps=_to_numpy(data['mocap_framerate']),)
+            motion_sequence = MotionSequence(positions=ArrayUtils.to_numpy(positions),
+                                             rotations=ArrayUtils.to_numpy(quat_rotations),
+                                             fps=ArrayUtils.to_numpy(data['mocap_framerate']),)
             motion_sequence.save(self.cache_dir / character / fname)
 
             sequences.append(motion_sequence)
@@ -169,7 +152,7 @@ class AMASSTAdapter(DataSourceAdapter):
         return sequences
     
     def _prune_kintree(self):
-        """ Removes joints from the kintree based outside of the joint_cutoff """
+        """ Removes joints from the kintree outside of the joint_cutoff """
         parent = self.full_kintree[0]
         children = self.full_kintree[1]
 
@@ -199,7 +182,7 @@ class AMASSTAdapter(DataSourceAdapter):
         return topology
 
     def _find_ee(self):
-        """ Finds the skeleton's end effectors by traversiing the tree for leaf joints. """
+        """ Finds the skeleton's end effectors by traversing the tree for leaf joints. """
         parent_kintree = self.pruned_kintree[0]
         children = {i: [] for i in range(len(parent_kintree))}
         for j, p in enumerate(parent_kintree):

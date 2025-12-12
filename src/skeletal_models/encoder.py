@@ -6,10 +6,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class SkeletalEncBlock(nn.Module):
     """
-    One block: SkeletalConv -> LeakyReLU -> Optional[AvgPooling]
+    One skeletal encoder block: SkeletalConv -> Optiional[AvgPooling] -> LeakyReLU
     """
     def __init__(
         self,

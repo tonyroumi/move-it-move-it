@@ -7,10 +7,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class SkeletalDecBlock(nn.Module):
     """
-    One decoder block : UpS -> SkeletalUnpool -> SkeletalConv -> Optional[LeakyReLU]
+    One skeletal decoder block : UpS -> SkeletalUnpool -> SkeletalConv -> Optional[LeakyReLU]
     """
     def __init__(
         self,
@@ -32,7 +31,6 @@ class SkeletalDecBlock(nn.Module):
         y = self.conv(y, offset)
         y = self.act(y)
         return y
-
 
 class SkeletalDecoder(nn.Module):
     def __init__(

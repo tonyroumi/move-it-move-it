@@ -8,7 +8,6 @@ class SkeletalUnpool(nn.Module):
     """
     Skeletal unpooling layer.
     """
-
     def __init__(
         self,
         pooled_edges: List[List[int]],

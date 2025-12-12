@@ -1,22 +1,35 @@
-from .builder import MotionDatasetBuilder
-from .normalization import NormalizationStats
+"""
+Normalization and torch dataset classes for single and cross motion domains.
+"""
 
+from .builder import MotionDatasetBuilder
+
+from dataclasses import dataclass
 from torch.utils.data import Dataset
 from typing import List
 import torch
+
+@dataclass
+class NormalizationStats:
+    mean: torch.Tensor
+    var: torch.Tensor
+
+    def norm(self, x: torch.Tensor):
+        idx = self.var < 1e-5 # Don't clip tiny variances
+        self.var[idx] = 1
+        return (x - self.mean) / (self.var)
+
+    def denorm(self, x):
+        return x * self.var + self.mean
 
 class MotionDataset(Dataset):
     """
     Represents all motion for a motion domain where all characters share the same topology
     and end-effectors.
 
-    Each sample contains:
-
-        motion: Windowed motion from all characters in the dataset.
-        offsets: Offsets of only the characters in the motion dataset stacked for batch size.
-        height: Heights of only the characters in the motion dataset stacked for batch size. 
+    __getitem__ returns:
+        motion, offsets, height
     """
-
     def __init__(
         self,
         name: str,
@@ -89,7 +102,12 @@ class MotionDataset(Dataset):
         return self.samples[idx], meta["offsets"], meta["height"]
 
 class CrossDomainMotionDataset(Dataset):
-    """ Combines two MotionDataset instances for two different motion domains. """
+    """ 
+    Combines two MotionDataset instances for two different motion domains.
+    
+    __getitem__ returns:
+        MotionDatasetA, MotionDatasetB
+    """
     def __init__(
         self,
         domain_A: MotionDataset,

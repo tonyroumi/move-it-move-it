@@ -1,3 +1,7 @@
+"""
+Base class for skeletal linear and pooling operations.
+"""
+
 from typing import List
 
 import math
@@ -7,19 +11,17 @@ import torch.nn.functional as F
 
 
 class SkeletalBase(nn.Module):
-    """
-    Base class for skeletal linear and pooling operations.
-
-    We represent the skeleton as an adjacency list where each index contains neighbor edges
-    up to a certain distance d. The weight matrix is built to mirror this adjacency structure 
-    but expanded across channel dimensions. 
-    """
     def __init__(
         self,
         adj_list: List[List[int]],
         in_channels_per_joint: int,
         out_channels_per_joint: int
     ):
+       """
+       We represent the skeleton as an adjacency list where each index contains neighbor edges
+       up to a certain distance d. The weight matrix is built to mirror this adjacency structure 
+       but expanded across channel dimensions. 
+       """
        super().__init__()
        self.adj = adj_list
        self.E = len(self.adj)

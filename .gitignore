@@ -1,5 +1,4 @@
 __pycache__/
-amass_vis_out
-motion_data
 .vscode
-data
+*.mp4
+*.png

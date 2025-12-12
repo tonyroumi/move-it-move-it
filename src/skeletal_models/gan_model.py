@@ -1,6 +1,11 @@
+"""
+Skeletal GAN for unpaired motion translation from one motion domain to another. 
+"""
+
 from .autoencoder import SkeletalAutoEncoder
 from .discriminator import SkeletalDiscriminator
 from .encoder import SkeletalEncoder
+from src.utils.kinematics import ForwardKinematics
 
 from typing import Dict, Any, Tuple
 
@@ -10,12 +15,16 @@ import torch.nn as nn
 class SkeletalDomainModule(nn.Module):
     def __init__(
         self,
+        name: str,
         topology: Dict[str, Any],
         static_encoder_params: Dict[str, Any],
         auto_encoder_params: Dict[str, Any],
         discriminator_params: Dict[str, Any],
     ):
         super().__init__()
+        self.name = name
+        self.topology = topology
+
         self.static_encoder = SkeletalEncoder(adj_init=topology['adj'],
                                               edge_init=topology['edges'],
                                               encoder_params=static_encoder_params)
@@ -26,6 +35,10 @@ class SkeletalDomainModule(nn.Module):
         pooled_info = self.static_encoder.pooling_hierarchy
         self.discriminator = SkeletalDiscriminator(pooled_info=pooled_info,
                                                    discriminator_params=discriminator_params)
+        self.fk = ForwardKinematics(topology=topology)
+    
+    def forward_kinematics(self, quaternions: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
+        return ForwardKinematics.forward(quaternions, offsets=offsets, root_pos=quaternions[:, :, 0], topology=self.topology) #TODO(anthony) make sure we are passing root correctly
         
     def generator_parameters(self):
         return list(self.auto_encoder.parameters()) + list(self.static_encoder.parameters())
@@ -40,10 +53,10 @@ class SkeletalDomainModule(nn.Module):
         return self.auto_encoder(motion, offset)
     
     def encode_motion(self, reconstructed: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
-        return self.auto_encoder.encoder(reconstructed, offset)
+        return self.auto_encoder.encoder(reconstructed, offset=offset)
     
     def decode_latent_motion(self, latent_representation: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
-        return self.auto_encoder.decoder(latent_representation, offset)
+        return self.auto_encoder.decoder(latent_representation, offset=offset)
     
     def discriminate_motion(self, motion: torch.Tensor) -> torch.Tensor:
         return self.discriminator(motion)

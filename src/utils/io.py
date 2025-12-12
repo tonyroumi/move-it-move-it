@@ -1,10 +1,15 @@
 import json
 import yaml
 
-def load_yaml(path):
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+class DataUtils:
+    """ Lightweight data-loading utilities. """
 
-def load_json(path):
-    with open(path, "r") as f:
-        return json.load(f)
+    @staticmethod
+    def load_yaml(path):
+        with open(path, "r") as f:
+            return yaml.safe_load(f)
+
+    @staticmethod
+    def load_json(path):
+        with open(path, "r") as f:
+            return json.load(f)

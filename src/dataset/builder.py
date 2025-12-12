@@ -1,13 +1,14 @@
+""" MotionDataset builder to construct MotionDataset for a single motion domain. """
+
 from src.data_processing import DataSourceAdapter
 from src.data_processing import SkeletonMetadata, MotionSequence
-from src.utils.data import _to_torch
+from src.utils.data import ArrayUtils
 
 from typing import Any, Dict
 import numpy as np
 import torch
 
 class MotionDatasetBuilder:
-    """ MotionDataset builder to construct MotionDataset for a single motion domain. """
     def __init__(
         self, 
         adapter: DataSourceAdapter, 
@@ -24,7 +25,12 @@ class MotionDatasetBuilder:
         self.device = device
 
     def get_or_process(self, character: str):
-        """ Load or generate all motion data and skeleton metadata for a given character. """ 
+        """ 
+        Load or generate all skeleton metadata and motion data for a given character. 
+        
+        Raises:
+            FileNotFoundError: If no raw files exist for provided character.
+        """ 
         cache_path = (
             self.adapter.cache_dir / character
         )
@@ -63,14 +69,14 @@ class MotionDatasetBuilder:
         windowed_motion = [self._process_motion_sequence(m) for m in motions]
         all_windowed_motion = np.vstack(windowed_motion)
 
-        return (_to_torch(all_windowed_motion, self.device),
-                _to_torch(offsets, self.device),
-                _to_torch(topology, self.device),
-                _to_torch(ee_ids, self.device),
-                _to_torch(height, self.device))
+        return (ArrayUtils.to_torch(all_windowed_motion, self.device),
+                ArrayUtils.to_torch(offsets, self.device),
+                ArrayUtils.to_torch(topology, self.device),
+                ArrayUtils.to_torch(ee_ids, self.device),
+                ArrayUtils.to_torch(height, self.device))
     
     def _process_motion_sequence(self, motion: MotionSequence):
-        # T x (J*4)
+        """ Downsample and break up motion data into fixed size windows """
         rotations = motion.rotations.reshape(motion.rotations.shape[0], -1)
         if not self.include_root_quat:
             rotations = rotations[:, 4:]
@@ -91,7 +97,7 @@ class MotionDatasetBuilder:
 
     def _get_windows(self, motion: np.ndarray):
         """ 
-        Slice a motion array of shape [T, J*4+7] into windows of shape [window_size, J*4+7].
+        Slice a motion array of shape [T, J*4+3] into windows of shape [window_size, J*4+3].
 
         Returns:
           [num_windows, window_size, J*4+7].
