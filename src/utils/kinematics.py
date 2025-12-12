@@ -8,70 +8,96 @@ class ForwardKinematics:
       self.topology = torch.tensor(topology, dtype=torch.int64).tolist()
 
    def forward(
-      self,
-      quaternions: torch.Tensor,
-      offsets: torch.Tensor,
-      root_pos: torch.Tensor,
-      world: bool = False
+    self,
+    quaternions: torch.Tensor,
+    offsets: torch.Tensor,
+    root_pos: torch.Tensor,
+    world: bool = False
+    ):
+        """
+        Forward kinematics for unbatched quaternion data.
+
+        Args:
+            quaternions: (T, num_joints, 4) quaternions in (w, x, y, z) format
+            offsets: (num_joints, 3) joint offsets
+            root_pos: (T, 3) global root translation
+            world: Compute positions of joints in the world frame
+
+        Returns:
+            P: (T, num_joints, 3) joint positions
+        """
+        T, J, _ = quaternions.shape
+        
+        P = torch.zeros(T, J, 3, device=quaternions.device)
+        R = torch.zeros(T, J, 3, 3, device=quaternions.device)
+
+        rotmats = self.quat_to_rotmat(quaternions)
+
+        P[:, 0, :] = root_pos
+        R[:, 0, :, :] = rotmats[:, 0, :, :]
+
+        for (parent, joint) in self.topology:
+            R[:, joint, :, :] = R[:, parent, :, :] @ rotmats[:, joint, :, :]
+            
+            local_pos = (
+                R[:, parent, :, :]
+                @ offsets[joint, :, None]
+            ).squeeze(-1)
+
+            P[:, joint, :] = P[:, parent, :] + local_pos
+
+        return P
+        
+   def forward_batched(
+        self,
+        quaternions: torch.Tensor,
+        offsets: torch.Tensor,
+        root_pos: torch.Tensor,
+        world: bool = False
    ):
-    """
-    Forward kinematics for both batched and unbatched quaternion data.
-    Quaternions and offsets must share the same leading batch dims.
+       """
+       Forward kinematics for batched quaternion data.
+       Args:
+           quaternions: (B, T, num_joints, 4) quaternions in (w, x, y, z) format
+           offsets: (B, num_joints, 3) joint offsets
+           root_pos: (B, T, 3) global root translation
+           world: Compute positions of joints in the world frame
+       Returns:
+           P: (B, T, num_joints, 3) joint positions
+       """
+       B, T, J, _ = quaternions.shape
+       
+       P = torch.zeros(B, T, J, 3, device=quaternions.device)
+       R = torch.zeros(B, T, J, 3, 3, device=quaternions.device)
 
-    Args:
-      quaternions: (..., 4) quaternions in (w, x, y, z) format.
-      offsets: (..., 3) joint offsets
-      root_pos: (..., 3) global root translation
-      world: Compute positions of joints in the world frame.
+       rotmats = self.quat_to_rotmat(quaternions)
 
-    Returns:
-      P: (..., J, 3) joint positions
-    """
-    added_batch = False
-    if quaternions.dim() == 2:
-        quaternions = quaternions.unsqueeze(0)
-        offsets = offsets.unsqueeze(0)
-        root_pos = root_pos.unsqueeze(0)
-        added_batch = True
+       P[:, :, 0, :] = root_pos
+       R[:, :, 0, :, :] = rotmats[:, :, 0, :, :]
 
-    *batch_dims, J, _ = quaternions.shape
-    
-    P = torch.zeros(*batch_dims, J, 3, device=quaternions.device)
-    R = torch.zeros(*batch_dims, J, 3, 3, device=quaternions.device)
-
-    P[..., 0, :] = root_pos
-
-    rotmats = self.quat_to_rotmat(quaternions)
-
-    for (parent, joint) in self.topology:
-
-        R[..., joint,: ,:] = R[..., parent, :, :] @ rotmats[..., joint, :, :]
-
-        local_pos = (R[..., parent, :, :] @ offsets[:, joint, None, :, None]).squeeze(-1)
-
-        # if world:
-        #     P[..., joint] = P[..., parent] + local_pos.unsqueeze(-2)
-        # else:
-        P[..., joint, :] = local_pos
-
-    if added_batch:
-        P = P.squeeze(0)
-
-    return P
+       for (parent, joint) in self.topology:
+           R[:, :, joint, :, :] = R[:, :, parent, :, :] @ rotmats[:, :, joint, :, :]
+           
+           local_pos = (
+               R[:, :, parent, :, :]
+               @ offsets[:, joint, :, None]
+           ).squeeze(-1)
+           P[:, :, joint, :] = P[:, :, parent, :] + local_pos
+       return P
 
    def quat_to_rotmat(self, quaternions: torch.Tensor, pad_root: bool = True) -> torch.Tensor:
     """     
     Convert quaternions to rotation matrices.
 
     Args:
-        quaternions: (..., 4) quaternions in (w, x, y, z) format.
+        quaternions: (..., 4) quaternions in (x, y, z, w) format.
 
     Returns:
         (..., 3, 3) rotation matrices.
     """
     quaternions = quaternions / quaternions.norm(dim=-1, keepdim=True)
 
-    w, x, y, z = quaternions.unbind(-1)  
+    x, y, z, w = quaternions.unbind(-1)  
 
     xx = x * x
     yy = y * y

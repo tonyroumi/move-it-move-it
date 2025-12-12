@@ -3,7 +3,7 @@ from .data import ArrayLike, _to_torch, _to_numpy
 from scipy.spatial.transform import Rotation as R
 import torch
 
-def axis_angle_to_quat(axis_angles: ArrayLike, return_torch: bool = False, device: torch.device = None):
+def aa_to_quat(axis_angles: ArrayLike, return_torch: bool = False, device: torch.device = None):
     """
     Convert axis-angle representations to quaternions.
     
@@ -17,7 +17,7 @@ def axis_angle_to_quat(axis_angles: ArrayLike, return_torch: bool = False, devic
     return _to_torch(out, device) if return_torch else out
 
 
-def axis_angle_to_rotmat(axis_angles: ArrayLike, return_torch: bool = False, device: torch.device = None):
+def aa_to_rotmat(axis_angles: ArrayLike, return_torch: bool = False, device: torch.device = None):
     """
     Convert axis-angle representations to rotation matrices.
     
