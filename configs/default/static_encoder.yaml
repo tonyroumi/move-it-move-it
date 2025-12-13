@@ -26,4 +26,4 @@ block2:
     groups: 1
     
   pool_features: False 
-  last_pool: True #Need to verify this. i dunno that it matters.
+  last_pool: False
