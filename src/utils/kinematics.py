@@ -57,6 +57,14 @@ class ForwardKinematics:
             P[:, :, joint, :] = local_pos + (P[:, :, parent, :] if world else 0)
 
         return P
+    
+    @staticmethod
+    def local_to_world(positions: torch.Tensor, topology: List[Tuple[int]]):
+        """ Convert from local positions to world """
+        positions = positions.clone()
+        for parent, child in topology:
+            positions[:, child, :] += positions[:, parent, :]
+        return positions
 
     @staticmethod
     def quat_to_rotmat(quaternions: torch.Tensor) -> torch.Tensor:
