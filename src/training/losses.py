@@ -30,9 +30,7 @@ class LSGANLoss(nn.Module):
         return self.mse(d_fake, real_targets)
 
 class EELoss(nn.Module):
-    """
-    End-Effector velocity loss.
-    """
+    """ End-Effector velocity loss. """
     def __init__(self):
         super().__init__()
         self.mse = nn.MSELoss()
