@@ -12,7 +12,11 @@ class ForwardKinematics:
         topology: List[Tuple[int]],
         world: bool = True
     ) -> torch.Tensor:
-        """Compute joint positions for unbatched motion."""
+        """
+        Compute joint positions for unbatched motion.
+        
+        NOTE: This assume that the root quat is included.
+        """
         T, J, _ = quaternions.shape
 
         P = torch.zeros(T, J, 3, device=quaternions.device)
@@ -23,11 +27,12 @@ class ForwardKinematics:
         P[:, 0, :] = root_pos 
         R[:, 0, :, :] = rotmats[:, 0, :, :] 
         
-        for (parent, joint) in topology:
-            R[:, joint, :, :] = R[:, parent, :, :] @ rotmats[:, joint, :, :] 
-            local_pos = ( R[:, parent, :, :] @ offsets[joint-1, :, None] ).squeeze(-1) 
+        for (parent, child) in topology:
+            R[:, child, :, :] = R[:, parent, :, :] @ rotmats[:, child, :, :] 
+            P[:, child, :] = ( R[:, parent, :, :] @ offsets[child-1, :, None] ).squeeze(-1) 
 
-            P[:, joint, :] = local_pos + (P[:, parent, :] if world else 0)
+            if world:
+                P[:, child, :] += P[:, parent, :]
         
         return P
 
@@ -39,7 +44,11 @@ class ForwardKinematics:
         topology: List[Tuple[int]],
         world: bool = True
     ) -> torch.Tensor:
-        """Compute joint positions for batched motion."""
+        """
+        Compute joint positions for batched motion.
+
+        NOTE: This assume that the root quat is included.
+        """
         B, T, J, _ = quaternions.shape
 
         P = torch.zeros(B, T, J, 3, device=quaternions.device) 
@@ -50,11 +59,12 @@ class ForwardKinematics:
         P[:, :, 0, :] = root_pos 
         R[:, :, 0, :, :] = rotmats[:, :, 0, :, :] 
         
-        for (parent, joint) in topology: 
-            R[:, :, joint, :, :] = R[:, :, parent, :, :] @ rotmats[:, :, joint, :, :] 
-            local_pos = ( R[:, :, parent, :, :] @ offsets[joint-1, :, None] ).squeeze(-1) 
+        for (parent, child) in topology: 
+            R[:, :, child, :, :] = R[:, :, parent, :, :] @ rotmats[:, :, child, :, :] 
+            P[:, :, child, :] = ( R[:, :, parent, :, :] @ offsets[child-1, :, None] ).squeeze(-1) 
 
-            P[:, :, joint, :] = local_pos + (P[:, :, parent, :] if world else 0)
+            if world:
+                P[:, :, child, :] += P[:, :, parent, :]
 
         return P
     
