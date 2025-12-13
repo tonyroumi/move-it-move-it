@@ -1,3 +1,7 @@
+"""
+Skeletal AutoEncoder to learn how to reconstruct original motions and a primal skeleton in latent space.
+"""
+
 from .encoder import SkeletalEncoder
 from .decoder import SkeletalDecoder
 

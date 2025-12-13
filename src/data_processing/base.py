@@ -1,3 +1,7 @@
+"""
+Abstract base class for processing different motion capture data sources
+"""
+
 from .metadata import SkeletonMetadata, MotionSequence
 
 from abc import ABC, abstractmethod
@@ -6,8 +10,8 @@ from typing import List
 import torch
 
 class DataSourceAdapter(ABC):
-    """Abstract base class for processing different motion capture data sources"""
     def __init__(self, dataset_name: str, device: torch.device):
+        """ Setup data directories """
         root = Path(__file__).resolve().parent.parent.parent
 
         data_dir = root / "data"

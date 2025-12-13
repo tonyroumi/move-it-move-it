@@ -49,11 +49,6 @@ class SkeletalConv(SkeletalBase):
         super()._init_weights()
     
     def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):
-        """
-        Args:
-            x:      [B, C, T]
-            offset: [B, C]
-        """
         weight_masked = self.weight * self.mask
 
         padded_x = F.pad(x, pad=self.padding, mode=self.padding_mode)

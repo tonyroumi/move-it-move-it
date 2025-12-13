@@ -7,6 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class SkeletalDiscBlock(nn.Module):
+    """
+    One skeletal discriminator block : SkeletalConv -> BatchNorm1D -> AvgPooling -> LeakyReLU
+    """
     def __init__(
         self, 
         adj_list: List[List], 
@@ -29,7 +32,6 @@ class SkeletalDiscBlock(nn.Module):
         y = self.norm(self.conv(x))
         y = self.act(self.pool(y))
         return y
-
 
 class SkeletalDiscriminator(nn.Module):
     def __init__(
