@@ -10,6 +10,7 @@ class ForwardKinematics:
         offsets: torch.Tensor,
         root_pos: torch.Tensor,
         topology: List[Tuple[int]],
+        world: bool = True
     ) -> torch.Tensor:
         """Compute joint positions for unbatched motion."""
         T, J, _ = quaternions.shape
@@ -25,8 +26,8 @@ class ForwardKinematics:
         for (parent, joint) in topology:
             R[:, joint, :, :] = R[:, parent, :, :] @ rotmats[:, joint, :, :] 
             local_pos = ( R[:, parent, :, :] @ offsets[joint-1, :, None] ).squeeze(-1) 
-            
-            P[:, joint, :] = P[:, parent, :] + local_pos 
+
+            P[:, joint, :] = local_pos + (P[:, parent, :] if world else 0)
         
         return P
 
@@ -36,6 +37,7 @@ class ForwardKinematics:
         offsets: torch.Tensor,
         root_pos: torch.Tensor,
         topology: List[Tuple[int]],
+        world: bool = True
     ) -> torch.Tensor:
         """Compute joint positions for batched motion."""
         B, T, J, _ = quaternions.shape
@@ -51,8 +53,9 @@ class ForwardKinematics:
         for (parent, joint) in topology: 
             R[:, :, joint, :, :] = R[:, :, parent, :, :] @ rotmats[:, :, joint, :, :] 
             local_pos = ( R[:, :, parent, :, :] @ offsets[joint-1, :, None] ).squeeze(-1) 
-            
-            P[:, :, joint, :] = P[:, :, parent, :] + local_pos 
+
+            P[:, :, joint, :] = local_pos + (P[:, :, parent, :] if world else 0)
+
         return P
 
     @staticmethod
