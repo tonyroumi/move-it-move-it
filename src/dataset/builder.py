@@ -4,7 +4,7 @@ MotionDataset builder to construct MotionDataset for a single motion domain.
 
 from src.data_processing import DataSourceAdapter
 from src.data_processing import SkeletonMetadata, MotionSequence
-from src.utils.data import ArrayUtils
+from src.utils import ArrayUtils, Logger
 
 from typing import Any, Dict
 import numpy as np
@@ -15,16 +15,17 @@ class MotionDatasetBuilder:
         self, 
         adapter: DataSourceAdapter, 
         data_config: Dict[str, Any],
-        device: torch.device = 'cpu',
+        logger: Logger = Logger()
     ):
         self.adapter = adapter
         self.data_config = data_config
+        self.logger = logger
 
         self.window_size = data_config['window_size']
         self.downsample_fps = data_config['downsample_fps']
         self.include_root_quat = data_config['include_root_quat']
 
-        self.device = device
+        self.device = self.adapter.device
 
     def get_or_process(self, character: str):
         """ 
@@ -55,8 +56,8 @@ class MotionDatasetBuilder:
         else:
             skeleton = SkeletonMetadata.load(skel_path)
         
-        offsets = skeleton.offsets
-        topology = skeleton.topology
+        offsets = skeleton.offsets.reshape(-1) # (3*edges)
+        edge_topology = skeleton.edge_topology
         ee_ids = skeleton.ee_ids
         height = skeleton.height
 
@@ -71,10 +72,13 @@ class MotionDatasetBuilder:
         windowed_motion = [self._process_motion_sequence(m) for m in motions]
         all_windowed_motion = np.vstack(windowed_motion)
 
+        num_frames = all_windowed_motion.shape[0] * all_windowed_motion.shape[1]
+        self.logger.info(f"{character} contains {num_frames} frames")
+
         return (ArrayUtils.to_torch(all_windowed_motion, self.device),
                 ArrayUtils.to_torch(offsets, self.device),
-                ArrayUtils.to_torch(topology, self.device),
-                ArrayUtils.to_torch(ee_ids, self.device),
+                ArrayUtils.to_torch(edge_topology, self.device, torch.int),
+                ArrayUtils.to_torch(ee_ids, self.device, torch.int),
                 ArrayUtils.to_torch(height, self.device))
     
     def _process_motion_sequence(self, motion: MotionSequence):
@@ -90,7 +94,7 @@ class MotionDatasetBuilder:
 
         # window into [num_windows, window_size, feature_dim]
         windowed = self._get_windows(full_motion)
-        return windowed
+        return np.transpose(windowed, axes=(0, 2, 1))
 
     def _downsample(self, motion: np.ndarray, fps_in: float):
         """ Downsample by uniform subsampling. """

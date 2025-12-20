@@ -1,4 +1,4 @@
-from skeletal_ops import SkeletalConv, SkeletalPooling, PoolingInfo
+from src.skeletal_ops import SkeletalConv, SkeletalPooling, PoolingInfo
 
 from typing import Dict, List, Optional, Any
 
@@ -15,12 +15,13 @@ class SkeletalDiscBlock(nn.Module):
         adj_list: List[List], 
         edge_list: List[List], 
         conv_params: Dict[str, Any], 
+        global_pos_inc: bool = True, 
         norm: bool = True, 
         activation: bool = True
     ):
         super().__init__()
 
-        self.conv = SkeletalConv(adj_list, **conv_params)
+        self.conv = SkeletalConv(adj_list, **conv_params, global_pos_inc=global_pos_inc)
 
         out_channels = conv_params["out_channels_per_joint"]*len(adj_list)
         self.norm = nn.BatchNorm1d(out_channels)  if norm else nn.Identity()
@@ -58,14 +59,7 @@ class SkeletalDiscriminator(nn.Module):
             **(self.discriminator_params["block2"]))
     
     def forward(self, x: torch.Tensor):
-        intermediate_features = [x]
-
         y = self.block1(x)
-        intermediate_features.append(y)
-
         y = self.block2(y)
-        intermediate_features.append(y)
 
-        y = torch.sigmoid(y).squeeze()
-
-        return y, intermediate_features
+        return torch.sigmoid(y).squeeze()

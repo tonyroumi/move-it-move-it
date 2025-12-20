@@ -1,3 +1,4 @@
+import glob
 from .base import SkeletalBase
 
 from typing import List
@@ -15,9 +16,16 @@ class SkeletalLinear(SkeletalBase):
         self,
         adj_list: List[List[int]],
         in_channels_per_joint: int,
-        out_channels_per_joint: int
+        out_channels: int
     ):
-        super().__init__(adj_list, in_channels_per_joint, out_channels_per_joint)
+        super().__init__(adj_list, in_channels_per_joint)
+        
+        self.J = len(self.adj)
+
+        self.in_channels = in_channels_per_joint * self.J
+        self.out_channels = out_channels 
+        # To project offset features to motion features (includes global pos)
+        self.out_channels_per_joint = out_channels // self.J
 
         self.weight = torch.zeros(self.out_channels, self.in_channels)
         self.bias = torch.zeros(self.out_channels)

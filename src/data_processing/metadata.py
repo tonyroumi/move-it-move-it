@@ -7,7 +7,7 @@ import numpy as np
 
 @dataclass
 class SkeletonMetadata:
-    topology: np.ndarray
+    edge_topology: np.ndarray
     offsets: np.ndarray # (J-1, 3)
     ee_ids: np.ndarray
     height: np.ndarray
@@ -16,7 +16,7 @@ class SkeletonMetadata:
     def save(self, path: str):
         np.savez_compressed(
             path,
-            topology=self.topology,
+            edge_topology=self.edge_topology,
             offsets=self.offsets,
             ee_ids=self.ee_ids,
             height=self.height,
@@ -28,13 +28,13 @@ class SkeletonMetadata:
     def load(cls, path: str) -> "SkeletonMetadata":
         d = np.load(path, allow_pickle=False)
 
-        topology = d["topology"]
+        edge_topology = d["edge_topology"]
         offsets = d["offsets"]
         ee_ids = d["ee_ids"]
         height = d["height"]
         kintree = d["kintree"]
         return cls(
-            topology=topology,
+            edge_topology=edge_topology,
             offsets=offsets,
             ee_ids=ee_ids,
             height=height,
@@ -43,6 +43,7 @@ class SkeletonMetadata:
 
 @dataclass
 class MotionSequence:
+    name: str
     positions: np.ndarray # (T, J, 3)
     rotations: np.ndarray # (T, J, 4)
     fps: float = 60
@@ -50,6 +51,7 @@ class MotionSequence:
     def save(self, path: str):
         np.savez_compressed(
             path,
+            name=self.name,
             positions=self.positions,
             rotations=self.rotations,
             fps=self.fps,
@@ -60,6 +62,7 @@ class MotionSequence:
     def load(cls, path: str) -> "MotionSequence":
         d = np.load(path, allow_pickle=False)
 
+        name = d["name"]
         positions = d["positions"]
         rotations = d["rotations"]
         fps = d["fps"]
@@ -67,6 +70,7 @@ class MotionSequence:
         print(f"Loaded motion sequence file: {path}. Total number of frames: {rotations.shape[0]}. FPS: {fps}")
 
         return cls(
+            name=name,
             positions=positions,
             rotations=rotations,
             fps=fps,

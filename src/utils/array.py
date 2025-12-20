@@ -20,8 +20,8 @@ class ArrayUtils:
         return np.asarray(x)
 
     @staticmethod
-    def to_torch(x: Any, device: torch.device = "cpu") -> torch.Tensor:
+    def to_torch(x: Any, device: torch.device = "cpu", dtype: torch.dtype = torch.float32) -> torch.Tensor:
         """Convert input to a torch Tensor."""
-        if ArrayUtils.is_tensor(x):
-            return x.to(device)
-        return torch.tensor(x, dtype=torch.float32, device=device)
+        if torch.is_tensor(x):
+            return x.to(device=device, dtype=dtype)
+        return torch.as_tensor(x, device=device, dtype=dtype)

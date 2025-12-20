@@ -7,7 +7,7 @@ Extracts skeleton topology, offsets, motion sequences, and other metadata.
 from ..base import DataSourceAdapter
 from ..metadata import SkeletonMetadata, MotionSequence
 
-from src.utils import ArrayUtils, RotationUtils, JointUtils
+from src.utils import ArrayUtils, RotationUtils, SkeletonUtils
 
 from tqdm import tqdm
 from typing import List, Tuple
@@ -17,7 +17,7 @@ import torch
 class AMASSTAdapter(DataSourceAdapter):
     DATASET_NAME = "amass"
     SUPPORT_NAME = "body_models"
-    JOINT_CUTOFF = 22 # Joints > 21 are hands, fingers, toes.
+    JOINT_CUTOFF = 22 # Joints > 21 are hands, fingers, toes. (zero based)
     HEAD_IDX = 15
     FOOT_IDX = 10
 
@@ -95,13 +95,14 @@ class AMASSTAdapter(DataSourceAdapter):
         J0 = body.Jtr[0] # T pose
         offsets = J0 - J0[self.parent_kintree]
 
-        offsets = JointUtils.prune_joints(offsets, self.JOINT_CUTOFF, discard_root=True)
+        offsets = SkeletonUtils.prune_joints(offsets, self.JOINT_CUTOFF)
+        offsets[0] = torch.zeros(3) # No root offset
 
-        topology = self._build_topology()
+        edge_topology = self._build_edge_topology()
         ee_ids = self._find_ee()
         height = self._compute_height(offsets)
 
-        skeleton = SkeletonMetadata(topology=ArrayUtils.to_numpy(topology),
+        skeleton = SkeletonMetadata(edge_topology=ArrayUtils.to_numpy(edge_topology),
                                     offsets=ArrayUtils.to_numpy(offsets),
                                     ee_ids=ArrayUtils.to_numpy(ee_ids),
                                     height=ArrayUtils.to_numpy(height),
@@ -135,14 +136,15 @@ class AMASSTAdapter(DataSourceAdapter):
             aa = out.full_pose.reshape(-1, self.num_joints, 3)
             quat_rotations = RotationUtils.aa_to_quat(aa.reshape(-1, 3))
             quat_rotations = quat_rotations.reshape(-1, self.num_joints, 4)
-            quat_rotations = JointUtils.prune_joints(quat_rotations, cutoff=self.JOINT_CUTOFF)
+            quat_rotations = SkeletonUtils.prune_joints(quat_rotations, cutoff=self.JOINT_CUTOFF, discard_root=True)
 
-            positions = out.Jtr                            # [T, 3]
-            positions = JointUtils.prune_joints(positions, cutoff=self.JOINT_CUTOFF)
+            positions = out.Jtr # [T, 3]
+            positions = SkeletonUtils.prune_joints(positions, cutoff=self.JOINT_CUTOFF, discard_root=True)
 
             #TODO(anthony) save contacts
 
-            motion_sequence = MotionSequence(positions=ArrayUtils.to_numpy(positions),
+            motion_sequence = MotionSequence(name=fname,
+                                             positions=ArrayUtils.to_numpy(positions),
                                              rotations=ArrayUtils.to_numpy(quat_rotations),
                                              fps=ArrayUtils.to_numpy(data['mocap_framerate']),)
             motion_sequence.save(self.cache_dir / character / fname)
@@ -156,8 +158,14 @@ class AMASSTAdapter(DataSourceAdapter):
         parent = self.full_kintree[0]
         children = self.full_kintree[1]
 
-        pruned_parent   = [p if p <= self.JOINT_CUTOFF else -1 for p in parent]
-        pruned_children = [c if c <= self.JOINT_CUTOFF else -1 for c in children]
+        pruned_parent = [
+            p if p <= self.JOINT_CUTOFF and joint <= self.JOINT_CUTOFF else -1
+            for joint, p in enumerate(parent)
+        ]
+        pruned_children = [
+            c if c <= self.JOINT_CUTOFF and joint <= self.JOINT_CUTOFF else -1
+            for joint, c in enumerate(children)
+        ]
 
         # Remove (-1,-1) pairs
         out_parent = []
@@ -170,11 +178,11 @@ class AMASSTAdapter(DataSourceAdapter):
 
         return kintree
     
-    def _build_topology(self) -> List[Tuple[int]]:
-        """ Constructs the topology for a skeleton as (parent, child) joint tuples. """
+    def _build_edge_topology(self) -> List[Tuple[int]]:
+        """ Constructs the edge topology for a skeleton as (parent, child) joint tuples. """
         parent_kintree = self.pruned_kintree[0]
         
-        # Build topology as (parent, child) joint tuples
+        # Build edge topology as (parent, child) joint tuples
         topology = []
         for child_idx, parent_idx in enumerate(parent_kintree[1:], start=1):  # skip root
             topology.append((int(parent_idx), int(child_idx)))

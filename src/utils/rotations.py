@@ -4,7 +4,7 @@ from scipy.spatial.transform import Rotation as R
 import torch
 
 class RotationUtils:
-    """Rotation representation conversion utilities."""
+    """Rotation representation conversion utilities for numpy arrays and tensors."""
 
     @staticmethod
     def aa_to_quat(

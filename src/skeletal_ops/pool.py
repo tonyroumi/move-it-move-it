@@ -1,3 +1,4 @@
+
 from dataclasses import dataclass, astuple
 from typing import Dict, List, Tuple
 import torch
@@ -37,7 +38,7 @@ class SkeletalPooling(nn.Module):
     ):
         super().__init__()
         self.edge_list = edge_list
-        self.E = len(self.edge_list) + 1
+        self.J = len(self.edge_list) + 1
         self.channels_per_edge = channels_per_edge
 
         # Precompute pooling regions and new adjacency
@@ -49,7 +50,7 @@ class SkeletalPooling(nn.Module):
     def _init_net(self):
         pooled_edges = self.pooled_info.pooled_edges
         rows = len(pooled_edges) * self.channels_per_edge
-        cols = self.E * self.channels_per_edge
+        cols = self.J * self.channels_per_edge
 
         # Pooling operation
         # Block-diagonal averaging matrix that groups edges into pooled regions:
@@ -70,9 +71,9 @@ class SkeletalPooling(nn.Module):
         degree = defaultdict(int)
         adj = defaultdict(list)
         for idx, (u, v) in enumerate(edge_list):
-            degree[u] += 1
-            degree[v] += 1
-            adj[u].append((v, idx))
+            degree[int(u)] += 1
+            degree[int(v)] += 1
+            adj[int(u)].append((int(v), idx))
 
         seq_list = []
         visited = set()
@@ -116,7 +117,7 @@ class SkeletalPooling(nn.Module):
                 new_edges.append([edge_list[seq[i]][0], edge_list[seq[i + 1]][1]])
 
         # Add global position pooling
-        pooling_list.append([self.E - 1])
+        pooling_list.append([self.J - 1])
 
         new_adj_list = self._reconstruct_adj(new_edges)
 

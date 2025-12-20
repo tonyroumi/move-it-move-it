@@ -17,6 +17,7 @@ class SkeletalConv(SkeletalBase):
     def __init__(
         self,
         adj_list: List[List[int]],
+        global_pos_inc: bool,
         in_channels_per_joint: int,
         out_channels_per_joint: int,
         bias: bool,
@@ -26,9 +27,15 @@ class SkeletalConv(SkeletalBase):
         padding_mode: str,
         dilation: int,
         groups: int,
-        offset_in_channels_per_joint: int = 0
+        offset_in_channels_per_joint: int = 0,
     ):
-        super().__init__(adj_list, in_channels_per_joint, out_channels_per_joint)
+        super().__init__(adj_list, in_channels_per_joint)
+
+        self.J = len(self.adj)
+
+        self.in_channels = in_channels_per_joint * self.J
+        self.out_channels_per_joint = out_channels_per_joint
+        self.out_channels = out_channels_per_joint * self.J
 
         self.bias = bias
         self.kernel_size = kernel_size
@@ -44,7 +51,7 @@ class SkeletalConv(SkeletalBase):
         self.mask = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
 
         if offset_in_channels_per_joint:
-            self.offset_encoder = SkeletalLinear(self.adj, offset_in_channels_per_joint, out_channels_per_joint)
+            self.offset_encoder = SkeletalLinear(self.adj, offset_in_channels_per_joint, self.out_channels)
         
         super()._init_weights()
     

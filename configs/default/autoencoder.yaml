@@ -1,5 +1,6 @@
 encoder:
   block1:
+    global_pos_inc: true
     conv_params:
       in_channels_per_joint: 4
       out_channels_per_joint: 8
@@ -16,6 +17,7 @@ encoder:
 
 
   block2:
+    global_pos_inc: true
     conv_params:
       in_channels_per_joint: 8
       out_channels_per_joint: 16

@@ -19,16 +19,9 @@ class SkeletalBase(nn.Module):
         self,
         adj_list: List[List[int]],
         in_channels_per_joint: int,
-        out_channels_per_joint: int
     ):
        super().__init__()
        self.adj = adj_list
-       self.E = len(self.adj)
-
-       self.in_channels_per_joint = in_channels_per_joint
-       self.out_channels_per_joint = out_channels_per_joint
-       self.in_channels = self.in_channels_per_joint * self.E
-       self.out_channels = self.out_channels_per_joint * self.E 
 
        # Map each neighbor edge to its channel range. 
        # E.x. (in_channels_per_joint = 2)
@@ -36,7 +29,7 @@ class SkeletalBase(nn.Module):
        # expanded_adj_list = {0: [0,1,2,3], 1: [0,1]}
 
        self.expanded_adj_list = [
-           [k * in_channels_per_joint + i 
+            [k * in_channels_per_joint + i 
             for k in neighbor 
             for i in range(in_channels_per_joint)]
             for neighbor in self.adj

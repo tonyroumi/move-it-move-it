@@ -19,11 +19,11 @@ class SkeletalAutoEncoder(nn.Module):
         params: Dict[str, Any]
     ):
         super().__init__()
-        self.encoder = SkeletalEncoder(adj_init, edge_init, encoder_params=params["encoder"])
+        self.encoder = SkeletalEncoder(adj_init, edge_init, params=params["encoder"])
         self.decoder = SkeletalDecoder(self.encoder.pooling_hierarchy, 
-                                       decoder_params=params["decoder"])
+                                         params=params["decoder"])
     
     def forward(self, x: torch.Tensor, offset: torch.Tensor):
-        latent, _ = self.encoder(x, offset)
+        latent = self.encoder(x, offset)[-1]
         result = self.decoder(latent, offset)
         return latent, result
