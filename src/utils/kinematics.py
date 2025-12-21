@@ -12,43 +12,40 @@ class ForwardKinematics:
         quaternions: torch.Tensor,
         offsets: torch.Tensor,
         root_pos: torch.Tensor,
-        topologies: List[SkeletonTopology],
+        topology: torch.Tensor,
         world: bool = True
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Compute joint positions for unbatched motion.
         
         NOTE: This assume that the root quat is included.
         """
         #TODO: Handle no root quat.
-        forward_positions = []
-        for i in range(len(topologies)):
-            T, J, _ = quaternions[i].shape
+        T, J, _ = quaternions.shape
 
-            P = torch.zeros(T, J, 3, device=quaternions[i].device)
-            R = torch.zeros(T, J, 3, 3, device=quaternions[i].device)
+        P = torch.zeros(T, J, 3, device=quaternions.device)
+        R = torch.zeros(T, J, 3, 3, device=quaternions.device)
 
-            rotmats = ForwardKinematics.quat_to_rotmat(quaternions[i])
+        rotmats = ForwardKinematics.quat_to_rotmat(quaternions)
 
-            P[:, 0, :] = root_pos[i]
-            R[:, 0, :, :] = rotmats[:, 0, :, :] 
-            
-            for (parent, child) in topologies[i].edge_topology:
-                R[:, child, :, :] = R[:, parent, :, :] @ rotmats[:, child, :, :] 
-                P[:, child, :] = ( R[:, parent, :, :] @ offsets[i][child-1, :, None] ).squeeze(-1) 
-
-                if world:
-                    P[:, child, :] += P[:, parent, :]
-                forward_positions.append(P)
+        P[:, 0, :] = root_pos
+        R[:, 0, :, :] = rotmats[:, 0, :, :] #TODO(anthony) this should be identity rotation. Root quat no longer included 
         
-        return forward_positions
+        for (parent, child) in topology:
+            R[:, child, :, :] = R[:, parent, :, :] @ rotmats[:, child, :, :] 
+            P[:, child, :] = ( R[:, parent, :, :] @ offsets[child-1, :, None] ).squeeze(-1) 
+
+            if world:
+                P[:, child, :] += P[:, parent, :]
+        
+        return P
 
     @staticmethod
     def forward_batched(
         quaternions: torch.Tensor,
         offsets: torch.Tensor,
         root_pos: torch.Tensor,
-        topologies: Tuple[SkeletonTopology, SkeletonTopology],
+        topology: torch.Tensor,
         world: bool = True,
     ) -> torch.Tensor:
         """
@@ -57,39 +54,33 @@ class ForwardKinematics:
         NOTE: This assume that the root quat is included.
         """
         #TODO: Handle no root quat.
-        forward_positions = []
-        for i in range(len(topologies)):
-            B, T, J, _ = quaternions[i].shape # Root orientation not included here
+        B, T, J, _ = quaternions.shape # Root orientation not included here
 
-            P = torch.zeros(B, T, J+1, 3, device=quaternions[i].device) 
-            R = torch.zeros(B, T, J+1, 3, 3, device=quaternions[i].device) 
-            
-            rotmats = ForwardKinematics.quat_to_rotmat(quaternions[i]) 
-            
-            P[:, :, 0, :] = root_pos[i].transpose(1,2) 
-            R[:, :, 0, :, :] = torch.eye(3, device=R.device, dtype=R.dtype)
-            
-            for (parent, child) in topologies[i].edge_topology: 
-                R[:, :, child, :, :] = R[:, :, parent, :, :] @ rotmats[:, :, child-1, :, :] 
-                P[:, :, child, :] = ( R[:, :, parent, :, :] @ offsets[i][:, None, child, :, None]).squeeze(-1) 
+        P = torch.zeros(B, T, J+1, 3, device=quaternions.device) 
+        R = torch.zeros(B, T, J+1, 3, 3, device=quaternions.device) 
+        
+        rotmats = ForwardKinematics.quat_to_rotmat(quaternions) 
+        
+        P[:, :, 0, :] = root_pos.transpose(1,2) 
+        R[:, :, 0, :, :] = torch.eye(3, device=R.device, dtype=R.dtype)
+        
+        for (parent, child) in topology:
+            R[:, :, child, :, :] = R[:, :, parent, :, :] @ rotmats[:, :, child-1, :, :] 
+            P[:, :, child, :] = ( R[:, :, parent, :, :] @ offsets[:, None, child, :, None]).squeeze(-1) 
 
-                if world:
-                    P[:, :, child, :] += P[:, :, parent, :]
-                
-                forward_positions.append(P)
+            if world:
+                P[:, :, child, :] += P[:, :, parent, :]
+            
 
-        return forward_positions
+        return P
     
     @staticmethod
-    def local_to_world(positions: torch.Tensor, topologies: Tuple[SkeletonTopology, SkeletonTopology]):
+    def local_to_world(positions: torch.Tensor, topology: torch.Tensor):
         """ Convert from local positions to world """
-        world_positions = []
-        for i in range(len(topologies)):
-            positions = positions[0].clone()
-            for parent, child in topologies[i].edge_topology:
-                positions[:, child, :] += positions[:, parent, :]
+        positions = positions.clone()
+        for parent, child in topology:
+            positions[:, child, :] += positions[:, parent, :]
 
-            world_positions.append(positions)
         return positions
 
     @staticmethod

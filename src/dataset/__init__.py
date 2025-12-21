@@ -1,1 +1,1 @@
-from .motion_dataset import MotionDatasetBuilder, MotionDataset, CrossDomainMotionDataset
+from .motion_dataset import MotionDatasetBuilder, MotionDataset, CrossDomainMotionDataset, PairedSample

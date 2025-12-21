@@ -137,15 +137,15 @@ class CrossDomainMotionDataset(Dataset):
     ):
         self.domain_A = domain_A
         self.domain_B = domain_B
+        self.domains = (self.domain_A, self.domain_B)
         self.topologies = [self.domain_A.topology, self.domain_B.topology]
 
     def denorm(
         self, 
-        motion: Tuple[torch.Tensor, torch.Tensor]
+        motion: Tuple[torch.Tensor, torch.Tensor],
+        idx: int
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        denormed_A = self.domain_A.denorm(motion[0])
-        denormed_B = self.domain_B.denorm(motion[1])
-        return denormed_A, denormed_B
+        return self.domains[idx].denorm(motion)
     
     def __len__(self):
         return max(len(self.domain_A), len(self.domain_B))

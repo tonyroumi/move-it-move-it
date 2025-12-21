@@ -4,6 +4,7 @@ Trainer for an unpaired skeletal motion GAN.
 
 from src.data_processing import SkeletonMetadata
 from src.skeletal_models import SkeletalGAN, SkeletonTopology
+from src.dataset import PairedSample
 from src.utils import Logger, ForwardKinematics, SkeletonUtils
 from .losses import LossBundle
 
@@ -72,7 +73,57 @@ class SkeletalGANTrainer:
         for step, batch in enumerate(self.train_loader):
             batch = batch.to(self.device)
 
+            out = self.model(batch, phase="reconstruction")
+
+            loss = recon_loss(out)
+            loss.backward()
+
+            out = self.model(batch, phase="retarget")
+
+            loss = retarget_loss(out)
+            loss.backward()
+            
+
+
+
             offset_features = self.model.forward_offsets(offsets=batch.offsets)
+
+            self.latents = []
+            self.reconstructed = []
+
+            for i in range(self.num_topologies):
+                topology = self.topologies[i].edge_topology
+                num_joints = self.model.num_joints(i)
+
+                latents, reconstructed = self.model.encode_decode_motion(batch.motions, offset_features[i], i)
+                
+                original_rot = self.denorm(batch.motions[i])
+                reconstructed_rot = self.denorm(reconstructed)
+
+                original_world_pos = ForwardKinematics.forward_batched(
+                    quaternions=original_rot.reshape(B, T, self.model.num_joints(i)-1, 4),
+                    offsets=batch.offsets[i].reshape(B, -1, 3),
+                    root_pos=original_rot[:, :3],
+                    topology=topology,
+                    world=True
+                ) #False
+
+                reconstructed_world_pos = ForwardKinematics.forward_batched(
+                    quaternions=reconstructed_rot.reshape(B, T, self.model.num_joints(i)-1, 4), 
+                    offsets=batch.offsets[i].reshape(B, -1, 3), 
+                    root_pos=reconstructed_rot[:, :3],
+                    topology=topology,
+                    world=True
+                )
+
+                ee_vels = SkeletonUtils.get_ee_velocity(original_world_pos, topology=topology)
+                ee_vels /= batch.heights[:, None, None, None]
+            
+            for src in range(self.num_topologies):
+                for dst in range(self.num_topologies):
+                    rnd_idx = torch.randint()
+
+
             
             (latents, 
              reconstructed,
