@@ -1,10 +1,8 @@
-import glob
 from .base import SkeletalBase
 
 from typing import List
 import torch
 import torch.nn.functional as F
-
 
 class SkeletalLinear(SkeletalBase):
     """
@@ -40,4 +38,3 @@ class SkeletalLinear(SkeletalBase):
 
         out = F.linear(x, weight_masked, self.bias)
         return out
-        

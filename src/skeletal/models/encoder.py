@@ -1,4 +1,4 @@
-from src.skeletal_ops import SkeletalConv, SkeletalPooling, PoolingInfo
+from src.skeletal.ops import SkeletalConv, SkeletalPooling, PoolingInfo
 
 from typing import Dict, List, Tuple, Optional, Any
 
@@ -15,13 +15,12 @@ class SkeletalEncBlock(nn.Module):
         adj_list: List[List[int]],
         edge_list: List[Tuple[int]],
         conv_params: Dict[str, Any],
-        global_pos_inc: bool = False,
         pool_features: bool = True,
         last_pool: bool = False,
     ):
         super().__init__()
 
-        self.conv = SkeletalConv(adj_list=adj_list, **(conv_params), global_pos_inc=global_pos_inc)
+        self.conv = SkeletalConv(adj_list=adj_list, **(conv_params))
         # The second block of the static encoder does not contain a pooling operation. 
         self.pool = SkeletalPooling(edge_list=edge_list, 
                                     channels_per_edge=conv_params["out_channels_per_joint"], 
@@ -45,12 +44,14 @@ class SkeletalEncoder(nn.Module):
         self,
         adj_init: List[List[int]],
         edge_init: List[Tuple[int]],
-        params: Dict[str, Any]
+        params: Dict[str, Any],
+        return_all: bool = False,
     ):
         super().__init__()
 
         self.adj_init = adj_init
         self.edge_init = edge_init
+        self.return_all = return_all
         self.params = params
 
         self.pooling_hierarchy = [PoolingInfo(adj_list=adj_init, edge_list=edge_init)]
@@ -83,5 +84,5 @@ class SkeletalEncoder(nn.Module):
         y = self.block2(y, offset=offset[1] if offset else None)
         intermediate_features.append(y)
 
-        return intermediate_features
+        return intermediate_features if self.return_all else y
     

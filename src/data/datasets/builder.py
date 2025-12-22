@@ -6,8 +6,9 @@ from typing import Any, Dict, Tuple
 import numpy as np
 import torch
 
-from src.data import DataSourceAdapter, SkeletonMetadata, MotionSequence
-from src.skeletal import SkeletonUtils
+from src.data.adapters.base import DataSourceAdapter
+from src.data.metadata import SkeletonMetadata, MotionSequence
+from src.skeletal.utils import SkeletonUtils
 from src.utils import ArrayUtils, Logger
 
 class MotionDatasetBuilder:
@@ -68,12 +69,15 @@ class MotionDatasetBuilder:
             for processed_motion in processed_files:
                 motions.append(MotionSequence.load(processed_motion))
 
-        windowed_motion, windowed_pos = [self._process_motion_sequence(m) for m in motions]
+        windowed_motion, windowed_pos = zip(
+            *[self._process_motion_sequence(m) for m in motions]
+        )
         all_windowed_motion, all_windowed_pos = np.vstack(windowed_motion), np.vstack(windowed_pos)
-        ee_vels = SkeletonUtils.get_ee_velocity(all_windowed_pos[None, None, :, :], skeleton)
+        ee_vels = SkeletonUtils.get_ee_velocity(all_windowed_pos, skeleton) 
+        #we might want to reshape after this. right now the shape is [num_w, 63, 5, 3]
 
         num_frames = all_windowed_motion.shape[0] * all_windowed_motion.shape[1]
-        self.logger.info(f"{character} contains (downsampled) {num_frames} frames")
+        self.logger.info(f"{character} contains {num_frames} frames")
 
         return (ArrayUtils.to_torch(all_windowed_motion, self.device),
                 ArrayUtils.to_torch(all_windowed_pos, self.device),
@@ -85,20 +89,19 @@ class MotionDatasetBuilder:
     
     def _process_motion_sequence(self, motion: MotionSequence) -> Tuple[torch.Tensor, torch.Tensor]:
         """ Downsample and break up motion data into fixed size windows """
-        rotations = motion.rotations.reshape(motion.rotations.shape[0], -1)                        
+        rotations = motion.rotations.reshape(motion.rotations.shape[0], -1)
         root_pos = motion.positions[:,0]
 
         full_motion = np.hstack([root_pos, rotations])
         full_motion = self._downsample(data=full_motion, fps_in=motion.fps)
-        full_position = self._downsample(data=motion.positions, fps_ips=motion.fps)
+        full_position = self._downsample(data=motion.positions, fps_in=motion.fps)
 
         # window into [num_windows, window_size, feature_dim]
         windowed_motion = self._get_windows(full_motion)
-        windowed_postiion = self._get_windows(full_position)
+        windowed_position = self._get_windows(full_position)
 
-        windowed_motion = windowed_motion.transpose(windowed_motion, axes=(0, 2, 1))
-        windowed_postiion = windowed_postiion.transpose(windowed_motion, axes=(0, 2, 1))
-        return windowed_motion, windowed_postiion
+        windowed_motion = np.transpose(windowed_motion, axes=(0, 2, 1))
+        return windowed_motion, windowed_position
 
     def _downsample(self, data: np.ndarray, fps_in: float):
         """ Downsample by uniform subsampling. """

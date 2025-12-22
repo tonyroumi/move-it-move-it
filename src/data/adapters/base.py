@@ -2,7 +2,7 @@
 Abstract base class for processing different motion capture data sources
 """
 
-from .metadata import SkeletonMetadata, MotionSequence
+from ..metadata import SkeletonMetadata, MotionSequence
 
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -12,7 +12,7 @@ import torch
 class DataSourceAdapter(ABC):
     def __init__(self, dataset_name: str, device: torch.device):
         """ Setup data directories """
-        root = Path(__file__).resolve().parent.parent.parent
+        root = Path(__file__).resolve().parent.parent.parent.parent
 
         data_dir = root / "data"
 

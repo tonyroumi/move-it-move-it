@@ -6,7 +6,6 @@ from .encoder import SkeletalEncoder
 from .decoder import SkeletalDecoder
 
 from typing import Dict, List, Optional, Any
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,6 +23,6 @@ class SkeletalAutoEncoder(nn.Module):
                                          params=params["decoder"])
     
     def forward(self, x: torch.Tensor, offset: torch.Tensor):
-        latent = self.encoder(x, offset)[-1]
+        latent = self.encoder(x, offset)
         result = self.decoder(latent, offset)
         return latent, result

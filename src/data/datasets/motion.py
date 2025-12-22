@@ -3,48 +3,14 @@ Normalization and torch dataset classes for single and cross motion domains.
 """
 
 from .builder import MotionDatasetBuilder
-from .normalization import NormalizationStats
-from src.skeletal_models import SkeletonTopology
-from src.utils import SkeletonUtils
 
-from dataclasses import dataclass
 from torch.utils.data import Dataset
 from typing import List, Tuple
 import torch
 
-@dataclass
-class PairedSample:
-    motions: Tuple[torch.Tensor, torch.Tensor]
-    offsets: Tuple[torch.Tensor, torch.Tensor]
-    heights: Tuple[torch.Tensor, torch.Tensor]
-
-    def to(self, device: torch.device):
-        return PairedSample(
-            motions=tuple(m.to(device) for m in self.motions),
-            offsets=tuple(o.to(device) for o in self.offsets),
-            heights=tuple(h.to(device) for h in self.heights),
-        )
-
-def paired_collate(batch):
-    motions = tuple(
-        torch.stack([
-            pad_root_flat(b.motions[i])
-            for b in batch
-        ])
-        for i in range(2)
-    )
-
-    offsets = tuple(
-        torch.stack([b.offsets[i] for b in batch])
-        for i in range(2)
-    )
-
-    heights = tuple(
-        torch.stack([b.heights[i] for b in batch])
-        for i in range(2)
-    )
-
-    return PairedSample(motions, offsets, heights)
+from src.core.normalization import NormalizationStats
+from src.core.types import PairedSample, SkeletonTopology
+from src.skeletal.utils import SkeletonUtils
 
 class MotionDataset(Dataset):
     """
@@ -65,13 +31,15 @@ class MotionDataset(Dataset):
         shared_topology = None
         shared_ee_ids = None
 
-        motion_seqs = []
+        motion_seqs, pos_seqs, ee_vels = [], [], []
         for char_id, char in enumerate(characters):
             (
                 motion_windows,
+                position_windows,
                 offsets,
                 edge_topology,
                 ee_ids,
+                ee_vel,
                 height,
             ) = builder.get_or_process(char)
 
@@ -90,9 +58,13 @@ class MotionDataset(Dataset):
                 "id": char_id,
             }
             motion_seqs.append(motion_windows)
+            pos_seqs.append(position_windows)
+            ee_vels.append(ee_vel)
             self.char_index.extend([char_id] * motion_windows.shape[0])
 
-        self.samples = torch.cat(motion_seqs, dim=0)
+        self.rotations = torch.cat(motion_seqs, dim=0)
+        self.gt_positions = torch.cat(pos_seqs, dim=0)
+        self.gt_ee_vels = torch.cat(ee_vels, dim=0)
         self.char_index = torch.tensor(self.char_index, dtype=torch.long)
 
         shared_adjacency = SkeletonUtils.construct_adj(shared_topology)
@@ -100,19 +72,16 @@ class MotionDataset(Dataset):
         self.topology = SkeletonTopology(edge_topology=shared_topology, edge_adjacency=shared_adjacency, ee_ids=shared_ee_ids) #Mby here compute the edge list and adjacency
 
         self.norm_stats = self._compute_normalization_stats()
-        self.samples = self.norm_stats.norm(self.samples)
-
-    def denorm(self, motion: torch.Tensor):
-        return self.norm_stats.denorm(motion[:,1:,:])
+        self.motion_samples = self.norm_stats.norm(self.rotations)
     
     def _compute_normalization_stats(self):
         # mean/var over batch and time
-        mean = torch.mean(self.samples, dim=(0, 2), keepdim=True)
-        var  = torch.var(self.samples, dim=(0, 2), keepdim=True)
+        mean = torch.mean(self.rotations, dim=(0, 2), keepdim=True)
+        var  = torch.var(self.rotations, dim=(0, 2), keepdim=True)
         return NormalizationStats(mean, var)
 
     def __len__(self):
-        return self.samples.shape[0]
+        return self.motion_samples.shape[0]
 
     def __getitem__(self, idx):
         char_id = self.char_index[idx]
@@ -121,7 +90,12 @@ class MotionDataset(Dataset):
         char_name = list(self.char_meta.keys())[char_id]
         meta = self.char_meta[char_name]
 
-        return self.samples[idx], meta["offsets"], meta["height"]
+        return self.rotations[idx], \
+               self.motion_samples[idx], \
+               meta["offsets"], \
+               meta["height"], \
+               self.gt_positions[idx], \
+               self.gt_ee_vels[idx], \
 
 class CrossDomainMotionDataset(Dataset):
     """ 
@@ -137,16 +111,9 @@ class CrossDomainMotionDataset(Dataset):
     ):
         self.domain_A = domain_A
         self.domain_B = domain_B
-        self.domains = (self.domain_A, self.domain_B)
+        self.domains = [self.domain_A, self.domain_B]
         self.topologies = [self.domain_A.topology, self.domain_B.topology]
 
-    def denorm(
-        self, 
-        motion: Tuple[torch.Tensor, torch.Tensor],
-        idx: int
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.domains[idx].denorm(motion)
-    
     def __len__(self):
         return max(len(self.domain_A), len(self.domain_B))
 
@@ -155,24 +122,10 @@ class CrossDomainMotionDataset(Dataset):
         idx_B = idx % len(self.domain_B)
 
         return PairedSample(
-            motions=(self.domain_A[idx_A][0], self.domain_B[idx_B][0]),
-            offsets=(self.domain_A[idx_A][1], self.domain_B[idx_B][1]),
-            heights=(self.domain_A[idx_A][2], self.domain_B[idx_B][2])
+            rotations=(self.domain_A[idx_A][0], self.domain_B[idx_B][0]),
+            motions=(self.domain_A[idx_A][1], self.domain_B[idx_B][1]),
+            offsets=(self.domain_A[idx_A][2], self.domain_B[idx_B][2]),
+            heights=(self.domain_A[idx_A][3], self.domain_B[idx_B][3]),
+            gt_positions=(self.domain_A[idx_A][4], self.domain_B[idx_B][4]),
+            gt_ee_vels=(self.domain_A[idx_A][5], self.domain_B[idx_B][5])
         )
-
-def pad_root_flat(motion: torch.Tensor) -> torch.Tensor:
-    """
-    motion: (T, 3 + 4*J)
-    returns: (T, 4 + 4*J)
-    """
-    D, T = motion.shape
-
-    padded = torch.zeros(D + 1, T, device=motion.device, dtype=motion.dtype)
-
-    # root translation -> xyz0
-    padded[1:4, :] = motion[:3, :]
-
-    # shift rotations by 1
-    padded[4:, :] = motion[3:, :]
-
-    return padded

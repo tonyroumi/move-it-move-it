@@ -1,11 +1,11 @@
 from .encoder import PoolingInfo
-from src.skeletal_ops import SkeletalConv, SkeletalUnpool
 
 from typing import Dict, List, Optional, Any
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from src.skeletal.ops import SkeletalConv, SkeletalUnpool
 
 class SkeletalDecBlock(nn.Module):
     """
@@ -17,14 +17,13 @@ class SkeletalDecBlock(nn.Module):
         pooled_edges: List[List[int]],
         channels_per_edge: int,
         conv_params: Dict[str, Any],
-        global_pos_inc: bool = True,
         activation: bool = True
     ):
         super().__init__()
 
         self.UpS = nn.Upsample(scale_factor=2, mode="linear", align_corners=False)
         self.unpool = SkeletalUnpool(pooled_edges=pooled_edges, channels_per_edge=channels_per_edge) 
-        self.conv = SkeletalConv(adj_list=adj_list, **conv_params, global_pos_inc=global_pos_inc)
+        self.conv = SkeletalConv(adj_list=adj_list, **conv_params)
         self.act = nn.LeakyReLU(negative_slope=0.2) if activation else nn.Identity()
 
     def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):      

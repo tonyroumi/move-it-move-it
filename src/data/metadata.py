@@ -1,7 +1,6 @@
 """
 Skeleton metadata and motion sequence dataclasses.
 """
-
 from dataclasses import dataclass
 import numpy as np
 

@@ -1,16 +1,12 @@
-from src.data_processing import AMASSTAdapter
+from src.data import AMASSTAdapter
 from src.training import SkeletalGANTrainer
-from src.dataset import CrossDomainMotionDataset, MotionDataset, MotionDatasetBuilder
-from src.dataset.motion_dataset import paired_collate
-from src.data_processing import AMASSTAdapter
-from src.skeletal_models import SkeletalGAN
+from src.data.datasets import CrossDomainMotionDataset, MotionDataset, MotionDatasetBuilder, paired_collate
+from src.skeletal.models import SkeletalGAN
 from src.utils import DataUtils
-from typing import List
-from src.data_processing import SkeletonMetadata
+from typing import List, Callable
 from src.training import LossBundle
 from src.training.trainer import TrainConfig
 import torch
-from src.utils.skeleton import SkeletonUtils
 
 if __name__ == "__main__":
 
@@ -26,15 +22,17 @@ if __name__ == "__main__":
     dataset_config = DataUtils.load_yaml("/workspace/configs/default/motion_dataset.yaml")
     auto_encoder_params = DataUtils.load_yaml("/workspace/configs/default/autoencoder.yaml")
     discriminator_params = DataUtils.load_yaml("/workspace/configs/default/discriminator.yaml")
-    static_encoder_params = DataUtils.load_yaml("/workspace/configs/default/static_encoder.yaml")
+    offset_encoder_params = DataUtils.load_yaml("/workspace/configs/default/offset_encoder.yaml")
     gan_params = {"auto_encoder_params" : auto_encoder_params,
                   "discriminator_params": discriminator_params,
-                  "static_encoder_params": static_encoder_params}
+                  "offset_encoder_params": offset_encoder_params}
 
     amass_adapter = AMASSTAdapter()
     dataset_builder = MotionDatasetBuilder(adapter=amass_adapter, data_config=dataset_config)
     dataset_A = MotionDataset(characters=["Aude", "Carine"], builder=dataset_builder)
-    dataset_B = MotionDataset(characters=["Karim", "Medhi"], builder=dataset_builder)
+    dataset_A_norm_stats = dataset_A.norm_stats
+    dataset_B = MotionDataset(characters=["Karim"], builder=dataset_builder)
+    dataset_B_norm_stats = dataset_B.norm_stats
 
     #The issue lies in where we are creating our edge list. 
     # Remember for edges specifically, edge 0 corresponds to the edge from 0->1.
@@ -44,7 +42,7 @@ if __name__ == "__main__":
     cross_domain_dataset = CrossDomainMotionDataset(dataset_A, dataset_B)
     train_loader = torch.utils.data.DataLoader(cross_domain_dataset, batch_size=256, collate_fn=paired_collate)
     
-    model = SkeletalGAN(topologies=cross_domain_dataset.topologies, gan_params=gan_params)
+    model = SkeletalGAN(topologies=cross_domain_dataset.topologies, gan_params=gan_params, normalization_stats = (dataset_A_norm_stats, dataset_B_norm_stats))
 
     optimizer_G = torch.optim.Adam(
       model.generator_parameters(),

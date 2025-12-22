@@ -2,7 +2,7 @@ import json
 import yaml
 
 class DataUtils:
-    """ Lightweight data-loading utilities. """
+    """ Data-loading utilities. """
 
     @staticmethod
     def load_yaml(path):

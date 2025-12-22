@@ -6,7 +6,6 @@ from typing import List, Optional
 import torch
 import torch.nn.functional as F
 
-
 class SkeletalConv(SkeletalBase):
     """
     Skeletal-temporal convolution.
@@ -17,7 +16,6 @@ class SkeletalConv(SkeletalBase):
     def __init__(
         self,
         adj_list: List[List[int]],
-        global_pos_inc: bool,
         in_channels_per_joint: int,
         out_channels_per_joint: int,
         bias: bool,

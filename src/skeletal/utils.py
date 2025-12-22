@@ -1,13 +1,10 @@
-from .array import ArrayLike, ArrayUtils
-
-from src.skeletal_models import SkeletonTopology
-from typing import List, Tuple
-import cv2
-import matplotlib.pyplot as plt
+from typing import Tuple, Union
+import math
 import numpy as np
 import torch
-from tqdm import tqdm
-import math
+
+from src.utils import ArrayLike, ArrayUtils
+from src.core.types import SkeletonTopology
 
 class SkeletonUtils:
     """ Skeleton utiities """
@@ -30,16 +27,26 @@ class SkeletonUtils:
             return data[:, idx]
 
     @staticmethod
-    def construct_adj(edge_list: ArrayLike, d: int = 2, global_edges: bool = True):
+    def construct_adj(
+        edge_list: ArrayLike,
+        d: int = 2,
+        global_edges: bool = True,
+        global_edge_source: int | None = None,
+    ):
         """
         Returns adjacency list of edges within distance <= d
         """
         def add_global_edge(neighbors):
-            E = len(neighbors)-1
+            E = len(neighbors)
             global_idx = E
 
-            neighbors.append(list(range(E)))  # global connects to all
-            for i in range(E):
+            if global_edge_source is None:
+                global_neighbors = list(range(E))
+            else:
+                global_neighbors = neighbors[global_edge_source].copy()
+
+            neighbors.append(global_neighbors)
+            for i in global_neighbors:
                 neighbors[i].append(global_idx)
 
             return neighbors
@@ -89,14 +96,10 @@ class SkeletonUtils:
 
     @staticmethod
     def get_ee_velocity(
-        positions: torch.Tensor,
-        topologies: Tuple[SkeletonTopology,SkeletonTopology]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        positions: ArrayLike,
+        topology: Union[SkeletonTopology] 
+    ) -> Tuple[ArrayLike, ArrayLike]:
         """ Compute the velocity of end effectors """
-        ee_vels = []
-        for i in range(len(topologies)):
-            vel = positions[i][:, 1:] - positions[i][:, :-1]  
-            ee_vel = vel[:, :, topologies[i].ee_ids, :]  
-            ee_vels.append(ee_vel) 
-        
-        return ee_vels              
+        vel = positions[:, 1:] - positions[:, :-1]  
+        ee_vel = vel[:, :, topology.ee_ids, :]  
+        return ee_vel              

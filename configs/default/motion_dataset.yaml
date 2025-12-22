@@ -1,4 +1,2 @@
-
 downsample_fps: 30
 window_size: 64
-include_root_quat: true

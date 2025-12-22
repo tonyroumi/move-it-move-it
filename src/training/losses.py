@@ -8,78 +8,65 @@ class LossBundle(nn.Module):
         self.lsgan_loss = LSGANLoss()
         self.ee_loss = EELoss()
 
-    def mse(self, preds, gts):
-        return sum(
-            F.mse_loss(pred, gt)
-            for pred, gt in zip(preds, gts)
-        )
+    def mse(self, pred, gt):
+        return F.mse_loss(pred, gt)
 
-    def mae(self, preds, gts):
-        return sum(
-            F.l1_loss(pred, gt)
-            for pred, gt in zip(preds, gts)
-        )
+    def mae(self, pred, gt):
+        return F.l1_loss(pred, gt)
 
     def lsgan(self, *, d_args=None, g_args=None):
         if d_args is not None:
-            return sum(
-                self.lsgan_loss(d_real=d_real, d_fake=d_fake)
-                for d_real, d_fake in d_args
-            )
+            return self.lsgan_loss(d_real=d_args, d_fake=g_args, is_discriminator=True)
 
-        return sum(
-            self.lsgan_loss(d_fake=d_fake)
-            for (d_fake,) in g_args
-        )
+        return self.lsgan_loss(d_fake=g_args, is_discriminator=False)
 
-    def ee(self, preds, gts):
-        return sum(
-            self.ee_loss(pred, gt)
-            for pred, gt in zip(preds, gts)
-        )
+    def ee(self, pred, gt):
+        return self.ee_loss(pred, gt)
 
 class LSGANLoss(nn.Module):
     """
     Least Squares GAN loss.
 
-    Discriminator targets:
+    is_discriminator = True:
         real -> 1
         fake -> 0
 
-    Generator target:
+    is_discriminator = False (generator):
         fake -> 1
     """
     def __init__(self):
         super().__init__()
         self.mse = nn.MSELoss()
-    
-    def forward(self, *, d_real: torch.Tensor = None, d_fake: torch.Tensor = None):
-        if d_real is not None and d_fake is not None:
-            return self.d_loss(d_real, d_fake)
 
-        if d_real is None and d_fake is not None:
-            return self.g_loss(d_fake)
+    def forward(
+        self,
+        *,
+        d_real: torch.Tensor | None = None,
+        d_fake: torch.Tensor | None = None,
+        is_discriminator: bool,
+    ) -> torch.Tensor:
 
-    def d_loss(self, d_real: torch.Tensor, d_fake: torch.Tensor) -> torch.Tensor:
-        real_targets = torch.ones_like(d_real)
-        fake_targets = torch.zeros_like(d_fake)
+        if is_discriminator:
+            real_targets = torch.ones_like(d_real)
+            fake_targets = torch.zeros_like(d_fake)
 
-        loss_real = self.mse(d_real, real_targets)
-        loss_fake = self.mse(d_fake, fake_targets)
+            loss_real = self.mse(d_real, real_targets)
+            loss_fake = self.mse(d_fake, fake_targets)
 
-        return 0.5 * (loss_real + loss_fake)
+            return 0.5 * (loss_real + loss_fake)
 
-    def g_loss(self, d_fake: torch.Tensor) -> torch.Tensor:
-        real_targets = torch.ones_like(d_fake)
-        return self.mse(d_fake, real_targets)
+        else:
+            real_targets = torch.ones_like(d_fake)
+            return self.mse(d_fake, real_targets)
 
 class EELoss(nn.Module):
     """ End-Effector velocity loss. """
-    def __init__(self):
+    def __init__(self, norm_eps=0.008):
         super().__init__()
         self.mse = nn.MSELoss()
+        self.norm_eps = norm_eps
     
-    def forward(self, pred: torch.Tensor, gt: torch.Tensor, norm_eps=0.008) -> torch.Tensor:
+    def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
         ee_loss = self.mse(pred, gt)
  
         gt_norm = torch.norm(gt, dim=-1)

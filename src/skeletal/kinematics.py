@@ -1,8 +1,6 @@
-from turtle import forward
 import torch
-from typing import List, Tuple
 
-from src.skeletal_models import SkeletonTopology
+from src.core.types import SkeletonTopology
 
 class ForwardKinematics:
     """Forward kinematics utilities."""
@@ -12,7 +10,7 @@ class ForwardKinematics:
         quaternions: torch.Tensor,
         offsets: torch.Tensor,
         root_pos: torch.Tensor,
-        topology: torch.Tensor,
+        topology: SkeletonTopology,
         world: bool = True
     ) -> torch.Tensor:
         """
@@ -29,10 +27,10 @@ class ForwardKinematics:
         rotmats = ForwardKinematics.quat_to_rotmat(quaternions)
 
         P[:, 0, :] = root_pos
-        R[:, 0, :, :] = rotmats[:, 0, :, :] #TODO(anthony) this should be identity rotation. Root quat no longer included 
+        R[:, 0, :, :] = torch.eye(3, device=R.device, dtype=R.dtype)
         
-        for (parent, child) in topology:
-            R[:, child, :, :] = R[:, parent, :, :] @ rotmats[:, child, :, :] 
+        for (parent, child) in topology.edge_topology:
+            R[:, child, :, :] = R[:, parent, :, :].clone() @ rotmats[:, child, :, :].clone()
             P[:, child, :] = ( R[:, parent, :, :] @ offsets[child-1, :, None] ).squeeze(-1) 
 
             if world:
@@ -45,7 +43,7 @@ class ForwardKinematics:
         quaternions: torch.Tensor,
         offsets: torch.Tensor,
         root_pos: torch.Tensor,
-        topology: torch.Tensor,
+        topology: SkeletonTopology,
         world: bool = True,
     ) -> torch.Tensor:
         """
@@ -64,8 +62,8 @@ class ForwardKinematics:
         P[:, :, 0, :] = root_pos.transpose(1,2) 
         R[:, :, 0, :, :] = torch.eye(3, device=R.device, dtype=R.dtype)
         
-        for (parent, child) in topology:
-            R[:, :, child, :, :] = R[:, :, parent, :, :] @ rotmats[:, :, child-1, :, :] 
+        for (parent, child) in topology.edge_topology:
+            R[:, :, child, :, :] = R[:, :, parent, :, :].clone() @ rotmats[:, :, child-1, :, :].clone()
             P[:, :, child, :] = ( R[:, :, parent, :, :] @ offsets[:, None, child, :, None]).squeeze(-1) 
 
             if world:
