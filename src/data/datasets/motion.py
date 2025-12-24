@@ -77,7 +77,7 @@ class MotionDataset(Dataset):
     def _compute_normalization_stats(self):
         # mean/var over batch and time
         mean = torch.mean(self.rotations, dim=(0, 2), keepdim=True)
-        var  = torch.var(self.rotations, dim=(0, 2), keepdim=True)
+        var  = torch.var(self.rotations, dim=(0, 2), keepdim=True) ** (1/2)
         return NormalizationStats(mean, var)
 
     def __len__(self):

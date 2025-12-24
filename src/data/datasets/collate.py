@@ -9,10 +9,7 @@ def paired_collate(batch):
     )
 
     motions = tuple(
-        torch.stack([
-            pad_root_flat(b.motions[i])
-            for b in batch
-        ])
+        torch.stack([b.motions[i] for b in batch])
         for i in range(2)
     )
 
@@ -44,20 +41,3 @@ def paired_collate(batch):
         gt_positions=gt_positions,
         gt_ee_vels=gt_ee_vels)
 
-
-def pad_root_flat(motion: torch.Tensor) -> torch.Tensor:
-    """
-    motion: (T, 3 + 4*J)
-    returns: (T, 4 + 4*J)
-    """
-    D, T = motion.shape
-
-    padded = torch.zeros(D + 1, T, device=motion.device, dtype=motion.dtype)
-
-    # root translation -> xyz0
-    padded[1:4, :] = motion[:3, :]
-
-    # shift rotations by 1
-    padded[4:, :] = motion[3:, :]
-
-    return padded

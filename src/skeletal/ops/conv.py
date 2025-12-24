@@ -35,7 +35,7 @@ class SkeletalConv(SkeletalBase):
         self.out_channels_per_joint = out_channels_per_joint
         self.out_channels = out_channels_per_joint * self.J
 
-        self.bias = bias
+        # self.with_bias = bias
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = (padding, padding)
@@ -44,7 +44,7 @@ class SkeletalConv(SkeletalBase):
         self.groups = groups
 
         self.weight = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
-        self.bias = torch.zeros(self.out_channels)
+        self.bias = torch.zeros(self.out_channels) if bias else self.register_parameter('bias', None)
 
         self.mask = torch.zeros(self.out_channels, self.in_channels, self.kernel_size)
 
@@ -52,6 +52,7 @@ class SkeletalConv(SkeletalBase):
             self.offset_encoder = SkeletalLinear(self.adj, offset_in_channels_per_joint, self.out_channels)
         
         super()._init_weights()
+        
     
     def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):
         weight_masked = self.weight * self.mask

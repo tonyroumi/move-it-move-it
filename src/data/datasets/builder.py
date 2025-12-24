@@ -59,8 +59,8 @@ class MotionDatasetBuilder:
         offsets = skeleton.offsets
         edge_topology = skeleton.edge_topology
         ee_ids = skeleton.ee_ids
-        height = skeleton.height
-
+        height = skeleton.height #TODO(anthony) fix height. their heights are like 152 cm? 175 cm?
+        #TODO(anthony) verify that motion is in radians. 
         # If there are no processed files, proccess from raw dir. 
         if not processed_files:
             motions = self.adapter.extract_motion(character)
@@ -73,8 +73,7 @@ class MotionDatasetBuilder:
             *[self._process_motion_sequence(m) for m in motions]
         )
         all_windowed_motion, all_windowed_pos = np.vstack(windowed_motion), np.vstack(windowed_pos)
-        ee_vels = SkeletonUtils.get_ee_velocity(all_windowed_pos, skeleton) 
-        #we might want to reshape after this. right now the shape is [num_w, 63, 5, 3]
+        ee_vels = SkeletonUtils.get_ee_velocity(all_windowed_pos, skeleton) / height
 
         num_frames = all_windowed_motion.shape[0] * all_windowed_motion.shape[1]
         self.logger.info(f"{character} contains {num_frames} frames")
@@ -92,7 +91,7 @@ class MotionDatasetBuilder:
         rotations = motion.rotations.reshape(motion.rotations.shape[0], -1)
         root_pos = motion.positions[:,0]
 
-        full_motion = np.hstack([root_pos, rotations])
+        full_motion = np.hstack([rotations, root_pos])
         full_motion = self._downsample(data=full_motion, fps_in=motion.fps)
         full_position = self._downsample(data=motion.positions, fps_in=motion.fps)
 

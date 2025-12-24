@@ -52,12 +52,12 @@ class SkeletalBase(nn.Module):
             tmp = torch.zeros_like(self.weight[start_idx:end_idx, nbors, ...])
             nn.init.kaiming_uniform_(tmp, a=math.sqrt(5))
             self.weight[start_idx:end_idx, nbors, ...] = tmp
-
-        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-        bound = 1 / math.sqrt(fan_in)
-        nn.init.uniform_(self.bias, -bound, bound)
-
+        
         self.weight = nn.Parameter(self.weight)
-        self.bias = nn.Parameter(self.bias)
-
         self.mask = nn.Parameter(self.mask, requires_grad=False)
+
+        if self.bias is not None:
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias, -bound, bound)
+            self.bias = nn.Parameter(self.bias)

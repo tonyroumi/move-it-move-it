@@ -30,8 +30,7 @@ class SkeletonUtils:
     def construct_adj(
         edge_list: ArrayLike,
         d: int = 2,
-        global_edges: bool = True,
-        global_edge_source: int | None = None,
+        global_edges: bool = True
     ):
         """
         Returns adjacency list of edges within distance <= d
@@ -40,10 +39,8 @@ class SkeletonUtils:
             E = len(neighbors)
             global_idx = E
 
-            if global_edge_source is None:
-                global_neighbors = list(range(E))
-            else:
-                global_neighbors = neighbors[global_edge_source].copy()
+            
+            global_neighbors = neighbors[0].copy()
 
             neighbors.append(global_neighbors)
             for i in global_neighbors:

@@ -1,5 +1,5 @@
 from .builder import MotionDatasetBuilder
-from .collate import paired_collate, pad_root_flat
+from .collate import paired_collate
 from .motion import MotionDataset, CrossDomainMotionDataset
 
 from src.core.normalization import NormalizationStats
@@ -12,5 +12,4 @@ __all__ = [
     "NormalizationStats",
     "PairedSample",
     "paired_collate",
-    "pad_root_flat",
 ]

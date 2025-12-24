@@ -93,13 +93,13 @@ class SkeletalGAN(nn.Module):
         reconstruction_out: Dict[int, MotionOutput] = {}
         for i, domain in enumerate(self.domains):
             latents, reconstructed = domain(batch.motions[i], offset_features[i])
-            
-            reconstructed_rot = domain.denorm(reconstructed[:, 1:]) # First idx is padding
+            #TODO(anthony) pick back up here. we need to pad the last row and discard it somehow. 
+            reconstructed_rot = domain.denorm(reconstructed)
 
             reconstructed_pos = ForwardKinematics.forward_batched(
-                quaternions=reconstructed_rot[:, 3:].reshape(B, T, domain.num_joints-1, 4), 
+                quaternions=reconstructed_rot[:, :-3].reshape(B, T, domain.num_joints-1, 4), 
                 offsets=batch.offsets[i].reshape(B, -1, 3), 
-                root_pos=reconstructed_rot[:, :3],
+                root_pos=reconstructed_rot[:, -3:],
                 topology=domain.topology,
                 world=True
             )
@@ -116,16 +116,16 @@ class SkeletalGAN(nn.Module):
         # -------------------------
         retarget_out: Dict[Tuple[int, int], MotionOutput] = {}
         for i, src in enumerate(self.domains):
-            for j, dst in enumerate(self.domains):
+            for j, dst in enumerate(self.domains): #TODO(anthony) They randomly select characters for this. Not sure if we want to do that. hold off for now.  
                 retargetted_motion = dst.decode(reconstruction_out[i].latents, offset_features[j])
                 retargetted_latents = dst.encode(retargetted_motion, offset_features[j])
 
-                retargetted_rots = dst.denorm(retargetted_motion[:, 1:]) # First idx is padding
+                retargetted_rots = dst.denorm(retargetted_motion)
 
                 retargetted_pos = ForwardKinematics.forward_batched(
-                    quaternions=retargetted_rots[:, 3:].reshape(B, T, dst.num_joints-1, 4),
+                    quaternions=retargetted_rots[:, :-3].reshape(B, T, dst.num_joints-1, 4),
                     offsets=offset_features[j][0].reshape(B, -1, 3),
-                    root_pos=retargetted_rots[:, :3],
+                    root_pos=retargetted_rots[:, -3:],
                     topology=dst.topology,
                     world=True
                 ) 

@@ -18,7 +18,6 @@ class ForwardKinematics:
         
         NOTE: This assume that the root quat is included.
         """
-        #TODO: Handle no root quat.
         T, J, _ = quaternions.shape
 
         P = torch.zeros(T, J, 3, device=quaternions.device)
@@ -51,7 +50,6 @@ class ForwardKinematics:
 
         NOTE: This assume that the root quat is included.
         """
-        #TODO: Handle no root quat.
         B, T, J, _ = quaternions.shape # Root orientation not included here
 
         P = torch.zeros(B, T, J+1, 3, device=quaternions.device) 

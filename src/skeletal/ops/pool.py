@@ -119,7 +119,7 @@ class SkeletalPooling(nn.Module):
         # Add global position pooling
         pooling_list.append([self.J - 1])
 
-        new_adj_list = SkeletonUtils.construct_adj(new_edges, global_edge_source=0)
+        new_adj_list = SkeletonUtils.construct_adj(new_edges)
 
         return pooling_list, new_edges, new_adj_list
     

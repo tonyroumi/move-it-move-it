@@ -141,8 +141,6 @@ class AMASSTAdapter(DataSourceAdapter):
 
             positions = SkeletonUtils.prune_joints(out.Jtr , cutoff=self.JOINT_CUTOFF)
 
-            #TODO(anthony) save contacts
-
             motion_sequence = MotionSequence(name=fname,
                                              positions=ArrayUtils.to_numpy(positions),
                                              rotations=ArrayUtils.to_numpy(quat_rotations),

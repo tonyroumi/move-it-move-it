@@ -1,4 +1,4 @@
-[INFO] Aude contains 2871 frames
-[INFO] Carine contains 2523 frames
-[INFO] Karim contains 1479 frames
+[INFO] Aude contains 42456 frames
+[INFO] Carine contains 43413 frames
+[INFO] Karim contains 39933 frames
 [INFO] Trainer Initialized on: cpu

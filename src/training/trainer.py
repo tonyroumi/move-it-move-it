@@ -27,8 +27,8 @@ class SkeletalGANTrainer:
         losses: LossBundle,
         optimizer_G: torch.optim.Optimizer,
         optimizer_D: torch.optim.Optimizer,
-        scheduler_G: torch.optim.lr_scheduler,
-        scheduler_D: torch.optim.lr_scheduler,
+        # scheduler_G: torch.optim.lr_scheduler,
+        # scheduler_D: torch.optim.lr_scheduler,
         train_loader: DataLoader,
         config: TrainConfig,
         logger: Logger = Logger(),
@@ -39,8 +39,8 @@ class SkeletalGANTrainer:
         self.losses = losses
         self.optimizer_G = optimizer_G
         self.optimizer_D = optimizer_D
-        self.scheduler_G = scheduler_G
-        self.scheduler_D = scheduler_D
+        # self.scheduler_G = scheduler_G
+        # self.scheduler_D = scheduler_D
 
         self.train_loader = train_loader
         self.config = config
@@ -108,14 +108,14 @@ class SkeletalGANTrainer:
         A->A, A->B, B->A, B->B
         """
         tot_D_loss = 0.0
-        for (src, dst), out in ret_outputs.items():
+        for (src, dst), out in ret_outputs.items(): #TODO(anthony) unsure if we want to do this for each cross section. only want A->A, A->B. sum like that 
             pred_fake = self.model.forward_discriminator(
                 self.image_pools[dst].query(out.positions.flatten(start_dim=-2)).detach(),
                 idx=src
             )
 
             pred_real = self.model.forward_discriminator(
-                original_world_pos[dst].flatten(start_dim=-2).detach(),
+                original_world_pos[dst].flatten(start_dim=-2),
                 idx=src
             )
 
@@ -140,8 +140,8 @@ class SkeletalGANTrainer:
             rec_motion_loss = self.losses.mse(pred=out.motion, gt=batch.motions[i])
             self.logger.log_metric(f"rec_motion_loss_{i}", rec_motion_loss)
 
-            original_root_pos = batch.rotations[i][:, :3] / batch.heights[i][:, None, None]
-            rec_root_pos = out.rotations[:, :3] / batch.heights[i][:, None, None]
+            original_root_pos = batch.rotations[i][:, -3:] / batch.heights[i][:, None, None]
+            rec_root_pos = out.rotations[:, -3:] / batch.heights[i][:, None, None]
             rec_root_pos_loss = self.losses.mse(
                 pred=rec_root_pos,
                 gt=original_root_pos
@@ -191,8 +191,8 @@ class SkeletalGANTrainer:
             "model": self.model.state_dict(),
             "optimizer_G": self.optimizer_G.state_dict(),
             "optimizer_D": self.optimizer_D.state_dict(),
-            "scheduler_G": self.scheduler_G.state_dict(),
-            "scheduler_D": self.scheduler_D.state_dict(),
+            # "scheduler_G": self.scheduler_G.state_dict(),
+            # "scheduler_D": self.scheduler_D.state_dict(),
         }
 
         path = ckpt_dir / f"skeletal_gan_epoch{epoch:03d}.pt"
@@ -200,6 +200,6 @@ class SkeletalGANTrainer:
 
         self.logger.info(f"Checkpoint saved to: {path}")
 
-    def _step_schedulers(self) -> None:
-        self.scheduler_G.step()
-        self.scheduler_D.step()
+    # def _step_schedulers(self) -> None:
+    #     self.scheduler_G.step()
+    #     self.scheduler_D.step()
