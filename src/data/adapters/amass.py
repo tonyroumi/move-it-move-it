@@ -98,6 +98,7 @@ class AMASSTAdapter(DataSourceAdapter):
 
         offsets = SkeletonUtils.prune_joints(offsets, self.JOINT_CUTOFF)
         offsets[0] = torch.zeros(3) # No root offset
+        offsets *= 100 # convert to cm
 
         edge_topology = self._build_edge_topology()
         ee_ids = self._find_ee()
@@ -139,7 +140,7 @@ class AMASSTAdapter(DataSourceAdapter):
             quat_rotations = quat_rotations.reshape(-1, self.num_joints, 4)
             quat_rotations = SkeletonUtils.prune_joints(quat_rotations, cutoff=self.JOINT_CUTOFF, discard_root=True)
 
-            positions = SkeletonUtils.prune_joints(out.Jtr , cutoff=self.JOINT_CUTOFF)
+            positions = SkeletonUtils.prune_joints(out.Jtr , cutoff=self.JOINT_CUTOFF) * 100 # convert to cm
 
             motion_sequence = MotionSequence(name=fname,
                                              positions=ArrayUtils.to_numpy(positions),
