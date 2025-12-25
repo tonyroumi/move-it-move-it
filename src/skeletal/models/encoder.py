@@ -75,7 +75,12 @@ class SkeletalEncoder(nn.Module):
         self.pooling_hierarchy.append(self.block1.pooling_info)
         self.pooling_hierarchy.append(self.block2.pooling_info)
 
-    def forward(self, x: torch.Tensor, offset: Optional[List[torch.tensor]] = None):
+    def forward(self, x: torch.Tensor, offset: Optional[List[torch.tensor]] = None, pad_global: bool = False):
+        if pad_global:
+            B, _, T = x.shape
+            dummy = x.new_zeros(B, 1, T)  
+            x = torch.cat([x, dummy], dim=1)
+
         intermediate_features = [x]
 
         y = self.block1(x, offset=offset[0] if offset else None)

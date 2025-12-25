@@ -1,15 +1,19 @@
+from pathlib import Path
 from tqdm import tqdm
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.skeletal.utils import SkeletonUtils
 from src.utils.array import ArrayLike
 
 class SkeletonVisualizer:
     """ Skeleton and motion data visualization utilities """
-    @staticmethod
-    def _set_axes_equal(ax):
+    def __init__(self, save_path: str):
+        self.save_path = save_path
+        Path(self.save_path).mkdir(parents=True, exist_ok=True)
+    
+    @classmethod
+    def _set_axes_equal(cls, ax):
         x_limits = ax.get_xlim3d()
         y_limits = ax.get_ylim3d()
         z_limits = ax.get_zlim3d()
@@ -28,12 +32,10 @@ class SkeletonVisualizer:
         ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
         ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
 
-    @staticmethod
-    def visualize_skeleton(global_position: ArrayLike, save_path: str):
+    @classmethod
+    def visualize_skeleton(cls, global_position: ArrayLike, height: float, foot_idx: int, head_idx: int, save_path: str):
         fig = plt.figure(figsize=(6, 6))
         ax = fig.add_subplot(111, projection="3d")
-
-        global_position = SkeletonUtils.prune_joints(global_position, cutoff=22)
 
         xs = global_position[:, 0]
         ys = global_position[:, 1]
@@ -45,15 +47,41 @@ class SkeletonVisualizer:
         for idx, (x, y, z) in enumerate(global_position):
             ax.text(x, y, z, str(idx), color="red", fontsize=8)
 
+        # Get foot and head positions
+        foot_pos = global_position[foot_idx]
+        head_pos = global_position[head_idx]
+        
+        # Calculate the direction from foot to head
+        direction = head_pos - foot_pos
+        direction_normalized = direction / np.linalg.norm(direction)
+        
+        # Calculate the expected head position based on height
+        expected_head_pos = foot_pos + direction_normalized * height
+        
+        # Draw a line from foot to expected head position based on height
+        ax.plot([foot_pos[0], expected_head_pos[0]], 
+                [foot_pos[1], expected_head_pos[1]], 
+                [foot_pos[2], expected_head_pos[2]], 
+                'b-', linewidth=2, label=f'Height: {height:.3f}')
+        
+        ax.legend()
+
         # Make axes equal
-        SkeletonVisualizer._set_axes_equal(ax)
+        cls._set_axes_equal(ax)
 
         plt.tight_layout()
         plt.savefig(save_path, dpi=300)
         plt.close(fig)
     
-    @staticmethod
-    def visualize_motion(global_positions: ArrayLike, save_path: str, fps: int = 30):
+   
+    @classmethod
+    def visualize_motion(cls, global_positions: ArrayLike, save_path: str):
+        # Reshape from [num_windows, 64, num_joints, 3] to [T, num_joints, 3]
+        if global_positions.ndim == 4:
+            num_windows, window_size, num_joints, _ = global_positions.shape
+            # Stitch all windows together along the time dimension
+            global_positions = global_positions.reshape(num_windows * window_size, num_joints, 3)
+        
         T = global_positions.shape[0]
 
         fig = plt.figure(figsize=(6, 6))
@@ -65,7 +93,7 @@ class SkeletonVisualizer:
         out = cv2.VideoWriter(
             save_path,
             cv2.VideoWriter_fourcc(*"mp4v"),
-            fps,
+            30,
             (w, h)
         )
 
@@ -83,7 +111,7 @@ class SkeletonVisualizer:
             for idx, (x, y, z) in enumerate(frame_pos):
                 ax.text(x, y, z, str(idx), color="red", fontsize=8)
 
-            SkeletonVisualizer._set_axes_equal(ax)
+            cls._set_axes_equal(ax)
 
             # Render the frame on Agg canvas
             fig.canvas.draw()
@@ -101,3 +129,4 @@ class SkeletonVisualizer:
 
         out.release()
         plt.close(fig)
+    

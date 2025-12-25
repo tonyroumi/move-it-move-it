@@ -59,8 +59,8 @@ class MotionDatasetBuilder:
         offsets = skeleton.offsets
         edge_topology = skeleton.edge_topology
         ee_ids = skeleton.ee_ids
-        height = skeleton.height #TODO(anthony) fix height. their heights are like 152 cm? 175 cm?
-        #TODO(anthony) verify that motion is in radians. 
+        height = skeleton.height
+
         # If there are no processed files, proccess from raw dir. 
         if not processed_files:
             motions = self.adapter.extract_motion(character)

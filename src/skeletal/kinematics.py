@@ -16,12 +16,12 @@ class ForwardKinematics:
         """
         Compute joint positions for unbatched motion.
         
-        NOTE: This assume that the root quat is included.
+        NOTE: This assume that the root quat is not included.
         """
         T, J, _ = quaternions.shape
 
-        P = torch.zeros(T, J, 3, device=quaternions.device)
-        R = torch.zeros(T, J, 3, 3, device=quaternions.device)
+        P = torch.zeros(T, J+1, 3, device=quaternions.device)
+        R = torch.zeros(T, J+1, 3, 3, device=quaternions.device)
 
         rotmats = ForwardKinematics.quat_to_rotmat(quaternions)
 
@@ -29,7 +29,7 @@ class ForwardKinematics:
         R[:, 0, :, :] = torch.eye(3, device=R.device, dtype=R.dtype)
         
         for (parent, child) in topology.edge_topology:
-            R[:, child, :, :] = R[:, parent, :, :].clone() @ rotmats[:, child, :, :].clone()
+            R[:, child, :, :] = R[:, parent, :, :].clone() @ rotmats[:, child-1, :, :].clone()
             P[:, child, :] = ( R[:, parent, :, :] @ offsets[child-1, :, None] ).squeeze(-1) 
 
             if world:
@@ -48,9 +48,9 @@ class ForwardKinematics:
         """
         Compute joint positions for batched motion.
 
-        NOTE: This assume that the root quat is included.
+        NOTE: This assume that the root quat is not included.
         """
-        B, T, J, _ = quaternions.shape # Root orientation not included here
+        B, T, J, _ = quaternions.shape
 
         P = torch.zeros(B, T, J+1, 3, device=quaternions.device) 
         R = torch.zeros(B, T, J+1, 3, 3, device=quaternions.device) 

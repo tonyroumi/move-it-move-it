@@ -59,5 +59,4 @@ class SkeletalDecoder(nn.Module):
     def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):
         y = self.block1(x, offset=offset[1] if offset else None)
         y = self.block2(y, offset=offset[0] if offset else None)
-
-        return y
+        return y[:, :-1, :] # Discard padded global row

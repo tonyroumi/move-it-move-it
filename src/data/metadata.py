@@ -7,9 +7,9 @@ import numpy as np
 @dataclass
 class SkeletonMetadata:
     edge_topology: np.ndarray
-    offsets: np.ndarray # (J-1, 3)
+    offsets: np.ndarray # (J-1, 3) # cm
     ee_ids: np.ndarray
-    height: np.ndarray
+    height: np.ndarray # cm
     kintree: np.ndarray
 
     def save(self, path: str):
@@ -43,8 +43,8 @@ class SkeletonMetadata:
 @dataclass
 class MotionSequence:
     name: str
-    positions: np.ndarray # (T, J, 3)
-    rotations: np.ndarray # (T, J, 4)
+    positions: np.ndarray # (T, J, 3) , cm
+    rotations: np.ndarray # (T, J, 4) , radians
     fps: float = 60
 
     def save(self, path: str):

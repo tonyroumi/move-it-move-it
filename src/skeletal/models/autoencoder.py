@@ -23,13 +23,6 @@ class SkeletalAutoEncoder(nn.Module):
                                        params=params["decoder"])
     
     def forward(self, x: torch.Tensor, offset: torch.Tensor):
-        B, D, T = x.shape #TODO(anthony) fix this. see comments before
-
-        dummy = x.new_zeros(B, 1, T)   # pad the global position row
-        x_ext = torch.cat([x, dummy], dim=1)
-
-        latent = self.encoder(x_ext, offset)
-        result_ext = self.decoder(latent, offset)
-
-        result = result_ext[:, :D, :]
+        latent = self.encoder(x, offset, pad_global=True)
+        result = self.decoder(latent, offset)
         return latent, result

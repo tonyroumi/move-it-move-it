@@ -68,7 +68,7 @@ class SkeletalGANTrainer:
             self.logger.info(f"Epoch: {epoch}, Total Loss: {total_loss}")
             self.logger.log_metric("total_loss", total_loss)
 
-            self._step_schedulers()
+            # self._step_schedulers()
             self.logger.epoch()
 
             if (epoch % self.config.checkpoint_interval == 0):

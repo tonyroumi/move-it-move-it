@@ -48,7 +48,7 @@ class SkeletalDomainModule(nn.Module):
         return self.auto_encoder(motions, offsets)
 
     def encode(self, reconstructed: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
-        return self.auto_encoder.encoder(reconstructed, offset=offset)
+        return self.auto_encoder.encoder(reconstructed, offset=offset, pad_global=True)
     
     def decode(self, latent_representation: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
         return self.auto_encoder.decoder(latent_representation, offset=offset)
@@ -93,11 +93,12 @@ class SkeletalGAN(nn.Module):
         reconstruction_out: Dict[int, MotionOutput] = {}
         for i, domain in enumerate(self.domains):
             latents, reconstructed = domain(batch.motions[i], offset_features[i])
-            #TODO(anthony) pick back up here. we need to pad the last row and discard it somehow. 
+            
             reconstructed_rot = domain.denorm(reconstructed)
-
             reconstructed_pos = ForwardKinematics.forward_batched(
-                quaternions=reconstructed_rot[:, :-3].reshape(B, T, domain.num_joints-1, 4), 
+                quaternions=reconstructed_rot[:, :-3]
+                    .reshape(B, domain.num_joints-1, 4, T)
+                    .permute(0, 3, 1, 2),
                 offsets=batch.offsets[i].reshape(B, -1, 3), 
                 root_pos=reconstructed_rot[:, -3:],
                 topology=domain.topology,
@@ -123,7 +124,9 @@ class SkeletalGAN(nn.Module):
                 retargetted_rots = dst.denorm(retargetted_motion)
 
                 retargetted_pos = ForwardKinematics.forward_batched(
-                    quaternions=retargetted_rots[:, :-3].reshape(B, T, dst.num_joints-1, 4),
+                    quaternions=retargetted_rots[:, :-3]
+                        .reshape(B, dst.num_joints-1, 4, T)
+                        .permute(0, 3, 1, 2),
                     offsets=offset_features[j][0].reshape(B, -1, 3),
                     root_pos=retargetted_rots[:, -3:],
                     topology=dst.topology,
