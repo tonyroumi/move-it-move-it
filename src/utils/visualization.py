@@ -1,19 +1,17 @@
+from .kinematics import ForwardKinematics
+
+from numpy.typing import ArrayLike
 from pathlib import Path
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.utils.array import ArrayLike
-
 class SkeletonVisualizer:
-    """ Skeleton and motion data visualization utilities """
-    def __init__(self, save_path: str):
-        self.save_path = save_path
-        Path(self.save_path).mkdir(parents=True, exist_ok=True)
-    
-    @classmethod
-    def _set_axes_equal(cls, ax):
+    """Skeleton and motion data visualization utilities"""
+    @staticmethod
+    def _set_axes_equal(ax):
         x_limits = ax.get_xlim3d()
         y_limits = ax.get_ylim3d()
         z_limits = ax.get_zlim3d()
@@ -32,8 +30,15 @@ class SkeletonVisualizer:
         ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
         ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
 
-    @classmethod
-    def visualize_skeleton(cls, global_position: ArrayLike, height: float, foot_idx: int, head_idx: int, save_path: str):
+    @staticmethod
+    def visualize_skeleton(
+      global_position: ArrayLike, 
+      height: float,
+      foot_idx: int, 
+      head_idx: int, 
+      save_path: str
+    ):
+        """ Visualize a single skeleton frame with height measurement. """        
         fig = plt.figure(figsize=(6, 6))
         ax = fig.add_subplot(111, projection="3d")
 
@@ -55,10 +60,8 @@ class SkeletonVisualizer:
         direction = head_pos - foot_pos
         direction_normalized = direction / np.linalg.norm(direction)
         
-        # Calculate the expected head position based on height
         expected_head_pos = foot_pos + direction_normalized * height
         
-        # Draw a line from foot to expected head position based on height
         ax.plot([foot_pos[0], expected_head_pos[0]], 
                 [foot_pos[1], expected_head_pos[1]], 
                 [foot_pos[2], expected_head_pos[2]], 
@@ -67,16 +70,15 @@ class SkeletonVisualizer:
         ax.legend()
 
         # Make axes equal
-        cls._set_axes_equal(ax)
+        SkeletonVisualizer._set_axes_equal(ax)
 
         plt.tight_layout()
         plt.savefig(save_path, dpi=300)
         plt.close(fig)
-    
-   
-    @classmethod
-    def visualize_motion(cls, global_positions: ArrayLike, save_path: str):
-        # Reshape from [num_windows, 64, num_joints, 3] to [T, num_joints, 3]
+
+    @staticmethod
+    def visualize_motion(global_positions: ArrayLike, save_path: str, fps: int = 30):
+        """ Visualize motion sequence as a video. """     
         if global_positions.ndim == 4:
             num_windows, window_size, num_joints, _ = global_positions.shape
             # Stitch all windows together along the time dimension
@@ -93,7 +95,7 @@ class SkeletonVisualizer:
         out = cv2.VideoWriter(
             save_path,
             cv2.VideoWriter_fourcc(*"mp4v"),
-            30,
+            fps,
             (w, h)
         )
 
@@ -111,22 +113,48 @@ class SkeletonVisualizer:
             for idx, (x, y, z) in enumerate(frame_pos):
                 ax.text(x, y, z, str(idx), color="red", fontsize=8)
 
-            cls._set_axes_equal(ax)
+            SkeletonVisualizer._set_axes_equal(ax)
 
-            # Render the frame on Agg canvas
             fig.canvas.draw()
-
-            # Extract raw RGBA buffer
             buf = np.asarray(fig.canvas.buffer_rgba())
-
-            # Convert RGBA → RGB
             rgb = cv2.cvtColor(buf, cv2.COLOR_RGBA2RGB)
-
-            # Convert RGB → BGR for OpenCV
             bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
             out.write(bgr)
 
         out.release()
         plt.close(fig)
-    
+
+    @staticmethod
+    def visualize_dataset(cross_motion_dataloader: DataLoader, save_path: str):
+        (Path(save_path) / "domain_a").mkdir(parents=True, exist_ok=True)
+        (Path(save_path) / "domain_b").mkdir(parents=True, exist_ok=True)
+
+        motion_datasets = cross_motion_dataloader.dataset.domains
+        for i, batch in enumerate(cross_motion_dataloader):
+            B, _, T = batch.motions[0].shape
+
+            positions_A = ForwardKinematics.forward_batched(
+                batch.rotations[0][:, :-3]
+                  .reshape(B, -1, 4, T)
+                  .permute(0, 3, 1, 2), 
+                batch.offsets[0].reshape(B, -1, 3),
+                batch.rotations[0][:, -3:],
+                motion_datasets[0].topology
+            )
+            positions_B = ForwardKinematics.forward_batched(
+                batch.rotations[1][:, :-3]
+                  .reshape(B, -1, 4, T)
+                  .permute(0, 3, 1, 2), 
+                batch.offsets[1].reshape(B, -1, 3),
+                batch.rotations[1][:, -3:],
+                motion_datasets[1].topology
+            )
+            
+            print("Visualizing gt positions...")
+            SkeletonVisualizer.visualize_motion(batch.gt_positions[0], f"{save_path}/domain_a/gt_position_batch_{i}.mp4")
+            SkeletonVisualizer.visualize_motion(batch.gt_positions[1], f"{save_path}/domain_b/gt_position_batch_{i}.mp4")
+
+            print("Visualizing positions from fk...")
+            SkeletonVisualizer.visualize_motion(positions_A, f"{save_path}/domain_a/rotations_batch_{i}.mp4")
+            SkeletonVisualizer.visualize_motion(positions_B, f"{save_path}/domain_b/rotations_batch_{i}.mp4")

@@ -5,6 +5,7 @@ Skeletal AutoEncoder to learn how to reconstruct original motions and a primal s
 from .encoder import SkeletalEncoder
 from .decoder import SkeletalDecoder
 
+from omegaconf import DictConfig
 from typing import Dict, List, Optional, Any
 import torch
 import torch.nn as nn
@@ -15,7 +16,7 @@ class SkeletalAutoEncoder(nn.Module):
         self, 
         adj_init: List[List[int]], 
         edge_init: List[List[int]], 
-        params: Dict[str, Any]
+        params: DictConfig
     ):
         super().__init__()
         self.encoder = SkeletalEncoder(adj_init, edge_init, params=params["encoder"])

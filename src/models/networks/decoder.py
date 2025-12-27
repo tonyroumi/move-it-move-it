@@ -1,11 +1,11 @@
 from .encoder import PoolingInfo
 
-from typing import Dict, List, Optional, Any
+from omegaconf import DictConfig
+from typing import List, Optional
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from src.skeletal.ops import SkeletalConv, SkeletalUnpool
+from src.models.ops import SkeletalConv, SkeletalUnpool
 
 class SkeletalDecBlock(nn.Module):
     """
@@ -16,7 +16,7 @@ class SkeletalDecBlock(nn.Module):
         adj_list: List[List[int]],
         pooled_edges: List[List[int]],
         channels_per_edge: int,
-        conv_params: Dict[str, Any],
+        conv_params: DictConfig,
         activation: bool = True
     ):
         super().__init__()
@@ -36,7 +36,7 @@ class SkeletalDecoder(nn.Module):
     def __init__(
         self,
         pooled_info: List[PoolingInfo],
-        params: Dict[str, Any]
+        params: DictConfig
     ):
         super().__init__()
 

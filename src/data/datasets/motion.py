@@ -5,12 +5,12 @@ Normalization and torch dataset classes for single and cross motion domains.
 from .builder import MotionDatasetBuilder
 
 from torch.utils.data import Dataset
-from typing import List, Tuple
+from typing import List
 import torch
 
 from src.core.normalization import NormalizationStats
 from src.core.types import PairedSample, SkeletonTopology
-from src.skeletal.utils import SkeletonUtils
+from src.utils import SkeletonUtils
 
 class MotionDataset(Dataset):
     """
@@ -18,13 +18,14 @@ class MotionDataset(Dataset):
     and end-effectors.
 
     __getitem__ returns:
-        motion, offsets, height
+        rotations, normed_rotations, offsets, height, gt_positions, gt_ee_vel
     """
     def __init__(
         self,
         characters: List[str],
         builder: MotionDatasetBuilder,
     ):
+        self.characters = characters
         self.char_index = []         # maps each sample → char_id
         self.char_meta = {}
 
@@ -32,7 +33,7 @@ class MotionDataset(Dataset):
         shared_ee_ids = None
 
         motion_seqs, pos_seqs, ee_vels = [], [], []
-        for char_id, char in enumerate(characters):
+        for char_id, char in enumerate(self.characters):
             (
                 motion_windows,
                 position_windows,
@@ -53,6 +54,7 @@ class MotionDataset(Dataset):
                     raise ValueError(f"EE ids mismatch for character {char}")
 
             self.char_meta[char] = {
+                "character": char,
                 "offsets": offsets,
                 "height": height,
                 "id": char_id,
@@ -69,7 +71,7 @@ class MotionDataset(Dataset):
 
         shared_adjacency = SkeletonUtils.construct_adj(shared_topology)
 
-        self.topology = SkeletonTopology(edge_topology=shared_topology, edge_adjacency=shared_adjacency, ee_ids=shared_ee_ids) #Mby here compute the edge list and adjacency
+        self.topology = SkeletonTopology(edge_topology=shared_topology, edge_adjacency=shared_adjacency, ee_ids=shared_ee_ids)
 
         self.norm_stats = self._compute_normalization_stats()
         self.motion_samples = self.norm_stats.norm(self.rotations)
@@ -90,19 +92,31 @@ class MotionDataset(Dataset):
         char_name = list(self.char_meta.keys())[char_id]
         meta = self.char_meta[char_name]
 
-        return self.rotations[idx], \
-               self.motion_samples[idx], \
+        rotations = self.rotations[idx]
+        motion_samples = self.motion_samples[idx]
+        gt_positions = self.gt_positions[idx]
+        gt_ee_vels = self.gt_ee_vels[idx]
+
+        if torch.rand(1) < 0.5:
+            # Reverse along the time dimension (dim=1)
+            rotations = torch.flip(rotations, dims=[1])
+            motion_samples = torch.flip(motion_samples, dims=[1])
+            gt_positions = torch.flip(gt_positions, dims=[1])
+            gt_ee_vels = torch.flip(gt_ee_vels, dims=[1])
+
+        return rotations, \
+               motion_samples, \
                meta["offsets"], \
                meta["height"], \
-               self.gt_positions[idx], \
-               self.gt_ee_vels[idx], \
+               gt_positions, \
+               gt_ee_vels
 
 class CrossDomainMotionDataset(Dataset):
     """ 
     Combines two MotionDataset instances for two different motion domains.
     
     __getitem__ returns:
-        PairedSample(motions, offsets, heights)
+        PairedSample(...)
     """
     def __init__(
         self,

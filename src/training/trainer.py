@@ -3,46 +3,36 @@ Trainer for an unpaired skeletal motion GAN.
 """
 from .losses import LossBundle
 
-from dataclasses import dataclass
+from omegaconf import DictConfig
 from pathlib import Path
 from torch.utils.data import DataLoader
 from typing import Any, Dict, Tuple, List
 import torch
 
 from src.core.types import MotionOutput, PairedSample
-from src.skeletal.models.gan import SkeletalGAN
+from src.models.networks.gan import SkeletalGAN
 from src.utils import Logger, ImagePool
-
-@dataclass
-class TrainConfig:
-    num_epochs: int = 5
-    checkpoint_interval: int = 1
-    checkpoint_dir: str = "./checkpoints"
-    buffer_size: int = 50
 
 class SkeletalGANTrainer:
     def __init__(
         self,
         model: SkeletalGAN,
-        losses: LossBundle,
         optimizer_G: torch.optim.Optimizer,
         optimizer_D: torch.optim.Optimizer,
-        # scheduler_G: torch.optim.lr_scheduler,
-        # scheduler_D: torch.optim.lr_scheduler,
         train_loader: DataLoader,
-        config: TrainConfig,
-        logger: Logger = Logger(),
+        checkpoint_dir: str,
+        config: DictConfig,
+        logger: Logger,
         device: torch.device = 'cpu',
     ):
         self.model : SkeletalGAN = model.to(device)
 
-        self.losses = losses
+        self.losses = LossBundle()
         self.optimizer_G = optimizer_G
         self.optimizer_D = optimizer_D
-        # self.scheduler_G = scheduler_G
-        # self.scheduler_D = scheduler_D
 
         self.train_loader = train_loader
+        self.checkpoint_dir = checkpoint_dir
         self.config = config
         self.device = device
         self.logger = logger
@@ -59,16 +49,13 @@ class SkeletalGANTrainer:
 
         for epoch in range(self.config.num_epochs):
             self.model.train()
-            epoch_loss = 0
             
-            epoch_loss += self._train_one_epoch()
+            epoch_loss = self._train_one_epoch()
             
-            total_loss += epoch_loss / (epoch+1)
+            total_loss += epoch_loss
 
-            self.logger.info(f"Epoch: {epoch}, Total Loss: {total_loss}")
-            self.logger.log_metric("total_loss", total_loss)
+            self.logger.log_metric("loss/total_loss", total_loss/(epoch+1))
 
-            # self._step_schedulers()
             self.logger.epoch()
 
             if (epoch % self.config.checkpoint_interval == 0):
@@ -109,6 +96,9 @@ class SkeletalGANTrainer:
         """
         tot_D_loss = 0.0
         for (src, dst), out in ret_outputs.items(): #TODO(anthony) unsure if we want to do this for each cross section. only want A->A, A->B. sum like that 
+            if dst == 1: 
+                break
+
             pred_fake = self.model.forward_discriminator(
                 self.image_pools[dst].query(out.positions.flatten(start_dim=-2)).detach(),
                 idx=src
@@ -120,6 +110,7 @@ class SkeletalGANTrainer:
             )
 
             loss_D = self.losses.lsgan(d_args=pred_real, g_args=pred_fake)
+            self.logger.log_metric(f"loss/D_loss_{src}", loss_D)
             loss_D.backward()
 
             tot_D_loss += loss_D
@@ -138,7 +129,7 @@ class SkeletalGANTrainer:
         rec_loss = 0
         for i, out in rec_outputs.items():
             rec_motion_loss = self.losses.mse(pred=out.motion, gt=batch.motions[i])
-            self.logger.log_metric(f"rec_motion_loss_{i}", rec_motion_loss)
+            self.logger.log_metric(f"loss/rec_motion_{i}", rec_motion_loss)
 
             original_root_pos = batch.rotations[i][:, -3:] / batch.heights[i][:, None, None]
             rec_root_pos = out.rotations[:, -3:] / batch.heights[i][:, None, None]
@@ -146,12 +137,12 @@ class SkeletalGANTrainer:
                 pred=rec_root_pos,
                 gt=original_root_pos
             ) 
-            self.logger.log_metric(f"rec_root_pos_loss_{i}", value=rec_root_pos_loss)
+            self.logger.log_metric(f"loss/rec_root_pos_{i}", value=rec_root_pos_loss)
 
             original_world_pos = batch.gt_positions[i] / batch.heights[i][:, None, None, None]
             rec_world_pos = out.positions / batch.heights[i][:, None, None, None]
             rec_joint_pos_loss = self.losses.mse(pred=rec_world_pos, gt=original_world_pos)
-            self.logger.log_metric(f"rec_joint_pos_loss_{i}", value=rec_joint_pos_loss)
+            self.logger.log_metric(f"loss/rec_joint_pos_{i}", value=rec_joint_pos_loss)
 
             rec_loss += rec_motion_loss + (rec_root_pos_loss * 2.5 + rec_joint_pos_loss) * 100
 
@@ -161,18 +152,18 @@ class SkeletalGANTrainer:
         tot_cycle_loss, tot_ee_loss, tot_G_loss = 0, 0, 0
         for (src, dst), out in ret_outputs.items():
             cycle_loss = self.losses.mae(pred=rec_outputs[src].latents, gt=out.latents)
-            self.logger.log_metric(f"cycle_loss_{src}->{dst}", value=cycle_loss)
+            self.logger.log_metric(f"loss/cycle_{src}->{dst}", value=cycle_loss)
             tot_cycle_loss += cycle_loss
 
             ee_loss = self.losses.ee(pred=out.ee_vels, gt=batch.gt_ee_vels[src])
-            self.logger.log_metric(f"ee_loss_{src}->{dst}", value=ee_loss)
+            self.logger.log_metric(f"loss/ee_vel_{src}->{dst}", value=ee_loss)
             tot_ee_loss += ee_loss
 
             if src != dst:
                 G_loss = self.losses.lsgan(
                     g_args=self.model.forward_discriminator(out.positions.flatten(start_dim=-2), dst)
                 )
-                self.logger.log_metric(f"g_loss_{src}->{dst}", value=G_loss)
+                self.logger.log_metric(f"loss/G_loss_{src}->{dst}", value=G_loss)
                 tot_G_loss += G_loss
         
         total_G_loss = rec_loss * 5 + \
@@ -184,15 +175,21 @@ class SkeletalGANTrainer:
         return total_G_loss
 
     def _save_checkpoint(self, epoch: int) -> None:
-        ckpt_dir = Path(self.config.checkpoint_dir)
+        """ Saves all states and necessary data to resume training and load model for inference """
+        ckpt_dir = Path(self.checkpoint_dir)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
         state = {
-            "model": self.model.state_dict(),
+            "model_state_dict": self.model.state_dict(),
             "optimizer_G": self.optimizer_G.state_dict(),
             "optimizer_D": self.optimizer_D.state_dict(),
-            # "scheduler_G": self.scheduler_G.state_dict(),
-            # "scheduler_D": self.scheduler_D.state_dict(),
+            'topologies': self.model.topologies,
+            'normalization_stats': tuple(d.norm_stats for d in self.model.domains),
+            "config" : {
+                "offset_encoder" : self.model.offset_encoder_params,
+                "auto_encoder": self.model.auto_encoder_params,
+                "discriminator": self.model.discriminator_params
+            }
         }
 
         path = ckpt_dir / f"skeletal_gan_epoch{epoch:03d}.pt"
@@ -200,6 +197,29 @@ class SkeletalGANTrainer:
 
         self.logger.info(f"Checkpoint saved to: {path}")
 
-    # def _step_schedulers(self) -> None:
-    #     self.scheduler_G.step()
-    #     self.scheduler_D.step()
+    def load_checkpoint(self, checkpoint_path: str) -> None:
+        """ Load trainer from checkpoint  """
+        checkpoint_path = Path(checkpoint_path)
+        
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found at: {checkpoint_path}")
+        
+        try:
+            self.logger.info(f"Loading checkpoint from: {checkpoint_path}")
+            
+            # Load checkpoint
+            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+            
+            # Load model state
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+            self.logger.info("Model state loaded successfully")
+            
+            # Load optimizer states
+            self.optimizer_G.load_state_dict(checkpoint["optimizer_G"])
+            self.logger.info("Generator optimizer state loaded successfully")
+            
+            self.optimizer_D.load_state_dict(checkpoint["optimizer_D"])
+            self.logger.info("Discriminator optimizer state loaded successfully")
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to load checkpoint from {checkpoint_path}: {str(e)}")

@@ -3,16 +3,11 @@ import logging
 import os
 
 class Logger:   
-    def __init__(self, log_dir: str = "./logs", verbose: bool = False):
+    def __init__(self, log_dir: str = "logs", verbose: bool = False):
         os.makedirs(log_dir, exist_ok=True)
 
         self._logger = logging.getLogger()
         self._logger.setLevel(logging.INFO)
-        file_handler = logging.FileHandler(os.path.join(log_dir, "loggerOutput.txt"), mode="w")
-        file_handler.setFormatter(
-            logging.Formatter("[%(levelname)s] %(message)s")
-        )
-        self._logger.addHandler(file_handler)
         
         self.writer = SummaryWriter(log_dir=log_dir)
 

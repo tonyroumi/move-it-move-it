@@ -1,5 +1,6 @@
-from src.skeletal.ops import SkeletalConv, SkeletalPooling, PoolingInfo
+from src.models.ops import SkeletalConv, SkeletalPooling, PoolingInfo
 
+from omegaconf import DictConfig
 from typing import Dict, List, Any
 import torch
 import torch.nn as nn
@@ -12,7 +13,7 @@ class SkeletalDiscBlock(nn.Module):
         self, 
         adj_list: List[List], 
         edge_list: List[List], 
-        conv_params: Dict[str, Any], 
+        conv_params: DictConfig, 
         norm: bool = True, 
         activation: bool = True
     ):
@@ -35,7 +36,7 @@ class SkeletalDiscriminator(nn.Module):
     def __init__(
         self,
         pooled_info: List[PoolingInfo],
-        discriminator_params: Dict[str, Any]
+        discriminator_params: DictConfig
     ):
         super().__init__()
 

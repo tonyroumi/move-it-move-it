@@ -2,28 +2,28 @@
 MotionDataset builder to construct MotionDataset for a single motion domain.
 """
 
-from typing import Any, Dict, Tuple
+from omegaconf import DictConfig
+from typing import Any, Dict, Tuple, List
 import numpy as np
 import torch
 
-from src.data.adapters.base import DataSourceAdapter
+from src.data.adapters.base import BaseAdapter
 from src.data.metadata import SkeletonMetadata, MotionSequence
-from src.skeletal.utils import SkeletonUtils
-from src.utils import ArrayUtils, Logger
+from src.utils import ArrayUtils, Logger, SkeletonUtils
 
 class MotionDatasetBuilder:
     def __init__(
         self, 
-        adapter: DataSourceAdapter, 
-        data_config: Dict[str, Any],
+        adapter: BaseAdapter, 
+        data_config: DictConfig,
         logger: Logger = Logger()
     ):
         self.adapter = adapter
         self.data_config = data_config
         self.logger = logger
 
-        self.window_size = data_config['window_size']
-        self.downsample_fps = data_config['downsample_fps']
+        self.window_size = data_config.window_size
+        self.downsample_fps = data_config.downsample_fps
 
         self.device = self.adapter.device
 
@@ -69,14 +69,10 @@ class MotionDatasetBuilder:
             for processed_motion in processed_files:
                 motions.append(MotionSequence.load(processed_motion))
 
-        windowed_motion, windowed_pos = zip(
-            *[self._process_motion_sequence(m) for m in motions]
-        )
-        all_windowed_motion, all_windowed_pos = np.vstack(windowed_motion), np.vstack(windowed_pos)
+        all_windowed_motion, all_windowed_pos, total_length = self._process_motion(motions)
         ee_vels = SkeletonUtils.get_ee_velocity(all_windowed_pos, skeleton) / height
 
-        num_frames = all_windowed_motion.shape[0] * all_windowed_motion.shape[1]
-        self.logger.info(f"{character} contains {num_frames} frames")
+        self.logger.info(f"{character} contains {total_length} frames after downsampling.")
 
         return (ArrayUtils.to_torch(all_windowed_motion, self.device),
                 ArrayUtils.to_torch(all_windowed_pos, self.device),
@@ -86,21 +82,34 @@ class MotionDatasetBuilder:
                 ArrayUtils.to_torch(ee_vels, self.device),
                 ArrayUtils.to_torch(height, self.device))
     
-    def _process_motion_sequence(self, motion: MotionSequence) -> Tuple[torch.Tensor, torch.Tensor]:
-        """ Downsample and break up motion data into fixed size windows """
-        rotations = motion.rotations.reshape(motion.rotations.shape[0], -1)
-        root_pos = motion.positions[:,0]
+    def _process_motion(self, motions: List[MotionSequence]) -> Tuple[torch.Tensor, torch.Tensor, int]:
+        """ Concatentate, downsample and break up motion data into fixed size windows """  
 
-        full_motion = np.hstack([rotations, root_pos])
-        full_motion = self._downsample(data=full_motion, fps_in=motion.fps)
-        full_position = self._downsample(data=motion.positions, fps_in=motion.fps)
+        motion_chunks, position_chunks = [], []
+        total_length = 0
+        for m in motions:
+            rotations = m.rotations.reshape(m.rotations.shape[0], -1)
+            root_pos = m.positions[:, 0]
+
+            full_motion = np.hstack([rotations, root_pos])
+
+            motion_ds = self._downsample(full_motion, fps_in=m.fps)
+            positions_ds = self._downsample(m.positions, fps_in=m.fps)
+
+            motion_chunks.append(motion_ds)
+            position_chunks.append(positions_ds)
+
+            total_length += motion_ds.shape[0]
+
+        full_motion = np.concatenate(motion_chunks, axis=0)
+        full_position = np.concatenate(position_chunks, axis=0)
 
         # window into [num_windows, window_size, feature_dim]
         windowed_motion = self._get_windows(full_motion)
         windowed_position = self._get_windows(full_position)
 
         windowed_motion = np.transpose(windowed_motion, axes=(0, 2, 1))
-        return windowed_motion, windowed_position
+        return windowed_motion, windowed_position, total_length
 
     def _downsample(self, data: np.ndarray, fps_in: float):
         """ Downsample by uniform subsampling. """

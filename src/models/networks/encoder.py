@@ -1,7 +1,7 @@
-from src.skeletal.ops import SkeletalConv, SkeletalPooling, PoolingInfo
+from src.models.ops import SkeletalConv, SkeletalPooling, PoolingInfo
 
+from omegaconf import DictConfig
 from typing import Dict, List, Tuple, Optional, Any
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,7 +14,7 @@ class SkeletalEncBlock(nn.Module):
         self,
         adj_list: List[List[int]],
         edge_list: List[Tuple[int]],
-        conv_params: Dict[str, Any],
+        conv_params: DictConfig,
         pool_features: bool = True,
         last_pool: bool = False,
     ):
@@ -44,7 +44,7 @@ class SkeletalEncoder(nn.Module):
         self,
         adj_init: List[List[int]],
         edge_init: List[Tuple[int]],
-        params: Dict[str, Any],
+        params: DictConfig,
         return_all: bool = False,
     ):
         super().__init__()

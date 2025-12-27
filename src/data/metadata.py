@@ -44,7 +44,7 @@ class SkeletonMetadata:
 class MotionSequence:
     name: str
     positions: np.ndarray # (T, J, 3) , cm
-    rotations: np.ndarray # (T, J, 4) , radians
+    rotations: np.ndarray # (T, J, 4) , (x, y, z, w) radians
     fps: float = 60
 
     def save(self, path: str):

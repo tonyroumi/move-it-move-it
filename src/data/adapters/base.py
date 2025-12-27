@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List
 import torch
 
-class DataSourceAdapter(ABC):
+class BaseAdapter(ABC):
     def __init__(self, dataset_name: str, device: torch.device):
         """ Setup data directories """
         root = Path(__file__).resolve().parent.parent.parent.parent
