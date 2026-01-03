@@ -14,13 +14,13 @@ class BaseAdapter(ABC):
         """ Setup data directories """
         root = Path(__file__).resolve().parent.parent.parent.parent
 
-        data_dir = root / "data"
+        self.data_dir = root / "data"
 
-        self.skeleton_dir = data_dir / "skeletons"
+        self.skeleton_dir = self.data_dir / "skeletons"
         self.skeleton_dir.mkdir(parents=True, exist_ok=True)
 
         # Subdirectories inside data
-        self.dataset_dir = data_dir / dataset_name
+        self.dataset_dir = self.data_dir / dataset_name
         self.raw_dir = self.dataset_dir / "raw"
         self.cache_dir = self.dataset_dir / "processed"
 

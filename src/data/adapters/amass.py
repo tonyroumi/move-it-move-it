@@ -4,6 +4,7 @@ Adapter for AMASS dataset using the SMPL BodyModel.
 Extracts skeleton topology, offsets, motion sequences, and other metadata.
 """
 
+from utils.visualization import SkeletonVisualizer
 from .base import BaseAdapter
 from ..metadata import SkeletonMetadata, MotionSequence
 
@@ -12,9 +13,9 @@ from typing import List, Tuple
 import numpy as np
 import torch
 
-from src.utils import ArrayUtils, RotationUtils, SkeletonUtils
+from src.utils import ArrayUtils, RotationUtils, SkeletonUtils, ForwardKinematics
 
-class AMASSTAdapter(BaseAdapter):
+class AMASSAdapter(BaseAdapter):
     DATASET_NAME = "amass"
     SUPPORT_NAME = "body_models"
     JOINT_CUTOFF = 22 # Joints > 21 are hands, fingers, toes. (zero based)
@@ -49,7 +50,7 @@ class AMASSTAdapter(BaseAdapter):
 
         self.num_joints = len(self.parent_kintree)
 
-    def download(self, **kwargs) -> None:
+    def download(self) -> None:
         print("=" * 70)
         print("AMASS Dataset Setup Instructions")
         print("=" * 70)
@@ -99,9 +100,9 @@ class AMASSTAdapter(BaseAdapter):
         offsets[0] = torch.zeros(3) # No root offset
         offsets *= 100 # convert to cm
 
-        edge_topology = self._build_edge_topology()
-        ee_ids = self._find_ee()
-        height = self._compute_height(offsets)
+        edge_topology = SkeletonUtils.construct_edge_topology(self.pruned_kintree[0])
+        ee_ids = SkeletonUtils.find_ee(self.pruned_kintree[0])
+        height = SkeletonUtils.compute_height(self.pruned_kintree[0], offsets, ee_ids)
 
         skeleton = SkeletonMetadata(edge_topology=ArrayUtils.to_numpy(edge_topology),
                                     offsets=ArrayUtils.to_numpy(offsets),
@@ -115,6 +116,8 @@ class AMASSTAdapter(BaseAdapter):
     def extract_motion(self, character: str) -> List[MotionSequence]:
         """ Extract and save all skeleton motion data for a particular character. """
         self._post_init(character)
+
+        skeleton = SkeletonMetadata.load(self.data_dir / "skeletons" / (str(character) + ".npz"))
 
         sequences : List[MotionSequence] = []
 
@@ -139,8 +142,13 @@ class AMASSTAdapter(BaseAdapter):
             quat_rotations = quat_rotations.reshape(-1, self.num_joints, 4)
             quat_rotations = SkeletonUtils.prune_joints(quat_rotations, cutoff=self.JOINT_CUTOFF, discard_root=True)
 
-            positions = SkeletonUtils.prune_joints(out.Jtr , cutoff=self.JOINT_CUTOFF) * 100 # convert to cm
-
+            fk_positions = ForwardKinematics.forward(
+                quaternions=ArrayUtils.to_torch(quat_rotations),
+                offsets=skeleton.offsets,
+                root_pos=out.Jtr[:,0],
+                topology=skeleton
+            )
+            
             motion_sequence = MotionSequence(name=fname,
                                              positions=ArrayUtils.to_numpy(positions),
                                              rotations=ArrayUtils.to_numpy(quat_rotations),
@@ -175,28 +183,6 @@ class AMASSTAdapter(BaseAdapter):
         kintree = np.vstack([out_parent, out_child])
 
         return kintree
-    
-    def _build_edge_topology(self) -> List[Tuple[int]]:
-        """ Constructs the edge topology for a skeleton as (parent, child) joint tuples. """
-        parent_kintree = self.pruned_kintree[0]
-        
-        # Build edge topology as (parent, child) joint tuples
-        topology = []
-        for child_idx, parent_idx in enumerate(parent_kintree[1:], start=1):  # skip root
-            topology.append((int(parent_idx), int(child_idx)))
-
-        return topology
-
-    def _find_ee(self):
-        """ Finds the skeleton's end effectors by traversing the tree for leaf joints. """
-        parent_kintree = self.pruned_kintree[0]
-        children = {i: [] for i in range(len(parent_kintree))}
-        for j, p in enumerate(parent_kintree):
-            if p >= 0:
-                children[p].append(j)
-
-        leaves = [j for j, c in children.items() if len(c) == 0]
-        return leaves
 
     def _compute_height(self, offset: np.ndarray):
         """ Computes the height by summing the size of each offset vector from the head to the feet. """

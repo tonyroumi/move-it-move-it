@@ -97,12 +97,12 @@ class MotionDataset(Dataset):
         gt_positions = self.gt_positions[idx]
         gt_ee_vels = self.gt_ee_vels[idx]
 
-        if torch.rand(1) < 0.5:
-            # Reverse along the time dimension (dim=1)
-            rotations = torch.flip(rotations, dims=[1])
-            motion_samples = torch.flip(motion_samples, dims=[1])
-            gt_positions = torch.flip(gt_positions, dims=[1])
-            gt_ee_vels = torch.flip(gt_ee_vels, dims=[1])
+        # if torch.rand(1) < 0.5:
+        #     # Reverse along the time dimension
+        #     rotations = torch.flip(rotations, dims=[1])
+        #     motion_samples = torch.flip(motion_samples, dims=[1])
+        #     gt_positions = torch.flip(gt_positions, dims=[0])
+        #     gt_ee_vels = torch.flip(gt_ee_vels, dims=[0])
 
         return rotations, \
                motion_samples, \
@@ -135,11 +135,14 @@ class CrossDomainMotionDataset(Dataset):
         idx_A = idx % len(self.domain_A)
         idx_B = idx % len(self.domain_B)
 
+        domain_A = self.domain_A[idx_A]
+        domain_B = self.domain_B[idx_B]
+
         return PairedSample(
-            rotations=(self.domain_A[idx_A][0], self.domain_B[idx_B][0]),
-            motions=(self.domain_A[idx_A][1], self.domain_B[idx_B][1]),
-            offsets=(self.domain_A[idx_A][2], self.domain_B[idx_B][2]),
-            heights=(self.domain_A[idx_A][3], self.domain_B[idx_B][3]),
-            gt_positions=(self.domain_A[idx_A][4], self.domain_B[idx_B][4]),
-            gt_ee_vels=(self.domain_A[idx_A][5], self.domain_B[idx_B][5])
+            rotations=(domain_A[0], domain_B[0]),
+            motions=(domain_A[1], domain_B[1]),
+            offsets=(domain_A[2], domain_B[2]),
+            heights=(domain_A[3], domain_B[3]),
+            gt_positions=(domain_A[4], domain_B[4]),
+            gt_ee_vels=(domain_A[5], domain_B[5])
         )

@@ -1,2 +1,3 @@
 from .base import BaseAdapter
-from .amass import AMASSTAdapter
+from .bandai import BANDAIAdapter
+from .amass import AMASSAdapter
