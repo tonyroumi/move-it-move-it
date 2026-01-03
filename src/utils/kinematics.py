@@ -1,3 +1,4 @@
+from data.metadata import SkeletonMetadata
 import torch
 
 from src.core.types import SkeletonTopology
@@ -10,7 +11,7 @@ class ForwardKinematics:
         quaternions: torch.Tensor,
         offsets: torch.Tensor,
         root_pos: torch.Tensor,
-        topology: SkeletonTopology,
+        topology: SkeletonTopology | SkeletonMetadata,
         world: bool = True
     ) -> torch.Tensor:
         """
@@ -30,7 +31,7 @@ class ForwardKinematics:
         
         for (parent, child) in topology.edge_topology:
             R[:, child, :, :] = R[:, parent, :, :].clone() @ rotmats[:, child-1, :, :].clone()
-            P[:, child, :] = ( R[:, parent, :, :] @ offsets[child-1, :, None] ).squeeze(-1) 
+            P[:, child, :] = ( R[:, parent, :, :] @ offsets[child, :, None] ).squeeze(-1) 
 
             if world:
                 P[:, child, :] += P[:, parent, :]
@@ -80,8 +81,8 @@ class ForwardKinematics:
         return positions
 
     @staticmethod
-    def quat_to_rotmat(quaternions: torch.Tensor) -> torch.Tensor:
-        """Convert unit quaternions to rotation matrices."""
+    def quat_to_rotmat(quaternions: torch.Tensor,) -> torch.Tensor:
+        """Convert unit quaternions to rotation matrices. Axis order is fixed x, y, z, w"""
         q = quaternions / quaternions.norm(dim=-1, keepdim=True)
         x, y, z, w = q.unbind(-1)
 

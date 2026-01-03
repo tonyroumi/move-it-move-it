@@ -7,6 +7,7 @@ from tqdm import tqdm
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
 
 class SkeletonVisualizer:
     """Skeleton and motion data visualization utilities"""
@@ -158,3 +159,70 @@ class SkeletonVisualizer:
             print("Visualizing positions from fk...")
             SkeletonVisualizer.visualize_motion(positions_A, f"{save_path}/domain_a/rotations_batch_{i}.mp4")
             SkeletonVisualizer.visualize_motion(positions_B, f"{save_path}/domain_b/rotations_batch_{i}.mp4")
+
+    @staticmethod
+    def visualize_offsets(offsets, parent_indices=None, save_path='skeleton_offsets.png'):
+        num_joints = len(offsets)
+        
+        # Compute global positions by accumulating offsets
+        positions = np.zeros((num_joints, 3))
+        
+        if parent_indices is None:
+            # Assume simple chain: each joint's parent is the previous joint
+            parent_indices = [-1] + list(range(num_joints - 1))
+        
+        # Forward pass: accumulate offsets to get global positions
+        for i in range(num_joints):
+            if parent_indices[i] == -1:
+                # Root joint
+                positions[i] = offsets[i]
+            else:
+                # Child joint: parent position + offset
+                positions[i] = positions[parent_indices[i]] + offsets[i]
+        
+        # Create 3D plot
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot joints as points
+        ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], 
+                c='red', s=50, marker='o', label='Joints')
+        
+        # Plot bones (connections between parent and child)
+        for i in range(num_joints):
+            if parent_indices[i] != -1:
+                parent_pos = positions[parent_indices[i]]
+                child_pos = positions[i]
+                ax.plot([parent_pos[0], child_pos[0]],
+                    [parent_pos[1], child_pos[1]],
+                    [parent_pos[2], child_pos[2]], 'b-', linewidth=2)
+        
+        # Label joints
+        for i in range(num_joints):
+            ax.text(positions[i, 0], positions[i, 1], positions[i, 2], 
+                    f'J{i}', fontsize=8)
+        
+        # Set labels and title
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.set_title('Skeleton Structure (T-Pose from Offsets)')
+        ax.legend()
+        
+        # Equal aspect ratio
+        max_range = np.array([positions[:, 0].max() - positions[:, 0].min(),
+                            positions[:, 1].max() - positions[:, 1].min(),
+                            positions[:, 2].max() - positions[:, 2].min()]).max() / 2.0
+        mid_x = (positions[:, 0].max() + positions[:, 0].min()) * 0.5
+        mid_y = (positions[:, 1].max() + positions[:, 1].min()) * 0.5
+        mid_z = (positions[:, 2].max() + positions[:, 2].min()) * 0.5
+        ax.set_xlim(mid_x - max_range, mid_x + max_range)
+        ax.set_ylim(mid_y - max_range, mid_y + max_range)
+        ax.set_zlim(mid_z - max_range, mid_z + max_range)
+        
+        # Save the plot
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)  # Close the figure to free memory
+        print(f"Skeleton visualization saved to: {save_path}")
+        
+        return positions

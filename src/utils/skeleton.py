@@ -1,4 +1,4 @@
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 import math
 import numpy as np
 import torch
@@ -25,6 +25,47 @@ class SkeletonUtils:
         # Batch-major: (N, J, ...)
         elif data.ndim == 3:
             return data[:, idx]
+    
+    @staticmethod
+    def construct_edge_topology(parent_kintree: List[int]) -> List[Tuple[int]]:
+        """ Constructs the edge topology for a skeleton as (parent, child) joint tuples. """
+        topology = []
+        for child_idx in range(1, len(parent_kintree)):  # Skip root
+            parent_idx = parent_kintree[child_idx]
+            topology.append([int(parent_idx), int(child_idx)])
+        
+        return topology
+    
+    @staticmethod
+    def find_ee(parent_kintree: List[int]):
+        """ Finds the skeleton's end effectors by traversing the tree for leaf joints. """
+        children = {i: [] for i in range(len(parent_kintree))}
+        for j, p in enumerate(parent_kintree):
+            if p >= 0:
+                children[p].append(j)
+
+        leaves = [j for j, c in children.items() if len(c) == 0]
+        return leaves
+    
+    @staticmethod
+    def compute_height(parent_kintree: List[int], offsets: List[List[int]], ee_ids: List[int]) -> float:
+        """ Computes the height by summing the size of each offset vector from the head to the feet. """
+        def get_chain_height(joint_idx):
+            """Calculate cumulative offset magnitude from root to joint"""
+            height = 0.0
+            current = joint_idx
+            while current > 0:
+                parent = parent_kintree[current]
+                # Use the offset at current joint (which is offset from parent)
+                offset_idx = current - 1  # Since offsets array excludes root
+                offset_magnitude = np.linalg.norm(offsets[offset_idx])
+                height += offset_magnitude
+                current = parent
+            return height
+        
+        # Find maximum height among all end effectors
+        heights = [get_chain_height(ee_id) for ee_id in ee_ids]
+        return np.max(heights)
 
     @staticmethod
     def construct_adj(
@@ -99,4 +140,4 @@ class SkeletonUtils:
         """ Compute the velocity of end effectors """
         vel = positions[:, 1:] - positions[:, :-1]  
         ee_vel = vel[:, :, topology.ee_ids, :]  
-        return ee_vel              
+        return ee_vel
