@@ -39,6 +39,16 @@ class SkeletonMetadata:
             height=height,
             kintree=kintree,
         )
+    
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, SkeletonMetadata):
+            return NotImplemented
+
+        return (
+            np.array_equal(self.edge_topology, other.edge_topology) and
+            np.array_equal(self.ee_ids, other.ee_ids) and
+            np.array_equal(self.kintree, other.kintree)
+        )
 
 @dataclass
 class MotionSequence:
@@ -65,8 +75,6 @@ class MotionSequence:
         positions = d["positions"]
         rotations = d["rotations"]
         fps = d["fps"]
-
-        print(f"Loaded motion sequence file: {path}. Total number of frames: {rotations.shape[0]}. FPS: {fps}")
 
         return cls(
             name=name,

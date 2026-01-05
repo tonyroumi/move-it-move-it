@@ -1,8 +1,0 @@
-characters_a: [Aude, Carine]
-characters_b: [Karim]
-
-adapter_a:
-  name: amass
-
-adapter_b:
-  name: amass

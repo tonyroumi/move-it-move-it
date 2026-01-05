@@ -1,5 +1,6 @@
 from .kinematics import ForwardKinematics
 
+from mpl_toolkits.mplot3d import Axes3D
 from numpy.typing import ArrayLike
 from pathlib import Path
 from torch.utils.data import DataLoader
@@ -7,7 +8,6 @@ from tqdm import tqdm
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
 
 class SkeletonVisualizer:
     """Skeleton and motion data visualization utilities"""

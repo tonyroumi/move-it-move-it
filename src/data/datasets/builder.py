@@ -7,25 +7,30 @@ from typing import Any, Dict, Tuple, List
 import numpy as np
 import torch
 
-from src.data.adapters.base import BaseAdapter
+from src.data.adapters import BaseAdapter, list_characters, get_adapter_for_character
 from src.data.metadata import SkeletonMetadata, MotionSequence
-from src.utils import ArrayUtils, Logger, SkeletonUtils
+from src.utils import ArrayUtils, SkeletonUtils
 
 class MotionDatasetBuilder:
-    def __init__(
-        self, 
-        adapter: BaseAdapter, 
-        data_config: DictConfig,
-        logger: Logger = Logger()
-    ):
-        self.adapter = adapter
-        self.data_config = data_config
-        self.logger = logger
-
-        self.window_size = data_config.window_size
-        self.downsample_fps = data_config.downsample_fps
-
+    def __init__(self, character: str, device: str):
+        self.character = character
+        self.adapter : BaseAdapter = get_adapter_for_character(character, device)
         self.device = self.adapter.device
+    
+    def get_characters(self):
+        """
+        Returns all of the characters with a matching topology to the source character.
+        """
+        source_skel = self._get_char(self.character)
+
+        same_topologies = []
+        for char in list_characters(self.adapter):
+            char_skel = self._get_char(char)
+
+            if source_skel == char_skel:
+                same_topologies.append(char)
+
+        return same_topologies
 
     def get_or_process(self, character: str):
         """ 
@@ -47,15 +52,7 @@ class MotionDatasetBuilder:
         if not raw_files:
             raise FileNotFoundError(f"No raw files for {character}")
 
-        skel_path = (
-            self.adapter.skeleton_dir / f"{character}.npz"
-        )
-        # If skeleton doesn't exist, extract it. 
-        if not skel_path.exists():
-            skeleton = self.adapter.extract_skeleton(character)
-        else:
-            skeleton = SkeletonMetadata.load(skel_path)
-        
+        skeleton = self._get_char(character)       
         offsets = skeleton.offsets
         edge_topology = skeleton.edge_topology
         ee_ids = skeleton.ee_ids
@@ -72,7 +69,7 @@ class MotionDatasetBuilder:
         all_windowed_motion, all_windowed_pos, total_length = self._process_motion(motions)
         ee_vels = SkeletonUtils.get_ee_velocity(all_windowed_pos, skeleton) / height
 
-        self.logger.info(f"{character} contains {total_length} frames after downsampling.")
+        print(f"{character} contains {total_length} frames after downsampling.")
 
         return (ArrayUtils.to_torch(all_windowed_motion, self.device),
                 ArrayUtils.to_torch(all_windowed_pos, self.device),
@@ -82,6 +79,15 @@ class MotionDatasetBuilder:
                 ArrayUtils.to_torch(ee_vels, self.device),
                 ArrayUtils.to_torch(height, self.device))
     
+    def _get_char(self, character: str) -> SkeletonMetadata:
+        skel_path = (
+            self.adapter.skeleton_dir / f"{character}.npz"
+        )
+        if not skel_path.exists():
+            return self.adapter.extract_skeleton(character)
+        else:
+            return SkeletonMetadata.load(skel_path)
+
     def _process_motion(self, motions: List[MotionSequence]) -> Tuple[torch.Tensor, torch.Tensor, int]:
         """ Concatentate, downsample and break up motion data into fixed size windows """  
 
@@ -104,7 +110,7 @@ class MotionDatasetBuilder:
         full_motion = np.concatenate(motion_chunks, axis=0)
         full_position = np.concatenate(position_chunks, axis=0)
 
-        # window into [num_windows, window_size, feature_dim]
+        # window into [num_windows, 64, feature_dim]
         windowed_motion = self._get_windows(full_motion)
         windowed_position = self._get_windows(full_position)
 
@@ -113,25 +119,25 @@ class MotionDatasetBuilder:
 
     def _downsample(self, data: np.ndarray, fps_in: float):
         """ Downsample by uniform subsampling. """
-        stride = int(round(fps_in / self.downsample_fps))
+        stride = int(round(fps_in / 30))
         return data[::stride]
 
     def _get_windows(self, data: np.ndarray):
         """ 
-        Slice a motion array of shape [T, J*4+3] into windows of shape [window_size, J*4+3].
+        Slice a motion array of shape [T, J*4+3] into windows of shape [64, J*4+3].
 
         Returns:
-          [num_windows, window_size, J*4+7].
+          [num_windows, 64, J*4+7].
         """
         T = data.shape[0]
-        step = self.window_size // 2
+        step = 64 // 2
 
         n_window = T // step - 1
         windows = []
 
         for i in range(n_window):
             start = i * step
-            end = start + self.window_size
+            end = start + 64
             if end > T:
                 break
             windows.append(data[start:end])

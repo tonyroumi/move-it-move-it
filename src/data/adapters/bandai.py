@@ -47,6 +47,7 @@ class BANDAIAdapter(BaseAdapter):
             for (joint, _, _) in self.data.Root.layout()
         ])
         offsets[0] = np.zeros(3) 
+        offsets *= 100 # convert to cm
 
         edge_topology = SkeletonUtils.construct_edge_topology(self.kintree)
         ee_ids = SkeletonUtils.find_ee(self.kintree)

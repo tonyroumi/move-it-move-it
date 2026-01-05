@@ -20,12 +20,10 @@ class MotionDataset(Dataset):
     __getitem__ returns:
         rotations, normed_rotations, offsets, height, gt_positions, gt_ee_vel
     """
-    def __init__(
-        self,
-        characters: List[str],
-        builder: MotionDatasetBuilder,
-    ):
-        self.characters = characters
+    def __init__(self, character: str, device: str):
+        builder = MotionDatasetBuilder(character, device)
+        
+        self.characters = builder.get_characters()
         self.char_index = []         # maps each sample → char_id
         self.char_meta = {}
 
@@ -97,12 +95,12 @@ class MotionDataset(Dataset):
         gt_positions = self.gt_positions[idx]
         gt_ee_vels = self.gt_ee_vels[idx]
 
-        # if torch.rand(1) < 0.5:
-        #     # Reverse along the time dimension
-        #     rotations = torch.flip(rotations, dims=[1])
-        #     motion_samples = torch.flip(motion_samples, dims=[1])
-        #     gt_positions = torch.flip(gt_positions, dims=[0])
-        #     gt_ee_vels = torch.flip(gt_ee_vels, dims=[0])
+        if torch.rand(1) < 0.5:
+            # Reverse along the time dimension
+            rotations = torch.flip(rotations, dims=[1])
+            motion_samples = torch.flip(motion_samples, dims=[1])
+            gt_positions = torch.flip(gt_positions, dims=[0])
+            gt_ee_vels = torch.flip(gt_ee_vels, dims=[0])
 
         return rotations, \
                motion_samples, \

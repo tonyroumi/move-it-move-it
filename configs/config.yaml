@@ -3,24 +3,25 @@
 
 defaults:
   - train: default
-  - dataset: default
-  - data: default
   - model: default
   - _self_
 
-seed: 69
-
 # Runtime settings
-device: cpu
-verbose: true
+device: cuda
+verbose: false
 visualize_data_first: false
-num_workers: 4
+
+# TRAINING / RETARGETING
+source: character1
+target: Karim
 
 resume_from: Null
+
+seed: 0
 
 # Hydra settings
 hydra:
   run:
-    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/${source}_to_${target}/${now:%H-%M-%S}
   job:
-    chdir: false  # Don't change working directory
+    chdir: false 

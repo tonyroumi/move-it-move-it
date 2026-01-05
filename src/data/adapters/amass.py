@@ -44,7 +44,7 @@ class AMASSAdapter(BaseAdapter):
         bm_path = str(self.dataset_dir / self.SUPPORT_NAME / character_gender / "model.npz")
         self.body_model = BodyModel(bm_path, num_betas=num_betas).to(self.device)  
 
-        self.full_kintree = self.body_model.kintree_table
+        self.full_kintree = self.body_model.kintree_table.cpu()
         self.parent_kintree = self.full_kintree[0]
         self.pruned_kintree = self._prune_kintree()
 
@@ -96,7 +96,7 @@ class AMASSAdapter(BaseAdapter):
         J0 = body.Jtr[0] # T pose
         offsets = J0 - J0[self.parent_kintree]
 
-        offsets = SkeletonUtils.prune_joints(offsets, self.JOINT_CUTOFF)
+        offsets = SkeletonUtils.prune_joints(offsets, self.JOINT_CUTOFF).cpu()
         offsets[0] = torch.zeros(3) # No root offset
         offsets *= 100 # convert to cm
 
@@ -150,7 +150,7 @@ class AMASSAdapter(BaseAdapter):
             )
             
             motion_sequence = MotionSequence(name=fname,
-                                             positions=ArrayUtils.to_numpy(positions),
+                                             positions=ArrayUtils.to_numpy(fk_positions),
                                              rotations=ArrayUtils.to_numpy(quat_rotations),
                                              fps=ArrayUtils.to_numpy(data['mocap_framerate']),)
             motion_sequence.save(self.cache_dir / character / fname)
