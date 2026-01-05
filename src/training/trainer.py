@@ -42,7 +42,7 @@ class SkeletalGANTrainer:
             for _ in range(len(self.model.topologies))
         ]
 
-        self.logger.info(f"Trainer Initialized on: {device}")
+        self.logger.info(f"Trainer and model Initialized on: {device}")
     
     def train(self) -> None:
         total_loss = 0
@@ -95,25 +95,45 @@ class SkeletalGANTrainer:
         A->A, A->B, B->A, B->B
         """
         tot_D_loss = 0.0
-        for (src, dst), out in ret_outputs.items(): #TODO(anthony) unsure if we want to do this for each cross section. only want A->A, A->B. sum like that 
-            if dst == 1: 
-                break
-
+        first = ret_outputs[1,0].positions.flatten(start_dim=-2)
+        second = ret_outputs[0,1].positions.flatten(start_dim=-2)
+        both = [first, second]
+        for i in range(2):
             pred_fake = self.model.forward_discriminator(
-                self.image_pools[dst].query(out.positions.flatten(start_dim=-2)).detach(),
-                idx=src
+                self.image_pools[i].query(both[i]).detach(),
+                idx=i
             )
 
             pred_real = self.model.forward_discriminator(
-                original_world_pos[dst].flatten(start_dim=-2),
-                idx=src
+                original_world_pos[i].flatten(start_dim=-2),
+                idx=i
             )
 
             loss_D = self.losses.lsgan(d_args=pred_real, g_args=pred_fake)
-            self.logger.log_metric(f"loss/D_loss_{src}", loss_D)
+            self.logger.log_metric(f"loss/D_loss_{i}", loss_D)
             loss_D.backward()
 
             tot_D_loss += loss_D
+
+        # for (src, dst), out in ret_outputs.items(): #TODO(anthony) unsure if we want to do this for each cross section. only want A->A, A->B. sum like that 
+        #     if src==dst:
+        #         continue
+
+        #     pred_fake = self.model.forward_discriminator(
+        #         self.image_pools[src].query(out.positions.flatten(start_dim=-2)).detach(),
+        #         idx=src
+        #     )
+
+        #     pred_real = self.model.forward_discriminator(
+        #         original_world_pos[src].flatten(start_dim=-2),
+        #         idx=src
+        #     )
+
+        #     loss_D = self.losses.lsgan(d_args=pred_real, g_args=pred_fake)
+        #     self.logger.log_metric(f"loss/D_loss_{src}", loss_D)
+        #     loss_D.backward()
+
+        #     tot_D_loss += loss_D
 
         return tot_D_loss       
 

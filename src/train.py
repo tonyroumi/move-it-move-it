@@ -3,7 +3,7 @@ from omegaconf import DictConfig, OmegaConf
 import hydra
 import torch
 
-from src.data import AMASSTAdapter
+from src.data.adapters import AMASSAdapter, BANDAIAdapter
 from src.data.datasets import CrossDomainMotionDataset, MotionDataset, MotionDatasetBuilder, paired_collate
 from src.models.networks import SkeletalGAN
 from src.training import SkeletalGANTrainer
@@ -18,23 +18,23 @@ def main(cfg: DictConfig) -> None:
     set_seed(cfg.seed)
     logger.info(f"Seed set to: {cfg.seed}")
 
-    # Datasets
-    amass_dataset_builder = MotionDatasetBuilder(
-        adapter=AMASSTAdapter(cfg.device), 
-        data_config=cfg.dataset, 
-        logger=logger,
-    )
-    
+    # Datasets   
     dataset_A = MotionDataset(
         characters=cfg.data.characters_a, 
-        builder=amass_dataset_builder
+        builder = MotionDatasetBuilder(
+            adapter=BANDAIAdapter(cfg.device), 
+            data_config=cfg.dataset, 
+            logger=logger)
     )
-    dataset_A_norm_stats = dataset_A.norm_stats
 
     dataset_B = MotionDataset(
         characters=cfg.data.characters_b, 
-        builder=amass_dataset_builder
+        builder=MotionDatasetBuilder(
+            adapter=AMASSAdapter(cfg.device), 
+            data_config=cfg.dataset, 
+            logger=logger)
     )
+    dataset_A_norm_stats = dataset_A.norm_stats
     dataset_B_norm_stats = dataset_B.norm_stats
     
     cross_domain_dataset = CrossDomainMotionDataset(dataset_A, dataset_B)
@@ -43,14 +43,12 @@ def main(cfg: DictConfig) -> None:
         cross_domain_dataset,
         batch_size=cfg.train.batch_size,
         collate_fn=paired_collate,
-        num_workers=cfg.get("num_workers", 4),
         shuffle=True,
-        pin_memory=(cfg.device == 'cuda')
     ) 
 
     if cfg.get("visualize_data_first", False):
         SkeletonVisualizer.visualize_dataset(train_loader, save_path=output_dir)
-    
+
     # Model
     model_config = cfg.model 
     model = SkeletalGAN(
@@ -100,4 +98,10 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
+    import debugpy
+    print("[DEBUG] Waiting for debugger to attach on 0.0.0.0:5678 ...")
+    debugpy.listen(("0.0.0.0", 5678))
+    debugpy.wait_for_client()
+    print("[DEBUG] Debugger attached.")
+    
     main()

@@ -160,7 +160,7 @@ class SkeletalGAN(nn.Module):
         # -------------------------
         retarget_out: Dict[Tuple[int, int], MotionOutput] = {}
         for i, src in enumerate(self.domains):
-            for j, dst in enumerate(self.domains): #TODO(anthony) They randomly select characters for this. Not sure if we want to do that. hold off for now.  
+            for j, dst in enumerate(self.domains):  
                 retargetted_motion = dst.decode(reconstruction_out[i].latents, offset_features[j])
                 retargetted_latents = dst.encode(retargetted_motion, offset_features[j])
 
@@ -198,7 +198,7 @@ class SkeletalGAN(nn.Module):
         target_offset: torch.Tensor,
         source_domain: int = 0,
         target_domain: int = 1,
-    ) -> MotionOutput:
+    ) -> MotionOutput: 
         """
         Translate motion from source domain to target domain.
         
