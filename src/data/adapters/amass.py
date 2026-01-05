@@ -50,42 +50,6 @@ class AMASSAdapter(BaseAdapter):
 
         self.num_joints = len(self.parent_kintree)
 
-    def download(self) -> None:
-        print("=" * 70)
-        print("AMASS Dataset Setup Instructions")
-        print("=" * 70)
-
-        print("\n1. Download AMASS Motion Data:")
-        print("   Visit: https://amass.is.tue.mpg.de/")
-        print("   - Create an account (free for research)")
-        print("   - Download the desired subsets (HUMAN4D, ACCAD, CMU, etc.)")
-        print("   - Extract the downloaded archives")
-
-        print("\n   Required directory structure:")
-        print(f"   {self.raw_dir}/...")
-        print("           <character_001>/")
-        print("               motion_0001.npz")
-        print("               motion_0002.npz")
-        print("               ...")
-        print("               shape.npz")
-        print("           <character_002>/")
-        print("               ...")
-
-        print(f"\n   Place all extracted character folders into: {self.raw_dir}")
-
-        print("\n2. Download SMPL Body Models:")
-        print("   Visit: https://smpl.is.tue.mpg.de/")
-        print("   - Register and download the SMPL+H model package")
-        print("   - Extract the model files")
-
-        print("\n   Required directory structure:")
-        print("   data/amass/body_models/")
-        print("       female/model.npz")
-        print("       male/model.npz")
-        print("       neutral/model.npz")
-
-        print("=" * 70)
-    
     def extract_skeleton(self, character: str) -> SkeletonMetadata:
         """ Extract and save skeleton metadata from a particular character. """
 

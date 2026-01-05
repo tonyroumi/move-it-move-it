@@ -36,9 +36,6 @@ class BANDAIAdapter(BaseAdapter):
         self.kintree = np.array(self.parents, dtype=np.int32)
         self.num_joints = len(self.kintree)
 
-    def download(self):
-        pass
-
     def extract_skeleton(self, character: str) -> SkeletonMetadata:
         self._post_init(character)
 

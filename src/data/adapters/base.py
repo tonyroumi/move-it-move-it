@@ -27,11 +27,6 @@ class BaseAdapter(ABC):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         self.device = device
-
-    @abstractmethod
-    def download(self, **kwargs) -> None:
-        """ Abstract method to download mocap data. """
-        pass
     
     @abstractmethod
     def extract_skeleton(self, file_path: str) -> SkeletonMetadata:
