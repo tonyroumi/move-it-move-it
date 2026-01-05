@@ -1,4 +1,1 @@
-from .autoencoder import SkeletalAutoEncoder
-from .decoder import SkeletalDecoder
-from .discriminator import SkeletalDiscriminator
-from .encoder import SkeletalEncoder
+from .networks import SkeletalAutoEncoder, SkeletalDecoder, SkeletalDiscriminator, SkeletalEncoder, SkeletalGAN
