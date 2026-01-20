@@ -15,13 +15,18 @@ visualize_data_first: false
 source: character1
 target: Karim
 
-resume_from: Null
+resume_from: Null #outputs/character1_to_Karim/22-19-57/skeletal_gan_epoch1000.pt
 
-seed: 0
+seed: 2
+
+logger:
+  use_wandb: True
+  wandb_project: "deep-skeletal-retargetting"
+  wandb_run_name: "exp-3"
 
 # Hydra settings
 hydra:
   run:
-    dir: outputs/${source}_to_${target}/${now:%H-%M-%S}
+    dir: outputs/${source}_to_${target}/${now:%Y-%m-%d}/${now:%H-%M-%S}
   job:
     chdir: false 

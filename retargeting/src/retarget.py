@@ -143,11 +143,11 @@ def parse_args():
 
 
 def main():
-    import debugpy
-    print("[DEBUG] Waiting for debugger to attach on 0.0.0.0:5678 ...")
-    debugpy.listen(("0.0.0.0", 5678))
-    debugpy.wait_for_client()
-    print("[DEBUG] Debugger attached.")
+    # import debugpy
+    # print("[DEBUG] Waiting for debugger to attach on 0.0.0.0:5678 ...")
+    # debugpy.listen(("0.0.0.0", 5678))
+    # debugpy.wait_for_client()
+    # print("[DEBUG] Debugger attached.")
 
     """Main retargeting pipeline."""
     args = parse_args()

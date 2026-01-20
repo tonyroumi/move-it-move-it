@@ -26,7 +26,7 @@ from src.utils import set_seed, Logger, SkeletonVisualizer
 def main(cfg: DictConfig):
     output_dir = HydraConfig.get().runtime.output_dir
    
-    logger = Logger(log_dir=str(output_dir), verbose=cfg.verbose)
+    logger = Logger(log_dir=str(output_dir), verbose=cfg.verbose, **cfg.logger)
        
     set_seed(cfg.seed)
     logger.info(f"Random seed set to: {cfg.seed}")
@@ -104,4 +104,9 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    import debugpy
+    print("[DEBUG] Waiting for debugger to attach on 0.0.0.0:5678 ...")
+    debugpy.listen(("0.0.0.0", 5678))
+    debugpy.wait_for_client()
+    print("[DEBUG] Debugger attached.")
     main()

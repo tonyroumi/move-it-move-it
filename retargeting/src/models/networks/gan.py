@@ -160,9 +160,31 @@ class SkeletalGAN(nn.Module):
         # -------------------------
         retarget_out: Dict[Tuple[int, int], MotionOutput] = {}
         for i, src in enumerate(self.domains):
-            for j, dst in enumerate(self.domains):  
-                retargetted_motion = dst.decode(reconstruction_out[i].latents, offset_features[j])
-                retargetted_latents = dst.encode(retargetted_motion, offset_features[j])
+            for j, dst in enumerate(self.domains):
+                heights = batch.heights[j]                 # shape [B]
+                unique_heights = torch.unique(heights)
+                num_characters = unique_heights.numel()
+                batch_size = heights.shape[0]
+                if src != dst:
+                    rnd_idx = torch.randint(
+                        low=0,
+                        high=num_characters,
+                        size=(batch_size,),
+                        device=heights.device
+                    )
+                else:
+                    rnd_idx = torch.arange(
+                        batch_size,
+                        device=heights.device
+                    )
+
+                dst_offsets = [
+                    offset_features[j][p][rnd_idx]
+                    for p in range(3)
+                ]
+
+                retargetted_motion = dst.decode(reconstruction_out[i].latents, dst_offsets)
+                retargetted_latents = dst.encode(retargetted_motion, dst_offsets)
 
                 retargetted_rots = dst.denorm(retargetted_motion)
 
@@ -179,7 +201,7 @@ class SkeletalGAN(nn.Module):
                 retargetted_ee_vels = SkeletonUtils.get_ee_velocity(
                     retargetted_pos, 
                     topology=dst.topology
-                )  / batch.heights[j][:, None, None, None]
+                )  / heights[:, None, None, None]
 
                 retarget_out[(i,j)] = MotionOutput(
                     motion=retargetted_motion,
