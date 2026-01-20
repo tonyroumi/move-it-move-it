@@ -112,11 +112,14 @@ class AMASSAdapter(BaseAdapter):
                 root_pos=out.Jtr[:,0],
                 topology=skeleton
             )
-            
+            if data["mocap_frame_rate"]:
+                fps = data["mocap_frame_rate"]
+            elif data["mocap_framerate"]:
+                fps = data['mocap_framerate']
             motion_sequence = MotionSequence(name=fname,
                                              positions=ArrayUtils.to_numpy(fk_positions),
                                              rotations=ArrayUtils.to_numpy(quat_rotations),
-                                             fps=ArrayUtils.to_numpy(data['mocap_framerate']),)
+                                             fps=ArrayUtils.to_numpy(fps),)
             motion_sequence.save(self.cache_dir / character / fname)
 
             sequences.append(motion_sequence)

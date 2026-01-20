@@ -12,10 +12,9 @@ import torch
 import torch.nn as nn
 
 from src.core.normalization import NormalizationStats
-from src.core.types import MotionOutput, PairedSample, SkeletonTopology
+from src.core.types import SkeletonTopology, MotionOutput
 from src.utils.kinematics import ForwardKinematics
 from src.utils.skeleton import SkeletonUtils
-from src.utils import ImagePool, Logger
 
 class SkeletalDomainModule(nn.Module):
     def __init__(
@@ -125,43 +124,52 @@ class SkeletalGAN(nn.Module):
         for domain in self.domains:
             domain.discriminators_requires_grad_(requires_grad)
     
-    def forward(self, batch: PairedSample):
-        B, _, T = batch.motions[0].shape
+    def forward(self, batch: Tuple[torch.Tensor]):
+        """
+        batch[domain_idx]:
+            0: rotations
+            1: motions
+            2: offsets
+            3: heights
+            4: gt_positions
+            5: gt_ee_vels
+        """
+        B, _, T = batch[0][0].shape
 
-        offset_features = self._encode_offsets(offsets=batch.offsets)
+        offset_features = self._encode_offsets(offsets=(batch[0][2], batch[1][2]))
 
         # -------------------------
         # Reconstruction phase
         # -------------------------
-        reconstruction_out: Dict[int, MotionOutput] = {}
+        reconstructed_out = []
         for i, domain in enumerate(self.domains):
-            latents, reconstructed = domain(batch.motions[i], offset_features[i])
+            latents, reconstructed = domain(batch[i][1], offset_features[i])
             
             reconstructed_rot = domain.denorm(reconstructed)
             reconstructed_pos = ForwardKinematics.forward_batched(
                 quaternions=reconstructed_rot[:, :-3]
                     .reshape(B, -1, 4, T)
                     .permute(0, 3, 1, 2),
-                offsets=batch.offsets[i].reshape(B, -1, 3), 
+                offsets=batch[i][2].reshape(B, -1, 3), 
                 root_pos=reconstructed_rot[:, -3:],
                 topology=domain.topology,
                 world=True
             )
 
-            reconstruction_out[i] = MotionOutput(
-                latents=latents,
-                motion=reconstructed,
-                rotations=reconstructed_rot,
-                positions=reconstructed_pos,
-            )
+            reconstructed_out.append([
+                latents, 
+                reconstructed, 
+                reconstructed_rot, 
+                reconstructed_pos
+            ])
 
         # -------------------------
         # Retargeting phase
         # -------------------------
-        retarget_out: Dict[Tuple[int, int], MotionOutput] = {}
+        retarget_out = {}
         for i, src in enumerate(self.domains):
             for j, dst in enumerate(self.domains):
-                heights = batch.heights[j]                 # shape [B]
+                heights = batch[j][3]                 # shape [B]
                 unique_heights = torch.unique(heights)
                 num_characters = unique_heights.numel()
                 batch_size = heights.shape[0]
@@ -183,7 +191,7 @@ class SkeletalGAN(nn.Module):
                     for p in range(3)
                 ]
 
-                retargetted_motion = dst.decode(reconstruction_out[i].latents, dst_offsets)
+                retargetted_motion = dst.decode(reconstructed_out[i][0], dst_offsets)
                 retargetted_latents = dst.encode(retargetted_motion, dst_offsets)
 
                 retargetted_rots = dst.denorm(retargetted_motion)
@@ -203,14 +211,14 @@ class SkeletalGAN(nn.Module):
                     topology=dst.topology
                 )  / heights[:, None, None, None]
 
-                retarget_out[(i,j)] = MotionOutput(
-                    motion=retargetted_motion,
-                    latents=retargetted_latents,
-                    rotations=retargetted_rots,
-                    positions=retargetted_pos,
-                    ee_vels=retargetted_ee_vels,
-                )
-        return reconstruction_out, retarget_out
+                retarget_out[(i,j)] = [
+                    retargetted_motion,
+                    retargetted_latents,
+                    retargetted_rots,
+                    retargetted_pos,
+                    retargetted_ee_vels
+                ]
+        return reconstructed_out, retarget_out
 
     @torch.no_grad
     def translate(

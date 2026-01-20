@@ -49,9 +49,6 @@ class MotionDatasetBuilder:
         )
         raw_files = list(raw_path.glob("*"))
 
-        if not raw_files:
-            raise FileNotFoundError(f"No raw files for {character}")
-
         skeleton = self._get_char(character)       
         offsets = skeleton.offsets
         edge_topology = skeleton.edge_topology
@@ -60,6 +57,8 @@ class MotionDatasetBuilder:
 
         # If there are no processed files, proccess from raw dir. 
         if not processed_files:
+            if not raw_files:
+                raise FileNotFoundError(f"No raw files for {character}")
             motions = self.adapter.extract_motion(character)
         else:
             motions = []

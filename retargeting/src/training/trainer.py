@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader
 from typing import Any, Dict, Tuple, List
 import torch
 
-from src.core.types import MotionOutput, PairedSample
 from src.models.networks.gan import SkeletalGAN
 from src.utils import Logger, ImagePool
 
@@ -64,8 +63,12 @@ class SkeletalGANTrainer:
     def _train_one_epoch(self) -> Any:
         total_epoch_loss = 0
         for batch in self.train_loader:
-            batch = batch.to(self.device)
+            domain_A, domain_B = batch 
 
+            domain_A = tuple(t.to(self.device, non_blocking=True) for t in domain_A)
+            domain_B = tuple(t.to(self.device, non_blocking=True) for t in domain_B)
+
+            batch = (domain_A, domain_B)
             rec_outputs, ret_outputs = self.model(batch)
 
             # Generator
@@ -77,7 +80,7 @@ class SkeletalGANTrainer:
             # Discriminator
             self.model.discriminators_requires_grad_(True)
             self.optimizer_D.zero_grad()
-            discriminator_loss = self._backward_D(ret_outputs, original_world_pos=batch.gt_positions)
+            discriminator_loss = self._backward_D(ret_outputs, original_world_pos=(batch[0][4],batch[1][4]))
             self.optimizer_D.step()
 
             total_epoch_loss += (generator_loss + discriminator_loss)
@@ -88,14 +91,14 @@ class SkeletalGANTrainer:
 
     def _backward_D(
         self,
-        ret_outputs: Dict[Tuple[int, int], MotionOutput],
+        ret_outputs: Dict[Tuple[int, int], Tuple[torch.Tensor]],
         original_world_pos: Tuple[torch.Tensor, torch.Tensor]
     ) -> torch.Tensor:
         tot_D_loss = 0.0
 
         fake_by_domain = {
-            0: ret_outputs[(1, 0)].positions,
-            1: ret_outputs[(0, 1)].positions,
+            0: ret_outputs[(1, 0)][3],
+            1: ret_outputs[(0, 1)][3],
         }
 
         for i in range(2):
@@ -124,28 +127,28 @@ class SkeletalGANTrainer:
 
     def _backward_G(
         self, 
-        rec_outputs: Dict[int, MotionOutput],
-        ret_outputs: Dict[Tuple[int, int], MotionOutput],
-        batch: PairedSample
+        rec_outputs: Dict[int, Tuple[torch.Tensor]],
+        ret_outputs: Dict[Tuple[int, int], Tuple[torch.Tensor]],
+        batch: Tuple[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # -----------------------
         # Reconstruction loss
         # -----------------------
         rec_loss = 0
-        for i, out in rec_outputs.items():
-            rec_motion_loss = self.losses.mse(pred=out.motion, gt=batch.motions[i])
+        for i in range(len(batch)):
+            rec_motion_loss = self.losses.mse(pred=rec_outputs[i][1], gt=batch[i][1])
             self.logger.log_metric(f"loss/rec_motion_{i}", rec_motion_loss)
 
-            original_root_pos = batch.rotations[i][:, -3:] / batch.heights[i][:, None, None]
-            rec_root_pos = out.rotations[:, -3:] / batch.heights[i][:, None, None]
+            original_root_pos = batch[i][0][:, -3:] / batch[i][3][:, None, None]
+            rec_root_pos = rec_outputs[i][2][:, -3:] / batch[i][3][:, None, None]
             rec_root_pos_loss = self.losses.mse(
                 pred=rec_root_pos,
                 gt=original_root_pos
             ) 
             self.logger.log_metric(f"loss/rec_root_pos_{i}", value=rec_root_pos_loss)
 
-            original_world_pos = batch.gt_positions[i] / batch.heights[i][:, None, None, None]
-            rec_world_pos = out.positions / batch.heights[i][:, None, None, None]
+            original_world_pos = batch[i][4] / batch[i][3][:, None, None, None]
+            rec_world_pos = rec_outputs[i][3] / batch[i][3][:, None, None, None]
             rec_joint_pos_loss = self.losses.mse(pred=rec_world_pos, gt=original_world_pos)
             self.logger.log_metric(f"loss/rec_joint_pos_{i}", value=rec_joint_pos_loss)
 
@@ -155,18 +158,19 @@ class SkeletalGANTrainer:
         # Retargetting loss
         # -----------------------
         tot_cycle_loss, tot_ee_loss, tot_G_loss = 0, 0, 0
-        for (src, dst), out in ret_outputs.items():
-            cycle_loss = self.losses.mae(pred=rec_outputs[src].latents, gt=out.latents)
+        for i, item in enumerate(ret_outputs.items()):
+            (src, dst), out = item
+            cycle_loss = self.losses.mae(pred=rec_outputs[src][0], gt=out[1])
             self.logger.log_metric(f"loss/cycle_{src}->{dst}", value=cycle_loss)
             tot_cycle_loss += cycle_loss
 
-            ee_loss = self.losses.ee(pred=out.ee_vels, gt=batch.gt_ee_vels[src])
+            ee_loss = self.losses.ee(pred=out[4], gt=batch[src][5])
             self.logger.log_metric(f"loss/ee_vel_{src}->{dst}", value=ee_loss)
             tot_ee_loss += ee_loss
 
             if src != dst:
                 G_loss = self.losses.lsgan(
-                    g_args=self.model.forward_discriminator(out.positions.flatten(start_dim=-2), dst)
+                    g_args=self.model.forward_discriminator(out[3].flatten(start_dim=-2), dst)
                 )
                 self.logger.log_metric(f"loss/G_loss_{src}->{dst}", value=G_loss)
                 tot_G_loss += G_loss

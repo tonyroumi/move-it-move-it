@@ -9,7 +9,7 @@ from typing import List
 import torch
 
 from src.core.normalization import NormalizationStats
-from src.core.types import PairedSample, SkeletonTopology
+from src.core.types import SkeletonTopology
 from src.utils import SkeletonUtils
 
 class MotionDataset(Dataset):
@@ -113,8 +113,13 @@ class CrossDomainMotionDataset(Dataset):
     """ 
     Combines two MotionDataset instances for two different motion domains.
     
-    __getitem__ returns:
-        PairedSample(...)
+    __getitem__ returns (domain_A, domain_B):
+        rotations,
+        motions,
+        offsets,
+        heights,
+        gt_positions,
+        gt_ee_vels
     """
     def __init__(
         self,
@@ -136,11 +141,4 @@ class CrossDomainMotionDataset(Dataset):
         domain_A = self.domain_A[idx_A]
         domain_B = self.domain_B[idx_B]
 
-        return PairedSample(
-            rotations=(domain_A[0], domain_B[0]),
-            motions=(domain_A[1], domain_B[1]),
-            offsets=(domain_A[2], domain_B[2]),
-            heights=(domain_A[3], domain_B[3]),
-            gt_positions=(domain_A[4], domain_B[4]),
-            gt_ee_vels=(domain_A[5], domain_B[5])
-        )
+        return domain_A, domain_B

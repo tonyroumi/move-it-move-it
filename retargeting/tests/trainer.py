@@ -1,6 +1,6 @@
 from src.data import AMASSTAdapter
 from src.training import SkeletalGANTrainer
-from src.data.datasets import CrossDomainMotionDataset, MotionDataset, MotionDatasetBuilder, paired_collate
+from src.data.datasets import CrossDomainMotionDataset, MotionDataset, MotionDatasetBuilder
 from src.skeletal.models import SkeletalGAN
 from src.utils import DataUtils
 from typing import List, Callable
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     # Keep this in mind for when constructing the adjacency list.
 
     cross_domain_dataset = CrossDomainMotionDataset(dataset_A, dataset_B)
-    train_loader = torch.utils.data.DataLoader(cross_domain_dataset, batch_size=256, collate_fn=paired_collate)
+    train_loader = torch.utils.data.DataLoader(cross_domain_dataset, batch_size=256)
     
     model = SkeletalGAN(topologies=cross_domain_dataset.topologies, gan_params=gan_params, normalization_stats = (dataset_A_norm_stats, dataset_B_norm_stats))
 

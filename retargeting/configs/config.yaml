@@ -9,11 +9,11 @@ defaults:
 # Runtime settings
 device: cuda
 verbose: false
-visualize_data_first: false
+visualize_data_first: true
 
 # TRAINING / RETARGETING
 source: character1
-target: Karim
+target: rub001
 
 resume_from: Null #outputs/character1_to_Karim/22-19-57/skeletal_gan_epoch1000.pt
 

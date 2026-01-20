@@ -13,8 +13,8 @@ __all__ = ['AMASSAdapter', 'BANDAIAdapter', 'AdapterRegistry', 'get_adapter_for_
 
 class AdapterRegistry:   
     CHARACTER_ADAPTER_MAP = {
-        BANDAIAdapter : ['character1'],#, 'character2'],
-        AMASSAdapter : ['Karim','Medhi','Carine', 'Aude'] #+ [f"rub{str(i).zfill(3)}" for i in range(1, 116)]
+        BANDAIAdapter : ['character1', 'character2'],
+        AMASSAdapter : [f"rub{str(i).zfill(3)}" for i in range(1, 51)]
     }
     
     @classmethod

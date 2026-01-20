@@ -1,3 +1,4 @@
+from retargeting.src.utils.array import ArrayUtils
 from .kinematics import ForwardKinematics
 
 from mpl_toolkits.mplot3d import Axes3D
@@ -104,7 +105,10 @@ class SkeletonVisualizer:
         for t in frame_iter:
             ax.cla()
 
-            frame_pos = global_positions[t]  # [J, 3]
+            if ArrayUtils.is_tensor(global_positions):
+                frame_pos = global_positions[t].cpu()  # [J, 3]
+            else:
+                frame_pos = global_positions[t]
             xs = frame_pos[:, 0]
             ys = frame_pos[:, 1]
             zs = frame_pos[:, 2]
@@ -133,28 +137,28 @@ class SkeletonVisualizer:
 
         motion_datasets = cross_motion_dataloader.dataset.domains
         for i, batch in enumerate(cross_motion_dataloader):
-            B, _, T = batch.motions[0].shape
+            B, _, T = batch[0][0].shape
 
             positions_A = ForwardKinematics.forward_batched(
-                batch.rotations[0][:, :-3]
+                batch[0][0][:, :-3]
                   .reshape(B, -1, 4, T)
                   .permute(0, 3, 1, 2), 
-                batch.offsets[0].reshape(B, -1, 3),
-                batch.rotations[0][:, -3:],
+                batch[0][2].reshape(B, -1, 3),
+                batch[0][0][:, -3:],
                 motion_datasets[0].topology
             )
             positions_B = ForwardKinematics.forward_batched(
-                batch.rotations[1][:, :-3]
+                batch[1][0][:, :-3]
                   .reshape(B, -1, 4, T)
                   .permute(0, 3, 1, 2), 
-                batch.offsets[1].reshape(B, -1, 3),
-                batch.rotations[1][:, -3:],
+                batch[1][2].reshape(B, -1, 3),
+                batch[1][0][:, -3:],
                 motion_datasets[1].topology
             )
             
             print("Visualizing gt positions...")
-            SkeletonVisualizer.visualize_motion(batch.gt_positions[0], f"{save_path}/domain_a/gt_position_batch_{i}.mp4")
-            SkeletonVisualizer.visualize_motion(batch.gt_positions[1], f"{save_path}/domain_b/gt_position_batch_{i}.mp4")
+            SkeletonVisualizer.visualize_motion(batch[0][4], f"{save_path}/domain_a/gt_position_batch_{i}.mp4")
+            SkeletonVisualizer.visualize_motion(batch[1][4], f"{save_path}/domain_b/gt_position_batch_{i}.mp4")
 
             print("Visualizing positions from fk...")
             SkeletonVisualizer.visualize_motion(positions_A, f"{save_path}/domain_a/rotations_batch_{i}.mp4")
