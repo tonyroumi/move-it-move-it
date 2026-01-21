@@ -43,10 +43,10 @@ class SkeletalGANTrainer:
 
         self.logger.info(f"Trainer and model Initialized on: {device}")
     
-    def train(self) -> None:
+    def train(self, epoch: int = 0) -> None:
         total_loss = 0
 
-        for epoch in range(self.config.num_epochs):
+        for epoch in range(epoch, self.config.num_epochs):
             self.model.train()
             
             epoch_loss = self._train_one_epoch()
@@ -164,7 +164,7 @@ class SkeletalGANTrainer:
             self.logger.log_metric(f"loss/cycle_{src}->{dst}", value=cycle_loss)
             tot_cycle_loss += cycle_loss
 
-            ee_loss = self.losses.ee(pred=out[4], gt=batch[src][5])
+            ee_loss = self.losses.ee(pred=out[4], gt=rec_outputs[src][4])
             self.logger.log_metric(f"loss/ee_vel_{src}->{dst}", value=ee_loss)
             tot_ee_loss += ee_loss
 
@@ -189,6 +189,7 @@ class SkeletalGANTrainer:
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
         state = {
+            "epoch": epoch,
             "model_state_dict": self.model.state_dict(),
             "optimizer_G": self.optimizer_G.state_dict(),
             "optimizer_D": self.optimizer_D.state_dict(),
@@ -206,7 +207,7 @@ class SkeletalGANTrainer:
 
         self.logger.info(f"Checkpoint saved to: {path}")
 
-    def load_checkpoint(self, checkpoint_path: str) -> None:
+    def load_checkpoint(self, checkpoint_path: str) -> int:
         """ Load trainer from checkpoint  """
         checkpoint_path = Path(checkpoint_path)
         
@@ -229,6 +230,9 @@ class SkeletalGANTrainer:
             
             self.optimizer_D.load_state_dict(checkpoint["optimizer_D"])
             self.logger.info("Discriminator optimizer state loaded successfully")
+
+            return checkpoint["epoch"]
             
         except Exception as e:
             raise RuntimeError(f"Failed to load checkpoint from {checkpoint_path}: {str(e)}")
+        

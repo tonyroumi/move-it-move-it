@@ -9,15 +9,15 @@ defaults:
 # Runtime settings
 device: cuda
 verbose: false
-visualize_data_first: true
+visualize_data_first: false
 
 # TRAINING / RETARGETING
 source: character1
-target: rub001
+target: Karim
 
-resume_from: Null #outputs/character1_to_Karim/22-19-57/skeletal_gan_epoch1000.pt
+resume_from: Null #outputs/character2_to_rub001/2026-01-20/07-50-33/skeletal_gan_epoch600.pt
 
-seed: 2
+seed: 1231313
 
 logger:
   use_wandb: True

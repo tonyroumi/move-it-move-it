@@ -81,15 +81,16 @@ def main(cfg: DictConfig):
         device=cfg.device
     )
     
+    epoch = 0
     if cfg.resume_from:
         logger.info(f"Resuming from checkpoint: {cfg.resume_from}")
-        trainer.load_checkpoint(cfg.resume_from)
+        epoch = trainer.load_checkpoint(cfg.resume_from)
     
     print("\n" + "=" * 80)
-    print("STARTING TRAINING")
+    print(f"STARTING TRAINING (epoch: {epoch})")
     print("=" * 80 + "\n")
     
-    trainer.train()
+    trainer.train(epoch)
     
     print("\n" + "=" * 80)
     print("TRAINING COMPLETED SUCCESSFULLY")

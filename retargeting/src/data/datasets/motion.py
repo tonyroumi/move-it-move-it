@@ -18,7 +18,7 @@ class MotionDataset(Dataset):
     and end-effectors.
 
     __getitem__ returns:
-        rotations, normed_rotations, offsets, height, gt_positions, gt_ee_vel
+        rotations, normed_rotations, offsets, height, gt_positions
     """
     def __init__(self, character: str, device: str):
         builder = MotionDatasetBuilder(character, device)
@@ -30,7 +30,7 @@ class MotionDataset(Dataset):
         shared_topology = None
         shared_ee_ids = None
 
-        motion_seqs, pos_seqs, ee_vels = [], [], []
+        motion_seqs, pos_seqs = [], []
         for char_id, char in enumerate(self.characters):
             (
                 motion_windows,
@@ -38,7 +38,6 @@ class MotionDataset(Dataset):
                 offsets,
                 edge_topology,
                 ee_ids,
-                ee_vel,
                 height,
             ) = builder.get_or_process(char)
 
@@ -59,12 +58,10 @@ class MotionDataset(Dataset):
             }
             motion_seqs.append(motion_windows)
             pos_seqs.append(position_windows)
-            ee_vels.append(ee_vel)
             self.char_index.extend([char_id] * motion_windows.shape[0])
 
         self.rotations = torch.cat(motion_seqs, dim=0)
         self.gt_positions = torch.cat(pos_seqs, dim=0)
-        self.gt_ee_vels = torch.cat(ee_vels, dim=0)
         self.char_index = torch.tensor(self.char_index, dtype=torch.long)
 
         shared_adjacency = SkeletonUtils.construct_adj(shared_topology)
@@ -93,33 +90,25 @@ class MotionDataset(Dataset):
         rotations = self.rotations[idx]
         motion_samples = self.motion_samples[idx]
         gt_positions = self.gt_positions[idx]
-        gt_ee_vels = self.gt_ee_vels[idx]
 
         if torch.rand(1) < 0.5:
             # Reverse along the time dimension
             rotations = torch.flip(rotations, dims=[1])
             motion_samples = torch.flip(motion_samples, dims=[1])
             gt_positions = torch.flip(gt_positions, dims=[0])
-            gt_ee_vels = torch.flip(gt_ee_vels, dims=[0])
 
         return rotations, \
                motion_samples, \
                meta["offsets"], \
                meta["height"], \
-               gt_positions, \
-               gt_ee_vels
+               gt_positions
 
 class CrossDomainMotionDataset(Dataset):
     """ 
     Combines two MotionDataset instances for two different motion domains.
     
-    __getitem__ returns (domain_A, domain_B):
-        rotations,
-        motions,
-        offsets,
-        heights,
-        gt_positions,
-        gt_ee_vels
+    __getitem__ returns:
+    MotionDataset[domain_idx]
     """
     def __init__(
         self,

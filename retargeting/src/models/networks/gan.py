@@ -156,11 +156,14 @@ class SkeletalGAN(nn.Module):
                 world=True
             )
 
+            original_ee_vels = SkeletonUtils.get_ee_velocity(batch[i][4], domain.topology) / batch[i][3][:, None, None, None]
+
             reconstructed_out.append([
                 latents, 
                 reconstructed, 
                 reconstructed_rot, 
-                reconstructed_pos
+                reconstructed_pos,
+                original_ee_vels
             ])
 
         # -------------------------

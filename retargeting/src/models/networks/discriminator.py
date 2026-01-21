@@ -60,4 +60,4 @@ class SkeletalDiscriminator(nn.Module):
         y = self.block1(x.transpose(1,2))
         y = self.block2(y)
 
-        return torch.sigmoid(y).squeeze()
+        return y.squeeze()

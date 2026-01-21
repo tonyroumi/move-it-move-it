@@ -66,7 +66,6 @@ class MotionDatasetBuilder:
                 motions.append(MotionSequence.load(processed_motion))
 
         all_windowed_motion, all_windowed_pos, total_length = self._process_motion(motions)
-        ee_vels = SkeletonUtils.get_ee_velocity(all_windowed_pos, skeleton) / height
 
         print(f"{character} contains {total_length} frames after downsampling.")
 
@@ -75,7 +74,6 @@ class MotionDatasetBuilder:
                 ArrayUtils.to_torch(offsets, self.device).reshape(-1),  # (3*edges)
                 ArrayUtils.to_torch(edge_topology, self.device, torch.int),
                 ArrayUtils.to_torch(ee_ids, self.device, torch.int),
-                ArrayUtils.to_torch(ee_vels, self.device),
                 ArrayUtils.to_torch(height, self.device))
     
     def _get_char(self, character: str) -> SkeletonMetadata:
