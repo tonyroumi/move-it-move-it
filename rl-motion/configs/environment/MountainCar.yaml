@@ -1,0 +1,8 @@
+id: "MountainCarContinuous-v0"
+type: "gym:cpu"
+num_envs: 1
+seed: 0
+max_episode_steps: 500
+
+env_kwargs:
+  render_mode: "human"
