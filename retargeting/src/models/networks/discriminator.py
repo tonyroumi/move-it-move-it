@@ -1,7 +1,7 @@
 from src.models.ops import SkeletalConv, SkeletalPooling, PoolingInfo
 
 from omegaconf import DictConfig
-from typing import Dict, List, Any
+from typing import List
 import torch
 import torch.nn as nn
 

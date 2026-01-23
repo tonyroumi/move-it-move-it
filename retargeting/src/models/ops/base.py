@@ -7,7 +7,6 @@ but expanded across channel dimensions.
 """
 
 from typing import List
-
 import math
 import torch
 import torch.nn as nn

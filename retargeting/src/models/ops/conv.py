@@ -2,7 +2,6 @@ from .base import SkeletalBase
 from .linear import SkeletalLinear
 
 from typing import List, Optional
-
 import torch
 import torch.nn.functional as F
 

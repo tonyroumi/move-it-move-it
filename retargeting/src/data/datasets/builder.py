@@ -9,7 +9,7 @@ import torch
 
 from src.data.adapters import BaseAdapter, list_characters, get_adapter_for_character
 from src.data.metadata import SkeletonMetadata, MotionSequence
-from src.utils import ArrayUtils, SkeletonUtils
+from utils import ArrayUtils
 
 class MotionDatasetBuilder:
     def __init__(self, character: str, device: str):

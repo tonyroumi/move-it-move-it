@@ -15,9 +15,10 @@ from src.data.datasets import (
 )
 from src.models.networks import SkeletalGAN
 from src.training import SkeletalGANTrainer
-from src.utils import set_seed, Logger, SkeletonVisualizer
+from src.utils import SkeletonVisualizer
+from utils import Logger, set_seed
 
-@hydra.main(version_base=None, config_path="../configs", config_name="config")
+@hydra.main(version_base=None, config_path="./configs", config_name="config")
 def main(cfg: DictConfig):
     output_dir = HydraConfig.get().runtime.output_dir
    

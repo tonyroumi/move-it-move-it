@@ -6,10 +6,9 @@ from .encoder import SkeletalEncoder
 from .decoder import SkeletalDecoder
 
 from omegaconf import DictConfig
-from typing import Dict, List, Optional, Any
+from typing import List
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class SkeletalAutoEncoder(nn.Module):
     def __init__(

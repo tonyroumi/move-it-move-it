@@ -1,11 +1,11 @@
 from .encoder import PoolingInfo
 
+from src.models.ops import SkeletalConv, SkeletalUnpool
+
 from omegaconf import DictConfig
 from typing import List, Optional
 import torch
 import torch.nn as nn
-
-from src.models.ops import SkeletalConv, SkeletalUnpool
 
 class SkeletalDecBlock(nn.Module):
     """

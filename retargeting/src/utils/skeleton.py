@@ -1,10 +1,10 @@
+from src.core.types import SkeletonTopology
+from utils import ArrayLike
+
 from typing import Tuple, Union, List
 import math
 import numpy as np
 import torch
-
-from src.utils import ArrayLike, ArrayUtils
-from src.core.types import SkeletonTopology
 
 class SkeletonUtils:
     """ Skeleton utiities """
@@ -12,7 +12,7 @@ class SkeletonUtils:
     @staticmethod
     def prune_joints(data: ArrayLike, cutoff: int, discard_root: int = False) -> ArrayLike:
         """ Prune joints based on an index cutoff. """
-        if ArrayUtils.is_tensor(data):
+        if isinstance(data, torch.Tensor):
             idx = torch.arange(cutoff, device=data.device)
         else:
             idx = np.arange(cutoff)

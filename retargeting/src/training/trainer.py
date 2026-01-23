@@ -3,14 +3,14 @@ Trainer for an unpaired skeletal motion GAN.
 """
 from .losses import LossBundle
 
+from src.models.networks.gan import SkeletalGAN
+from utils import Logger, ImagePool
+
 from omegaconf import DictConfig
 from pathlib import Path
 from torch.utils.data import DataLoader
 from typing import Any, Dict, Tuple, List
 import torch
-
-from src.models.networks.gan import SkeletalGAN
-from src.utils import Logger, ImagePool
 
 class SkeletalGANTrainer:
     def __init__(

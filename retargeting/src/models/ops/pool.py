@@ -1,10 +1,9 @@
+from src.utils import SkeletonUtils
+
 from dataclasses import dataclass, astuple
 from typing import List, Tuple
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-from src.utils import SkeletonUtils
 
 @dataclass
 class PoolingInfo:

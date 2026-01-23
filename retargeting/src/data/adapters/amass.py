@@ -4,16 +4,16 @@ Adapter for AMASS dataset using the SMPL BodyModel.
 Extracts skeleton topology, offsets, motion sequences, and other metadata.
 """
 
-from utils.visualization import SkeletonVisualizer
 from .base import BaseAdapter
 from ..metadata import SkeletonMetadata, MotionSequence
 
 from tqdm import tqdm
-from typing import List, Tuple
+from typing import List
 import numpy as np
 import torch
 
-from src.utils import ArrayUtils, RotationUtils, SkeletonUtils, ForwardKinematics
+from src.utils import SkeletonUtils, ForwardKinematics
+from utils import ArrayUtils, RotationUtils
 
 class AMASSAdapter(BaseAdapter):
     DATASET_NAME = "amass"

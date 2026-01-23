@@ -1,2 +1,2 @@
-from .trainer import SkeletalGANTrainer
 from .losses import LossBundle
+from .trainer import SkeletalGANTrainer

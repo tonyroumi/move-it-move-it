@@ -1,6 +1,6 @@
 # Training params
 d_learning_rate: 0.0002
-g_learning_rate: 0.0002
+g_learning_rate: 0.0004
 batch_size: 256
 num_epochs: 20000
 checkpoint_interval: 200

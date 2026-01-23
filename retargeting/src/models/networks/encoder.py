@@ -1,10 +1,9 @@
 from src.models.ops import SkeletalConv, SkeletalPooling, PoolingInfo
 
 from omegaconf import DictConfig
-from typing import Dict, List, Tuple, Optional, Any
+from typing import List, Tuple, Optional
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class SkeletalEncBlock(nn.Module):
     """
