@@ -1,16 +1,18 @@
+from typing import List, Optional
+
+import torch
+import torch.nn.functional as F
+
 from .base import SkeletalBase
 from .linear import SkeletalLinear
 
-from typing import List, Optional
-import torch
-import torch.nn.functional as F
 
 class SkeletalConv(SkeletalBase):
     """
     Skeletal-temporal convolution.
 
     The weights of this layer are created to learn how each edge aggregates information from its
-    neighboring edges over time. 
+    neighboring edges over time.
     """
     def __init__(
         self,
@@ -34,7 +36,6 @@ class SkeletalConv(SkeletalBase):
         self.out_channels_per_joint = out_channels_per_joint
         self.out_channels = out_channels_per_joint * self.J
 
-        # self.with_bias = bias
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = (padding, padding)
@@ -49,24 +50,25 @@ class SkeletalConv(SkeletalBase):
 
         if offset_in_channels_per_joint:
             self.offset_encoder = SkeletalLinear(self.adj, offset_in_channels_per_joint, self.out_channels)
-        
+
         super()._init_weights()
-        
-    
+
     def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):
         weight_masked = self.weight * self.mask
 
         padded_x = F.pad(x, pad=self.padding, mode=self.padding_mode)
-        output = F.conv1d(padded_x, 
-                          weight_masked, 
-                          self.bias, 
-                          stride=self.stride,
-                          dilation=self.dilation, 
-                          groups=self.groups) 
+        output = F.conv1d(
+            padded_x,
+            weight_masked,
+            self.bias,
+            stride=self.stride,
+            dilation=self.dilation,
+            groups=self.groups
+        )
 
         if offset is not None:
             offset_out = self.offset_encoder(offset)
-            offset_out = offset_out.reshape(offset_out.shape + (1, ))
+            offset_out = offset_out.reshape(offset_out.shape + (1,))
             output += offset_out / 100
 
         return output

@@ -1,13 +1,15 @@
-from .kinematics import ForwardKinematics
-
-from numpy.typing import ArrayLike
 from pathlib import Path
-from torch.utils.data import DataLoader
-from tqdm import tqdm
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from numpy.typing import ArrayLike
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from .kinematics import ForwardKinematics
+
 
 class SkeletonVisualizer:
     """Skeleton and motion data visualization utilities"""
@@ -33,13 +35,13 @@ class SkeletonVisualizer:
 
     @staticmethod
     def visualize_skeleton(
-      global_position: ArrayLike, 
+      global_position: ArrayLike,
       height: float,
-      foot_idx: int, 
-      head_idx: int, 
+      foot_idx: int,
+      head_idx: int,
       save_path: str
     ):
-        """ Visualize a single skeleton frame with height measurement. """        
+        """ Visualize a single skeleton frame with height measurement. """
         fig = plt.figure(figsize=(6, 6))
         ax = fig.add_subplot(111, projection="3d")
 
@@ -56,18 +58,18 @@ class SkeletonVisualizer:
         # Get foot and head positions
         foot_pos = global_position[foot_idx]
         head_pos = global_position[head_idx]
-        
+
         # Calculate the direction from foot to head
         direction = head_pos - foot_pos
         direction_normalized = direction / np.linalg.norm(direction)
-        
+
         expected_head_pos = foot_pos + direction_normalized * height
-        
-        ax.plot([foot_pos[0], expected_head_pos[0]], 
-                [foot_pos[1], expected_head_pos[1]], 
-                [foot_pos[2], expected_head_pos[2]], 
+
+        ax.plot([foot_pos[0], expected_head_pos[0]],
+                [foot_pos[1], expected_head_pos[1]],
+                [foot_pos[2], expected_head_pos[2]],
                 'b-', linewidth=2, label=f'Height: {height:.3f}')
-        
+
         ax.legend()
 
         # Make axes equal
@@ -79,12 +81,12 @@ class SkeletonVisualizer:
 
     @staticmethod
     def visualize_motion(global_positions: ArrayLike, save_path: str, fps: int = 30):
-        """ Visualize motion sequence as a video. """     
+        """ Visualize motion sequence as a video. """
         if global_positions.ndim == 4:
             num_windows, window_size, num_joints, _ = global_positions.shape
             # Stitch all windows together along the time dimension
             global_positions = global_positions.reshape(num_windows * window_size, num_joints, 3)
-        
+
         T = global_positions.shape[0]
 
         fig = plt.figure(figsize=(6, 6))
@@ -100,7 +102,7 @@ class SkeletonVisualizer:
             (w, h)
         )
 
-        frame_iter = tqdm(range(T), desc=f"Rendering frames", leave=False, position=1)
+        frame_iter = tqdm(range(T), desc="Rendering frames", leave=False, position=1)
         for t in frame_iter:
             ax.cla()
 
@@ -141,7 +143,7 @@ class SkeletonVisualizer:
             positions_A = ForwardKinematics.forward_batched(
                 batch[0][0][:, :-3]
                   .reshape(B, -1, 4, T)
-                  .permute(0, 3, 1, 2), 
+                  .permute(0, 3, 1, 2),
                 batch[0][2].reshape(B, -1, 3),
                 batch[0][0][:, -3:],
                 motion_datasets[0].topology
@@ -149,12 +151,12 @@ class SkeletonVisualizer:
             positions_B = ForwardKinematics.forward_batched(
                 batch[1][0][:, :-3]
                   .reshape(B, -1, 4, T)
-                  .permute(0, 3, 1, 2), 
+                  .permute(0, 3, 1, 2),
                 batch[1][2].reshape(B, -1, 3),
                 batch[1][0][:, -3:],
                 motion_datasets[1].topology
             )
-            
+
             print("Visualizing gt positions...")
             SkeletonVisualizer.visualize_motion(batch[0][4], f"{save_path}/domain_a/gt_position_batch_{i}.mp4")
             SkeletonVisualizer.visualize_motion(batch[1][4], f"{save_path}/domain_b/gt_position_batch_{i}.mp4")
@@ -166,14 +168,14 @@ class SkeletonVisualizer:
     @staticmethod
     def visualize_offsets(offsets, parent_indices=None, save_path='skeleton_offsets.png'):
         num_joints = len(offsets)
-        
+
         # Compute global positions by accumulating offsets
         positions = np.zeros((num_joints, 3))
-        
+
         if parent_indices is None:
             # Assume simple chain: each joint's parent is the previous joint
             parent_indices = [-1] + list(range(num_joints - 1))
-        
+
         # Forward pass: accumulate offsets to get global positions
         for i in range(num_joints):
             if parent_indices[i] == -1:
@@ -182,15 +184,15 @@ class SkeletonVisualizer:
             else:
                 # Child joint: parent position + offset
                 positions[i] = positions[parent_indices[i]] + offsets[i]
-        
+
         # Create 3D plot
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111, projection='3d')
-        
+
         # Plot joints as points
-        ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], 
+        ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2],
                 c='red', s=50, marker='o', label='Joints')
-        
+
         # Plot bones (connections between parent and child)
         for i in range(num_joints):
             if parent_indices[i] != -1:
@@ -199,19 +201,19 @@ class SkeletonVisualizer:
                 ax.plot([parent_pos[0], child_pos[0]],
                     [parent_pos[1], child_pos[1]],
                     [parent_pos[2], child_pos[2]], 'b-', linewidth=2)
-        
+
         # Label joints
         for i in range(num_joints):
-            ax.text(positions[i, 0], positions[i, 1], positions[i, 2], 
+            ax.text(positions[i, 0], positions[i, 1], positions[i, 2],
                     f'J{i}', fontsize=8)
-        
+
         # Set labels and title
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
         ax.set_title('Skeleton Structure (T-Pose from Offsets)')
         ax.legend()
-        
+
         # Equal aspect ratio
         max_range = np.array([positions[:, 0].max() - positions[:, 0].min(),
                             positions[:, 1].max() - positions[:, 1].min(),
@@ -222,10 +224,10 @@ class SkeletonVisualizer:
         ax.set_xlim(mid_x - max_range, mid_x + max_range)
         ax.set_ylim(mid_y - max_range, mid_y + max_range)
         ax.set_zlim(mid_z - max_range, mid_z + max_range)
-        
+
         # Save the plot
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close(fig)  # Close the figure to free memory
         print(f"Skeleton visualization saved to: {save_path}")
-        
+
         return positions

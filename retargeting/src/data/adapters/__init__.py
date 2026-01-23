@@ -10,24 +10,28 @@ from .bandai import BANDAIAdapter
 
 __all__ = ['AMASSAdapter', 'BANDAIAdapter', 'AdapterRegistry', 'get_adapter_for_character']
 
-class AdapterRegistry:   
+
+class AdapterRegistry:
     CHARACTER_ADAPTER_MAP = {
         BANDAIAdapter : ['character1'],#, 'character2'],
         AMASSAdapter : ['Karim','Medhi']#,'Carine', 'Aude'] + [f"rub{str(i).zfill(3)}" for i in range(1, 51)]
     }
-    
+
     @classmethod
     def get_adapter(cls, character_name: str, device: str):
         for adapter, chars in cls.CHARACTER_ADAPTER_MAP.items():
             if character_name in chars:
                 return adapter(device)
-    
+        return None
+
     @classmethod
     def list_characters(cls, adapter: BaseAdapter):
         return cls.CHARACTER_ADAPTER_MAP[type(adapter)]
 
+
 def get_adapter_for_character(character_name: str, device: str) -> BaseAdapter:
     return AdapterRegistry.get_adapter(character_name, device)
+
 
 def list_characters(adapter: BaseAdapter) -> str:
     return AdapterRegistry.list_characters(adapter)

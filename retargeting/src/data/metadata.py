@@ -4,12 +4,13 @@ Skeleton metadata and motion sequence dataclasses.
 from dataclasses import dataclass
 import numpy as np
 
+
 @dataclass
 class SkeletonMetadata:
     edge_topology: np.ndarray
-    offsets: np.ndarray # (J-1, 3) # cm
+    offsets: np.ndarray  # (J-1, 3) # cm
     ee_ids: np.ndarray
-    height: np.ndarray # cm
+    height: np.ndarray  # cm
     kintree: np.ndarray
 
     def save(self, path: str):
@@ -39,7 +40,7 @@ class SkeletonMetadata:
             height=height,
             kintree=kintree,
         )
-    
+
     def __eq__(self, other) -> bool:
         if not isinstance(other, SkeletonMetadata):
             return NotImplemented
@@ -50,11 +51,12 @@ class SkeletonMetadata:
             np.array_equal(self.kintree, other.kintree)
         )
 
+
 @dataclass
 class MotionSequence:
     name: str
-    positions: np.ndarray # (T, J, 3) , cm
-    rotations: np.ndarray # (T, J, 4) , (x, y, z, w) radians
+    positions: np.ndarray  # (T, J, 3) , cm
+    rotations: np.ndarray  # (T, J, 4) , (x, y, z, w) radians
     fps: float = 60
 
     def save(self, path: str):

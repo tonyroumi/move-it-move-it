@@ -1,8 +1,8 @@
-from .array import ArrayUtils, ArrayLike
-
-from scipy.spatial.transform import Rotation as R
-import numpy as np
 import torch
+from scipy.spatial.transform import Rotation as R
+
+from .array import ArrayLike, ArrayUtils
+
 
 class RotationUtils:
     """Rotation representation conversion utilities for numpy arrays and tensors."""
@@ -55,7 +55,7 @@ class RotationUtils:
         return_torch: bool = False,
         device: torch.device = None
     ):
-        """Convert euler angles to quaternions [x, y, z, w]."""
+        """Convert euler angles to rotation matrices."""
         out = R.from_euler(axis_order, ArrayUtils.to_numpy(euler_angles), degrees=False).as_matrix()
         return ArrayUtils.to_torch(out, device) if return_torch else out
 

@@ -1,10 +1,12 @@
+import math
+from typing import List, Tuple, Union
+
+import numpy as np
+import torch
+
 from src.core.types import SkeletonTopology
 from utils import ArrayLike
 
-from typing import Tuple, Union, List
-import math
-import numpy as np
-import torch
 
 class SkeletonUtils:
     """ Skeleton utiities """
@@ -23,9 +25,11 @@ class SkeletonUtils:
             return data[idx]
 
         # Batch-major: (N, J, ...)
-        elif data.ndim == 3:
+        if data.ndim == 3:
             return data[:, idx]
-    
+
+        return data
+
     @staticmethod
     def construct_edge_topology(parent_kintree: List[int]) -> List[Tuple[int]]:
         """ Constructs the edge topology for a skeleton as (parent, child) joint tuples. """
@@ -33,9 +37,9 @@ class SkeletonUtils:
         for child_idx in range(1, len(parent_kintree)):  # Skip root
             parent_idx = parent_kintree[child_idx]
             topology.append([int(parent_idx), int(child_idx)])
-        
+
         return topology
-    
+
     @staticmethod
     def find_ee(parent_kintree: List[int]):
         """ Finds the skeleton's end effectors by traversing the tree for leaf joints. """
@@ -46,7 +50,7 @@ class SkeletonUtils:
 
         leaves = [j for j, c in children.items() if len(c) == 0]
         return leaves
-    
+
     @staticmethod
     def compute_height(parent_kintree: List[int], offsets: List[List[int]], ee_ids: List[int]) -> float:
         """ Computes the height by summing the size of each offset vector from the head to the feet. """
@@ -62,7 +66,7 @@ class SkeletonUtils:
                 height += offset_magnitude
                 current = parent
             return height
-        
+
         # Find maximum height among all end effectors
         heights = [get_chain_height(ee_id) for ee_id in ee_ids]
         return np.max(heights)
@@ -80,7 +84,6 @@ class SkeletonUtils:
             E = len(neighbors)
             global_idx = E
 
-            
             global_neighbors = neighbors[0].copy()
 
             neighbors.append(global_neighbors)
@@ -96,12 +99,12 @@ class SkeletonUtils:
         for i in range(E):
             nbrs = [j for j in range(E) if dist[i][j] <= d]
             neighbors.append(nbrs)
-        
+
         if global_edges:
             neighbors = add_global_edge(neighbors)
 
         return neighbors
-    
+
     @staticmethod
     def calc_edge_distance_matrix(edges):
         """
@@ -135,9 +138,9 @@ class SkeletonUtils:
     @staticmethod
     def get_ee_velocity(
         positions: ArrayLike,
-        topology: Union[SkeletonTopology] 
+        topology: Union[SkeletonTopology]
     ) -> Tuple[ArrayLike, ArrayLike]:
         """ Compute the velocity of end effectors """
-        vel = positions[:, 1:] - positions[:, :-1]  
-        ee_vel = vel[:, :, topology.ee_ids, :]  
+        vel = positions[:, 1:] - positions[:, :-1]
+        ee_vel = vel[:, :, topology.ee_ids, :]
         return ee_vel

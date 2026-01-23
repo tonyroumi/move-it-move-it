@@ -1,15 +1,17 @@
-from .base import BaseAdapter
-from ..metadata import SkeletonMetadata, MotionSequence
+import os
+from typing import List
 
-from tqdm import tqdm
-from typing import List, Tuple
 import bvhio
 import numpy as np
-import os
 import torch
+from tqdm import tqdm
 
+from src.utils import ForwardKinematics, SkeletonUtils
 from utils import ArrayUtils, RotationUtils
-from src.utils import SkeletonUtils, ForwardKinematics, SkeletonVisualizer
+
+from ..metadata import MotionSequence, SkeletonMetadata
+from .base import BaseAdapter
+
 
 class BANDAIAdapter(BaseAdapter):
     DATASET_NAME = "bandai"
@@ -20,7 +22,7 @@ class BANDAIAdapter(BaseAdapter):
     def _post_init(self, character: str):
         self.character = character
         self.character_dir = self.raw_dir / character
-        
+
         cache_dir = self.cache_dir / character
         cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -43,8 +45,8 @@ class BANDAIAdapter(BaseAdapter):
             joint.Offset
             for (joint, _, _) in self.data.Root.layout()
         ])
-        offsets[0] = np.zeros(3) 
-        offsets *= 100 # convert to cm
+        offsets[0] = np.zeros(3)
+        offsets *= 100  # convert to cm
 
         edge_topology = SkeletonUtils.construct_edge_topology(self.kintree)
         ee_ids = SkeletonUtils.find_ee(self.kintree)
@@ -79,25 +81,25 @@ class BANDAIAdapter(BaseAdapter):
             fps = int(round(1.0 / frame_time))
 
             positions = torch.zeros((T, self.num_joints, 3))
-            rotations = torch.zeros((T, self.num_joints, 4)) 
+            rotations = torch.zeros((T, self.num_joints, 4))
 
             for t in range(T):
                 positions[t] = ArrayUtils.to_torch([joint.Keyframes[t].Position for (joint, _, _) in data.Root.layout()])
                 rotations[t] = ArrayUtils.to_torch([joint.Keyframes[t].Rotation for (joint, _, _) in data.Root.layout()])
-            
+
             rotations = RotationUtils.wxyz_to_xyzw(rotations, return_torch=True)
-            rotations = rotations[:, 1:] 
-        
+            rotations = rotations[:, 1:]
+
             fk_positions = ForwardKinematics.forward(
                 quaternions=rotations,
                 offsets=skeleton.offsets,
-                root_pos=positions[:,0],
+                root_pos=positions[:, 0],
                 topology=skeleton
             )
 
             motion = MotionSequence(
                 name=fname,
-                positions=ArrayUtils.to_numpy(fk_positions), 
+                positions=ArrayUtils.to_numpy(fk_positions),
                 rotations=ArrayUtils.to_numpy(rotations),
                 fps=fps
             )
@@ -119,12 +121,13 @@ class BANDAIAdapter(BaseAdapter):
 
     def _extract_offsets(self) -> np.ndarray:
         offsets = []
+
         def traverse(node):
             offsets.append(node.Offset)
 
             for child in node.Children:
                 traverse(child)
-        
+
         traverse(self.data.Root)
 
         return np.stack(offsets, axis=0)

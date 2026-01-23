@@ -1,16 +1,15 @@
 """
 Normalization and torch dataset classes for single and cross motion domains.
 """
-
-from .builder import MotionDatasetBuilder
-
-from torch.utils.data import Dataset
-from typing import List
 import torch
+from torch.utils.data import Dataset
 
 from src.core.normalization import NormalizationStats
 from src.core.types import SkeletonTopology
 from src.utils import SkeletonUtils
+
+from .builder import MotionDatasetBuilder
+
 
 class MotionDataset(Dataset):
     """
@@ -22,7 +21,7 @@ class MotionDataset(Dataset):
     """
     def __init__(self, character: str, device: str):
         builder = MotionDatasetBuilder(character, device)
-        
+
         self.characters = builder.get_characters()
         self.char_index = []         # maps each sample → char_id
         self.char_meta = {}
@@ -70,11 +69,11 @@ class MotionDataset(Dataset):
 
         self.norm_stats = self._compute_normalization_stats()
         self.motion_samples = self.norm_stats.norm(self.rotations)
-    
+
     def _compute_normalization_stats(self):
         # mean/var over batch and time
         mean = torch.mean(self.rotations, dim=(0, 2), keepdim=True)
-        var  = torch.var(self.rotations, dim=(0, 2), keepdim=True) ** (1/2)
+        var = torch.var(self.rotations, dim=(0, 2), keepdim=True) ** (1/2)
         return NormalizationStats(mean, var)
 
     def __len__(self):
@@ -103,10 +102,11 @@ class MotionDataset(Dataset):
                meta["height"], \
                gt_positions
 
+
 class CrossDomainMotionDataset(Dataset):
-    """ 
+    """
     Combines two MotionDataset instances for two different motion domains.
-    
+
     __getitem__ returns:
     MotionDataset[domain_idx]
     """

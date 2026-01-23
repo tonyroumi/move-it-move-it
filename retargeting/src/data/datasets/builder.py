@@ -1,22 +1,22 @@
 """
 MotionDataset builder to construct MotionDataset for a single motion domain.
 """
+from typing import List, Tuple
 
-from omegaconf import DictConfig
-from typing import Any, Dict, Tuple, List
 import numpy as np
 import torch
 
-from src.data.adapters import BaseAdapter, list_characters, get_adapter_for_character
-from src.data.metadata import SkeletonMetadata, MotionSequence
+from src.data.adapters import BaseAdapter, get_adapter_for_character, list_characters
+from src.data.metadata import MotionSequence, SkeletonMetadata
 from utils import ArrayUtils
+
 
 class MotionDatasetBuilder:
     def __init__(self, character: str, device: str):
         self.character = character
-        self.adapter : BaseAdapter = get_adapter_for_character(character, device)
+        self.adapter: BaseAdapter = get_adapter_for_character(character, device)
         self.device = self.adapter.device
-    
+
     def get_characters(self):
         """
         Returns all of the characters with a matching topology to the source character.
@@ -33,12 +33,12 @@ class MotionDatasetBuilder:
         return same_topologies
 
     def get_or_process(self, character: str):
-        """ 
-        Load or generate all skeleton metadata and motion data for a given character. 
-        
+        """
+        Load or generate all skeleton metadata and motion data for a given character.
+
         Raises:
             FileNotFoundError: If no raw files exist for provided character.
-        """ 
+        """
         cache_path = (
             self.adapter.cache_dir / character
         )
@@ -49,13 +49,13 @@ class MotionDatasetBuilder:
         )
         raw_files = list(raw_path.glob("*"))
 
-        skeleton = self._get_char(character)       
+        skeleton = self._get_char(character)
         offsets = skeleton.offsets
         edge_topology = skeleton.edge_topology
         ee_ids = skeleton.ee_ids
         height = skeleton.height
 
-        # If there are no processed files, proccess from raw dir. 
+        # If there are no processed files, proccess from raw dir.
         if not processed_files:
             if not raw_files:
                 raise FileNotFoundError(f"No raw files for {character}")
@@ -75,18 +75,17 @@ class MotionDatasetBuilder:
                 ArrayUtils.to_torch(edge_topology, self.device, torch.int),
                 ArrayUtils.to_torch(ee_ids, self.device, torch.int),
                 ArrayUtils.to_torch(height, self.device))
-    
+
     def _get_char(self, character: str) -> SkeletonMetadata:
         skel_path = (
             self.adapter.skeleton_dir / f"{character}.npz"
         )
         if not skel_path.exists():
             return self.adapter.extract_skeleton(character)
-        else:
-            return SkeletonMetadata.load(skel_path)
+        return SkeletonMetadata.load(skel_path)
 
     def _process_motion(self, motions: List[MotionSequence]) -> Tuple[torch.Tensor, torch.Tensor, int]:
-        """ Concatentate, downsample and break up motion data into fixed size windows """  
+        """ Concatentate, downsample and break up motion data into fixed size windows """
 
         motion_chunks, position_chunks = [], []
         total_length = 0
@@ -120,7 +119,7 @@ class MotionDatasetBuilder:
         return data[::stride]
 
     def _get_windows(self, data: np.ndarray):
-        """ 
+        """
         Slice a motion array of shape [T, J*4+3] into windows of shape [64, J*4+3].
 
         Returns:

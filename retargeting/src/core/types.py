@@ -1,12 +1,13 @@
 from dataclasses import dataclass
-from typing import Tuple
 import torch
+
 
 @dataclass
 class SkeletonTopology:
     edge_topology: torch.Tensor = None
     edge_adjacency: torch.Tensor = None
     ee_ids: torch.Tensor = None
+
 
 @dataclass
 class MotionOutput:

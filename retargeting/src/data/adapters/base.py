@@ -1,13 +1,14 @@
 """
 Abstract base class for processing different motion capture data sources
 """
-
-from ..metadata import SkeletonMetadata, MotionSequence
-
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List
+
 import torch
+
+from ..metadata import SkeletonMetadata, MotionSequence
+
 
 class BaseAdapter(ABC):
     def __init__(self, dataset_name: str, device: torch.device):
@@ -27,13 +28,11 @@ class BaseAdapter(ABC):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         self.device = device
-    
+
     @abstractmethod
     def extract_skeleton(self, file_path: str) -> SkeletonMetadata:
         """ Abstract method to extract skeleton metadata. """
-        pass
-    
+
     @abstractmethod
     def extract_motion(self, file_path: str) -> List[MotionSequence]:
         """ Abstract method to extract a sequence of motions """
-        pass
