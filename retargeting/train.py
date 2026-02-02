@@ -5,24 +5,20 @@ Train a motion retargeting network between source and target skeletal structures
 """
 
 from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig, OmegaConf
-from pathlib import Path
-from typing import Optional
-import argparse
+from omegaconf import DictConfig
 import hydra
 import torch
 
-from src.data.adapters import get_adapter_for_character
 from src.data.datasets import (
     CrossDomainMotionDataset,
-    MotionDataset,
-    paired_collate
+    MotionDataset
 )
 from src.models.networks import SkeletalGAN
 from src.training import SkeletalGANTrainer
-from src.utils import set_seed, Logger, SkeletonVisualizer
+from src.utils import SkeletonVisualizer
+from utils import Logger, set_seed
 
-@hydra.main(version_base=None, config_path="../configs", config_name="config")
+@hydra.main(version_base=None, config_path="./configs", config_name="config")
 def main(cfg: DictConfig):
     output_dir = HydraConfig.get().runtime.output_dir
    
@@ -42,7 +38,6 @@ def main(cfg: DictConfig):
     train_loader = torch.utils.data.DataLoader(
         cross_domain_dataset,
         batch_size=cfg.train.batch_size,
-        collate_fn=paired_collate,
         shuffle=True,
     )
     
@@ -51,7 +46,7 @@ def main(cfg: DictConfig):
         logger.info("Visualizing dataset samples...")
         SkeletonVisualizer.visualize_dataset(
             train_loader,
-            save_path=str(output_dir / 'data_visualization')
+            save_path=f"{output_dir}/data_visualization"
         )
     
     model = SkeletalGAN(
@@ -65,13 +60,13 @@ def main(cfg: DictConfig):
     # Create optimizers
     optimizer_G = torch.optim.Adam(
         model.generator_parameters(),
-        lr=cfg.train.learning_rate,
+        lr=cfg.train.g_learning_rate,
         betas=cfg.train.betas,
     )
     
     optimizer_D = torch.optim.Adam(
         model.discriminator_parameters(),
-        lr=cfg.train.learning_rate,
+        lr=cfg.train.d_learning_rate,
         betas=cfg.train.betas,
     )
     
@@ -87,15 +82,16 @@ def main(cfg: DictConfig):
         device=cfg.device
     )
     
+    epoch = 0
     if cfg.resume_from:
         logger.info(f"Resuming from checkpoint: {cfg.resume_from}")
-        trainer.load_checkpoint(cfg.resume_from)
+        epoch = trainer.load_checkpoint(cfg.resume_from)
     
     print("\n" + "=" * 80)
-    print("STARTING TRAINING")
+    print(f"STARTING TRAINING (epoch: {epoch})")
     print("=" * 80 + "\n")
     
-    trainer.train()
+    trainer.train(epoch)
     
     print("\n" + "=" * 80)
     print("TRAINING COMPLETED SUCCESSFULLY")
@@ -104,9 +100,9 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    import debugpy
-    print("[DEBUG] Waiting for debugger to attach on 0.0.0.0:5678 ...")
-    debugpy.listen(("0.0.0.0", 5678))
-    debugpy.wait_for_client()
-    print("[DEBUG] Debugger attached.")
+    # import debugpy
+    # print("[DEBUG] Waiting for debugger to attach on 0.0.0.0:5678 ...")
+    # debugpy.listen(("0.0.0.0", 5678))
+    # debugpy.wait_for_client()
+    # print("[DEBUG] Debugger attached.")
     main()

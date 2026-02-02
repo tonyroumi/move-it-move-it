@@ -1,28 +1,30 @@
 """
 Adapter for AMASS dataset using the SMPL BodyModel.
-    
+
 Extracts skeleton topology, offsets, motion sequences, and other metadata.
 """
+from typing import List
 
-from utils.visualization import SkeletonVisualizer
-from .base import BaseAdapter
-from ..metadata import SkeletonMetadata, MotionSequence
-
-from tqdm import tqdm
-from typing import List, Tuple
 import numpy as np
 import torch
+from tqdm import tqdm
 
-from src.utils import ArrayUtils, RotationUtils, SkeletonUtils, ForwardKinematics
+from src.utils import ForwardKinematics, SkeletonUtils
+from utils import ArrayUtils, RotationUtils
+
+from ..metadata import MotionSequence, SkeletonMetadata
+from .base import BaseAdapter
+
 
 class AMASSAdapter(BaseAdapter):
     DATASET_NAME = "amass"
     SUPPORT_NAME = "body_models"
-    JOINT_CUTOFF = 22 # Joints > 21 are hands, fingers, toes. (zero based)
+    JOINT_CUTOFF = 22  # Joints > 21 are hands, fingers, toes. (zero based)
     HEAD_IDX = 15
     FOOT_IDX = 10
 
-    def __init__(self, device: torch.device = 'cpu'): super().__init__(self.DATASET_NAME, device)
+    def __init__(self, device: torch.device = 'cpu'):
+        super().__init__(self.DATASET_NAME, device)
 
     def _post_init(self, character: str):
         """ Initialize character specific BodyModel """
@@ -42,7 +44,7 @@ class AMASSAdapter(BaseAdapter):
         self.betas = ArrayUtils.to_torch(character_betas, self.device)
 
         bm_path = str(self.dataset_dir / self.SUPPORT_NAME / character_gender / "model.npz")
-        self.body_model = BodyModel(bm_path, num_betas=num_betas).to(self.device)  
+        self.body_model = BodyModel(bm_path, num_betas=num_betas).to(self.device)
 
         self.full_kintree = self.body_model.kintree_table.cpu()
         self.parent_kintree = self.full_kintree[0]
@@ -54,15 +56,15 @@ class AMASSAdapter(BaseAdapter):
         """ Extract and save skeleton metadata from a particular character. """
 
         self._post_init(character)
-        
-        body = self.body_model(betas=self.betas.unsqueeze(0)) # BodyModel expects shape [1, num_betas]
-        
-        J0 = body.Jtr[0] # T pose
+
+        body = self.body_model(betas=self.betas.unsqueeze(0))  # BodyModel expects shape [1, num_betas]
+
+        J0 = body.Jtr[0]  # T pose
         offsets = J0 - J0[self.parent_kintree]
 
         offsets = SkeletonUtils.prune_joints(offsets, self.JOINT_CUTOFF).cpu()
-        offsets[0] = torch.zeros(3) # No root offset
-        offsets *= 100 # convert to cm
+        offsets[0] = torch.zeros(3)  # No root offset
+        offsets *= 100  # convert to cm
 
         edge_topology = SkeletonUtils.construct_edge_topology(self.pruned_kintree[0])
         ee_ids = SkeletonUtils.find_ee(self.pruned_kintree[0])
@@ -73,7 +75,7 @@ class AMASSAdapter(BaseAdapter):
                                     ee_ids=ArrayUtils.to_numpy(ee_ids),
                                     height=ArrayUtils.to_numpy(height),
                                     kintree=ArrayUtils.to_numpy(self.pruned_kintree))
-        skeleton.save(self.skeleton_dir / (str(character) + ".npz") )
+        skeleton.save(self.skeleton_dir / (str(character) + ".npz"))
 
         return skeleton
 
@@ -83,7 +85,8 @@ class AMASSAdapter(BaseAdapter):
 
         skeleton = SkeletonMetadata.load(self.data_dir / "skeletons" / (str(character) + ".npz"))
 
-        sequences : List[MotionSequence] = []
+        sequences: List[MotionSequence] = []
+        fps = None
 
         for npz_file in tqdm(self.motion_seqs, desc="Extracting motion sequences"):
             fname = npz_file.split('/')[-1]
@@ -93,10 +96,10 @@ class AMASSAdapter(BaseAdapter):
 
             pose_body = ArrayUtils.to_torch(data["poses"], self.device)
             trans = ArrayUtils.to_torch(data["trans"], self.device)
-            
+
             out = self.body_model(
-                root_orient=pose_body[:,0:3],
-                pose_body=pose_body[:,3:66],
+                root_orient=pose_body[:, 0:3],
+                pose_body=pose_body[:, 3:66],
                 trans=trans,
                 betas=self.betas.unsqueeze(0)
             )
@@ -109,20 +112,23 @@ class AMASSAdapter(BaseAdapter):
             fk_positions = ForwardKinematics.forward(
                 quaternions=ArrayUtils.to_torch(quat_rotations),
                 offsets=skeleton.offsets,
-                root_pos=out.Jtr[:,0],
+                root_pos=out.Jtr[:, 0],
                 topology=skeleton
             )
-            
+            if data["mocap_frame_rate"]:
+                fps = data["mocap_frame_rate"]
+            elif data["mocap_framerate"]:
+                fps = data['mocap_framerate']
             motion_sequence = MotionSequence(name=fname,
                                              positions=ArrayUtils.to_numpy(fk_positions),
                                              rotations=ArrayUtils.to_numpy(quat_rotations),
-                                             fps=ArrayUtils.to_numpy(data['mocap_framerate']),)
+                                             fps=ArrayUtils.to_numpy(fps),)
             motion_sequence.save(self.cache_dir / character / fname)
 
             sequences.append(motion_sequence)
 
         return sequences
-    
+
     def _prune_kintree(self):
         """ Removes joints from the kintree outside of the joint_cutoff """
         parent = self.full_kintree[0]
@@ -139,7 +145,7 @@ class AMASSAdapter(BaseAdapter):
 
         # Remove (-1,-1) pairs
         out_parent = []
-        out_child  = []
+        out_child = []
         for j, (p, c) in enumerate(zip(pruned_parent, pruned_children)):
             if (j == 0 or (p != -1 and c != -1)) and j < 22:
                 out_parent.append(p)

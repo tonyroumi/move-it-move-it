@@ -1,10 +1,11 @@
-from src.models.ops import SkeletalConv, SkeletalPooling, PoolingInfo
+from typing import List, Optional, Tuple
 
-from omegaconf import DictConfig
-from typing import Dict, List, Tuple, Optional, Any
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from omegaconf import DictConfig
+from torch import nn
+
+from src.models.ops import PoolingInfo, SkeletalConv, SkeletalPooling
+
 
 class SkeletalEncBlock(nn.Module):
     """
@@ -21,9 +22,9 @@ class SkeletalEncBlock(nn.Module):
         super().__init__()
 
         self.conv = SkeletalConv(adj_list=adj_list, **(conv_params))
-        # The second block of the static encoder does not contain a pooling operation. 
-        self.pool = SkeletalPooling(edge_list=edge_list, 
-                                    channels_per_edge=conv_params["out_channels_per_joint"], 
+        # The second block of the static encoder does not contain a pooling operation.
+        self.pool = SkeletalPooling(edge_list=edge_list,
+                                    channels_per_edge=conv_params["out_channels_per_joint"],
                                     last_pool=last_pool)
         self.act = nn.LeakyReLU(negative_slope=0.2)
 
@@ -31,7 +32,7 @@ class SkeletalEncBlock(nn.Module):
 
         self.pool_features = pool_features
 
-    def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):      
+    def forward(self, x: torch.Tensor, offset: Optional[torch.Tensor] = None):
         y = self.conv(x, offset=offset)
         if self.pool_features:
             y = self.pool(y)
@@ -57,14 +58,14 @@ class SkeletalEncoder(nn.Module):
         self.pooling_hierarchy = [PoolingInfo(adj_list=adj_init, edge_list=edge_init)]
 
         self._init_blocks()
-    
+
     def _init_blocks(self):
         self.block1 = SkeletalEncBlock(
             adj_list=self.adj_init,
             edge_list=self.edge_init,
             **(self.params["block1"])
         )
-        post_adj, post_edge_list,_ = self.block1.pooling_info
+        post_adj, post_edge_list, _ = self.block1.pooling_info
 
         self.block2 = SkeletalEncBlock(
             adj_list=post_adj,
@@ -78,7 +79,7 @@ class SkeletalEncoder(nn.Module):
     def forward(self, x: torch.Tensor, offset: Optional[List[torch.tensor]] = None, pad_global: bool = False):
         if pad_global:
             B, _, T = x.shape
-            dummy = x.new_zeros(B, 1, T)  
+            dummy = x.new_zeros(B, 1, T)
             x = torch.cat([x, dummy], dim=1)
 
         intermediate_features = [x]
@@ -90,4 +91,3 @@ class SkeletalEncoder(nn.Module):
         intermediate_features.append(y)
 
         return intermediate_features if self.return_all else y
-    

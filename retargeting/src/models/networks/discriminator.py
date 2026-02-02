@@ -1,20 +1,22 @@
-from src.models.ops import SkeletalConv, SkeletalPooling, PoolingInfo
+from typing import List
 
-from omegaconf import DictConfig
-from typing import Dict, List, Any
 import torch
-import torch.nn as nn
+from omegaconf import DictConfig
+from torch import nn
+
+from src.models.ops import PoolingInfo, SkeletalConv, SkeletalPooling
+
 
 class SkeletalDiscBlock(nn.Module):
     """
     One skeletal discriminator block : SkeletalConv -> BatchNorm1D -> AvgPooling -> LeakyReLU
     """
     def __init__(
-        self, 
-        adj_list: List[List], 
-        edge_list: List[List], 
-        conv_params: DictConfig, 
-        norm: bool = True, 
+        self,
+        adj_list: List[List],
+        edge_list: List[List],
+        conv_params: DictConfig,
+        norm: bool = True,
         activation: bool = True
     ):
         super().__init__()
@@ -22,7 +24,7 @@ class SkeletalDiscBlock(nn.Module):
         self.conv = SkeletalConv(adj_list, **conv_params)
 
         out_channels = conv_params["out_channels_per_joint"]*len(adj_list)
-        self.norm = nn.BatchNorm1d(out_channels)  if norm else nn.Identity()
+        self.norm = nn.BatchNorm1d(out_channels) if norm else nn.Identity()
 
         self.pool = SkeletalPooling(edge_list, conv_params["out_channels_per_joint"])
         self.act = nn.LeakyReLU(negative_slope=0.2) if activation else nn.Identity()
@@ -31,6 +33,7 @@ class SkeletalDiscBlock(nn.Module):
         y = self.norm(self.conv(x))
         y = self.act(self.pool(y))
         return y
+
 
 class SkeletalDiscriminator(nn.Module):
     def __init__(
@@ -44,7 +47,7 @@ class SkeletalDiscriminator(nn.Module):
         self.discriminator_params = discriminator_params
 
         self._init_blocks()
-    
+
     def _init_blocks(self):
         self.block1 = SkeletalDiscBlock(
             adj_list=self.pooled_info[0].adj_list,
@@ -55,9 +58,9 @@ class SkeletalDiscriminator(nn.Module):
             adj_list=self.pooled_info[1].adj_list,
             edge_list=self.pooled_info[1].edge_list,
             **(self.discriminator_params["block2"]))
-    
+
     def forward(self, x: torch.Tensor):
-        y = self.block1(x.transpose(1,2))
+        y = self.block1(x.transpose(1, 2))
         y = self.block2(y)
 
-        return torch.sigmoid(y).squeeze()
+        return y.squeeze()

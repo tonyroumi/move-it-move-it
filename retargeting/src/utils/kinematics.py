@@ -1,7 +1,8 @@
-from data.metadata import SkeletonMetadata
 import torch
 
 from src.core.types import SkeletonTopology
+from src.data.metadata import SkeletonMetadata
+
 
 class ForwardKinematics:
     """Forward kinematics utilities."""
@@ -16,7 +17,7 @@ class ForwardKinematics:
     ) -> torch.Tensor:
         """
         Compute joint positions for unbatched motion.
-        
+
         NOTE: This assume that the root quat is not included.
         """
         T, J, _ = quaternions.shape
@@ -28,14 +29,14 @@ class ForwardKinematics:
 
         P[:, 0, :] = root_pos
         R[:, 0, :, :] = torch.eye(3, device=R.device, dtype=R.dtype)
-        
+
         for (parent, child) in topology.edge_topology:
             R[:, child, :, :] = R[:, parent, :, :].clone() @ rotmats[:, child-1, :, :].clone()
-            P[:, child, :] = ( R[:, parent, :, :] @ offsets[child, :, None] ).squeeze(-1) 
+            P[:, child, :] = (R[:, parent, :, :] @ offsets[child, :, None]).squeeze(-1)
 
             if world:
                 P[:, child, :] += P[:, parent, :]
-        
+
         return P
 
     @staticmethod
@@ -53,24 +54,23 @@ class ForwardKinematics:
         """
         B, T, J, _ = quaternions.shape
 
-        P = torch.zeros(B, T, J+1, 3, device=quaternions.device) 
-        R = torch.zeros(B, T, J+1, 3, 3, device=quaternions.device) 
-        
-        rotmats = ForwardKinematics.quat_to_rotmat(quaternions) 
-        
-        P[:, :, 0, :] = root_pos.transpose(1,2) 
+        P = torch.zeros(B, T, J+1, 3, device=quaternions.device)
+        R = torch.zeros(B, T, J+1, 3, 3, device=quaternions.device)
+
+        rotmats = ForwardKinematics.quat_to_rotmat(quaternions)
+
+        P[:, :, 0, :] = root_pos.transpose(1, 2)
         R[:, :, 0, :, :] = torch.eye(3, device=R.device, dtype=R.dtype)
-        
+
         for (parent, child) in topology.edge_topology:
             R[:, :, child, :, :] = R[:, :, parent, :, :].clone() @ rotmats[:, :, child-1, :, :].clone()
-            P[:, :, child, :] = ( R[:, :, parent, :, :] @ offsets[:, None, child, :, None]).squeeze(-1) 
+            P[:, :, child, :] = (R[:, :, parent, :, :] @ offsets[:, None, child, :, None]).squeeze(-1)
 
             if world:
                 P[:, :, child, :] += P[:, :, parent, :]
-            
 
         return P
-    
+
     @staticmethod
     def local_to_world(positions: torch.Tensor, topology: torch.Tensor):
         """ Convert from local positions to world """

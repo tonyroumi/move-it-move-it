@@ -1,8 +1,10 @@
-from torch.utils.tensorboard import SummaryWriter
 import logging
 import os
 
-from src.utils import ArrayUtils
+from torch.utils.tensorboard import SummaryWriter
+
+from .array import ArrayUtils
+
 
 class Logger:
     def __init__(
@@ -30,15 +32,15 @@ class Logger:
 
         if self.use_wandb:
             try:
-                import wandb
+                import wandb  # pylint: disable=import-outside-toplevel
                 self.wandb = wandb
                 self.wandb.init(
                     project=wandb_project,
                     name=wandb_run_name,
                     dir=log_dir,
                 )
-            except ImportError:
-                raise RuntimeError("use_wandb=True but wandb is not installed")
+            except ImportError as exc:
+                raise RuntimeError("use_wandb=True but wandb is not installed") from exc
 
     def step(self):
         self.step_num += 1
@@ -60,7 +62,7 @@ class Logger:
     def log_metric(self, name: str, value: float):
         if ArrayUtils.is_tensor(value):
             value = value.detach().item()
-            
+
         if self.verbose:
             self.info(f"{name}: {value} (step={self.step_num})")
 

@@ -1,6 +1,7 @@
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
+
 
 class LossBundle(nn.Module):
     def __init__(self):
@@ -22,6 +23,7 @@ class LossBundle(nn.Module):
 
     def ee(self, pred, gt):
         return self.ee_loss(pred, gt)
+
 
 class LSGANLoss(nn.Module):
     """
@@ -55,9 +57,9 @@ class LSGANLoss(nn.Module):
 
             return 0.5 * (loss_real + loss_fake)
 
-        else:
-            real_targets = torch.ones_like(d_fake)
-            return self.mse(d_fake, real_targets)
+        real_targets = torch.ones_like(d_fake)
+        return self.mse(d_fake, real_targets)
+
 
 class EELoss(nn.Module):
     """ End-Effector velocity loss. """
@@ -65,12 +67,12 @@ class EELoss(nn.Module):
         super().__init__()
         self.mse = nn.MSELoss()
         self.norm_eps = norm_eps
-    
+
     def forward(self, pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
         ee_loss = self.mse(pred, gt)
- 
+
         gt_norm = torch.norm(gt, dim=-1)
         contact_idx = gt_norm < self.norm_eps
         extra_ee_loss = self.mse(pred[contact_idx], gt[contact_idx])
- 
+
         return ee_loss + extra_ee_loss * 100

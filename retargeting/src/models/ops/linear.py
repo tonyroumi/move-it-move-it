@@ -1,8 +1,10 @@
-from .base import SkeletalBase
-
 from typing import List
+
 import torch
 import torch.nn.functional as F
+
+from .base import SkeletalBase
+
 
 class SkeletalLinear(SkeletalBase):
     """
@@ -17,11 +19,11 @@ class SkeletalLinear(SkeletalBase):
         out_channels: int
     ):
         super().__init__(adj_list, in_channels_per_joint)
-        
+
         self.J = len(self.adj)
 
         self.in_channels = in_channels_per_joint * self.J
-        self.out_channels = out_channels 
+        self.out_channels = out_channels
         # To project offset features to motion features (includes global pos)
         self.out_channels_per_joint = out_channels // self.J
 

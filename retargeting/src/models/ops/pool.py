@@ -1,10 +1,12 @@
-from dataclasses import dataclass, astuple
+from collections import defaultdict
+from dataclasses import astuple, dataclass
 from typing import List, Tuple
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
 
 from src.utils import SkeletonUtils
+
 
 @dataclass
 class PoolingInfo:
@@ -12,25 +14,26 @@ class PoolingInfo:
     adj_list: List[List[int]]
     edge_list: List[List[int]]
     pooled_edges: List[List[int]] = None
-    
+
     def to_dict(self):
         return {
             'adj_list': self.adj_list,
             'edge_list': self.edge_list,
             'pooled_edges': self.pooled_edges
         }
-    
+
     def __iter__(self):
         return iter(astuple(self))
 
+
 class SkeletalPooling(nn.Module):
     """
-    Skeletal pooling layer. 
+    Skeletal pooling layer.
 
-    Pooling is applied to pairs of edges that connect to (joint) nodes of degree 2. 
+    Pooling is applied to pairs of edges that connect to (joint) nodes of degree 2.
     """
     def __init__(
-        self, 
+        self,
         edge_list: List[Tuple[int, int]],
         channels_per_edge: int,
         last_pool: bool = False
@@ -45,7 +48,7 @@ class SkeletalPooling(nn.Module):
         self.pooled_info = PoolingInfo(new_adj_list, new_edges, pooling_list)
 
         self._init_net()
-    
+
     def _init_net(self):
         pooled_edges = self.pooled_info.pooled_edges
         rows = len(pooled_edges) * self.channels_per_edge
@@ -64,8 +67,6 @@ class SkeletalPooling(nn.Module):
         self.weight = nn.Parameter(weight, requires_grad=False)
 
     def _compute_pooling(self, edge_list: List[List[int]], last_pool: bool = False):
-        from collections import defaultdict
-
         # Build degree and adjacency
         degree = defaultdict(int)
         adj = defaultdict(list)
@@ -121,6 +122,6 @@ class SkeletalPooling(nn.Module):
         new_adj_list = SkeletonUtils.construct_adj(new_edges)
 
         return pooling_list, new_edges, new_adj_list
-    
+
     def forward(self, x: torch.Tensor):
         return self.weight @ x
