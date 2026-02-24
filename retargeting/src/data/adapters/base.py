@@ -1,4 +1,4 @@
-"""
+`"""
 Abstract base class for processing different motion capture data sources
 """
 from abc import ABC, abstractmethod

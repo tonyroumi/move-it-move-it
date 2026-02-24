@@ -8,7 +8,6 @@ class SkeletonTopology:
     edge_adjacency: torch.Tensor = None
     ee_ids: torch.Tensor = None
 
-
 @dataclass
 class MotionOutput:
     latents: torch.Tensor

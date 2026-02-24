@@ -1,7 +1,6 @@
 import json
 import yaml
 
-
 class DataUtils:
     """ Data-loading utilities. """
 
