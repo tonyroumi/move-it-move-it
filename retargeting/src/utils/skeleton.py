@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 from src.core.types import SkeletonTopology
-from utils import ArrayLike
+from .array import ArrayLike
 
 
 class SkeletonUtils:

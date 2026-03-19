@@ -9,8 +9,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from src.utils import ForwardKinematics, SkeletonUtils
-from utils import ArrayUtils, RotationUtils
+from src.utils import ForwardKinematics, SkeletonUtils, ArrayUtils, RotationUtils
 
 from ..metadata import MotionSequence, SkeletonMetadata
 from .base import BaseAdapter
@@ -19,7 +18,7 @@ from .base import BaseAdapter
 class AMASSAdapter(BaseAdapter):
     DATASET_NAME = "amass"
     SUPPORT_NAME = "body_models"
-    JOINT_CUTOFF = 22  # Joints > 21 are hands, fingers, toes. (zero based)
+    JOINT_CUTOFF = 22  # Joints > 21 are hands, fingers, toes. 
     HEAD_IDX = 15
     FOOT_IDX = 10
 
@@ -115,10 +114,8 @@ class AMASSAdapter(BaseAdapter):
                 root_pos=out.Jtr[:, 0],
                 topology=skeleton
             )
-            if data["mocap_frame_rate"]:
-                fps = data["mocap_frame_rate"]
-            elif data["mocap_framerate"]:
-                fps = data['mocap_framerate']
+
+            fps = data['mocap_framerate']
             motion_sequence = MotionSequence(name=fname,
                                              positions=ArrayUtils.to_numpy(fk_positions),
                                              rotations=ArrayUtils.to_numpy(quat_rotations),

@@ -7,14 +7,15 @@ This module provides adapters for loading and processing motion data from differ
 from .base import BaseAdapter
 from .amass import AMASSAdapter
 from .bandai import BANDAIAdapter
+from .mujoco import MuJoCoAdapter
 
-__all__ = ['AMASSAdapter', 'BANDAIAdapter', 'AdapterRegistry', 'get_adapter_for_character']
-
+__all__ = ['AMASSAdapter', 'BANDAIAdapter', 'MuJoCoAdapter', 'AdapterRegistry', 'get_adapter_for_character']
 
 class AdapterRegistry:
     CHARACTER_ADAPTER_MAP = {
-        BANDAIAdapter : ['character1'],#, 'character2'],
-        AMASSAdapter : ['Karim','Medhi']#,'Carine', 'Aude'] + [f"rub{str(i).zfill(3)}" for i in range(1, 51)]
+        BANDAIAdapter : ['character1'],
+        AMASSAdapter : ['Karim','Medhi'],
+        MuJoCoAdapter : ["humanoid"]
     }
 
     @classmethod

@@ -8,8 +8,7 @@ import torch
 
 from src.data.adapters import BaseAdapter, get_adapter_for_character, list_characters
 from src.data.metadata import MotionSequence, SkeletonMetadata
-from utils import ArrayUtils
-
+from src.utils import ArrayUtils, RotationUtils
 
 class MotionDatasetBuilder:
     def __init__(self, character: str, device: str):
@@ -90,6 +89,7 @@ class MotionDatasetBuilder:
         motion_chunks, position_chunks = [], []
         total_length = 0
         for m in motions:
+            rotations = RotationUtils.quat_canconical(m.rotations)
             rotations = m.rotations.reshape(m.rotations.shape[0], -1)
             root_pos = m.positions[:, 0]
 

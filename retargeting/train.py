@@ -15,8 +15,7 @@ from src.data.datasets import (
 )
 from src.models.networks import SkeletalGAN
 from src.training import SkeletalGANTrainer
-from src.utils import SkeletonVisualizer
-from utils import Logger, set_seed
+from src.utils import SkeletonVisualizer, Logger, set_seed
 
 @hydra.main(version_base=None, config_path="./configs", config_name="config")
 def main(cfg: DictConfig):
@@ -100,9 +99,4 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    # import debugpy
-    # print("[DEBUG] Waiting for debugger to attach on 0.0.0.0:5678 ...")
-    # debugpy.listen(("0.0.0.0", 5678))
-    # debugpy.wait_for_client()
-    # print("[DEBUG] Debugger attached.")
     main()

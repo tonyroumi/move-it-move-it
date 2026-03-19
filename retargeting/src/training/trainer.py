@@ -9,10 +9,9 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from src.models.networks.gan import SkeletalGAN
-from utils import ImagePool, Logger
+from src.utils import ImagePool, Logger
 
 from .losses import LossBundle
-
 
 class SkeletalGANTrainer:
     def __init__(
@@ -85,9 +84,10 @@ class SkeletalGANTrainer:
             discriminator_loss = self._backward_D(ret_outputs, original_world_pos=(batch[0][4], batch[1][4]))
             self.optimizer_D.step()
 
-            total_epoch_loss += (generator_loss + discriminator_loss)
+            total_epoch_loss += (generator_loss + discriminator_loss).item()
 
             self.logger.step()
+
 
         return total_epoch_loss
 
@@ -106,8 +106,8 @@ class SkeletalGANTrainer:
         for i in range(2):
             pred_fake = self.model.forward_discriminator(
                 self.image_pools[i].query(
-                    fake_by_domain[i].flatten(start_dim=-2)
-                ).detach(),
+                    fake_by_domain[i].detach().flatten(start_dim=-2)
+                ),
                 idx=i
             )
 

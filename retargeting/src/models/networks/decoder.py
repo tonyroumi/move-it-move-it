@@ -4,9 +4,7 @@ import torch
 from omegaconf import DictConfig
 from torch import nn
 
-from src.models.ops import SkeletalConv, SkeletalUnpool
-
-from .encoder import PoolingInfo
+from src.models.ops import SkeletalConv, SkeletalUnpool, PoolingInfo
 
 
 class SkeletalDecBlock(nn.Module):

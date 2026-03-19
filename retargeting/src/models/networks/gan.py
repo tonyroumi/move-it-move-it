@@ -16,7 +16,6 @@ from .autoencoder import SkeletalAutoEncoder
 from .discriminator import SkeletalDiscriminator
 from .encoder import SkeletalEncoder
 
-
 class SkeletalDomainModule(nn.Module):
     def __init__(
         self,

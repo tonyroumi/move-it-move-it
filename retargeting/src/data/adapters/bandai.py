@@ -6,8 +6,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from src.utils import ForwardKinematics, SkeletonUtils
-from utils import ArrayUtils, RotationUtils
+from src.utils import ForwardKinematics, SkeletonUtils, ArrayUtils, RotationUtils
 
 from ..metadata import MotionSequence, SkeletonMetadata
 from .base import BaseAdapter

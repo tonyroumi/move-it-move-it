@@ -11,8 +11,7 @@ import torch
 
 from src.data import SkeletonMetadata, MotionSequence
 from src.models.networks import SkeletalGAN
-from src.utils import SkeletonVisualizer, ForwardKinematics
-from utils import ArrayUtils
+from src.utils import SkeletonVisualizer, ForwardKinematics, ArrayUtils
 
 class MotionRetargeter:  
     def __init__(self, model_path: str, window_size: int = 64):

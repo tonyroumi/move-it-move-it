@@ -6,7 +6,6 @@ from torch import nn
 
 from src.models.ops import PoolingInfo, SkeletalConv, SkeletalPooling
 
-
 class SkeletalDiscBlock(nn.Module):
     """
     One skeletal discriminator block : SkeletalConv -> BatchNorm1D -> AvgPooling -> LeakyReLU
