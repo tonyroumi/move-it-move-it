@@ -121,13 +121,13 @@ class SimInterface(ABC):
 
     @property
     @abstractmethod
-    def joint_quat(self):
+    def dof_pos(self):
         """Full qpos vector."""
         ...
 
-    @joint_quat.setter
+    @dof_pos.setter
     @abstractmethod
-    def joint_quat(self, value) -> None: ...
+    def dof_pos(self, value) -> None: ...
 
     @property
     @abstractmethod

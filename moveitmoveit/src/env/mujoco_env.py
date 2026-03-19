@@ -72,20 +72,16 @@ class MujocoEnv(gym.Env):
         return obs, reward, terminated, truncated, {}
 
     def _action_to_ctrl(self, action: np.ndarray) -> np.ndarray:
-        """Map policy action to simulator control signals."""
         return action
 
     @abstractmethod
     def _get_obs(self) -> np.ndarray:
-        """Compute and return the observation vector."""
         ...
 
     @abstractmethod
     def _compute_reward(self) -> float:
-        """Compute and return the step reward."""
         ...
 
     @abstractmethod
     def _check_termination(self) -> bool:
-        """Return True if the episode should terminate early."""
         ...

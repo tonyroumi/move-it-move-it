@@ -8,10 +8,40 @@ import torch.nn as nn
 import torch.optim as optim
 
 from moveitmoveit.src.buffers import CircularObsBuffer
-from moveitmoveit.src.networks.containers import AMPNetworks
+from moveitmoveit.src.models import AMPNetworks
+from moveitmoveit.src.models.norm import EmpiricalNorm
 from utils import Logger
 
 from .ppo import PPO, PPOHyperparams
+
+#one of observations 
+# one for dics observations. these are separate. makes sense
+
+
+# we will also need an action normalizer. what they do is the 
+# this is what they do in mimickit
+#            a_mean = torch.tensor(0.5 * (a_space.high + a_space.low), device=self._device, dtype=a_dtype)
+#            a_std = torch.tensor(0.5 * (a_space.high - a_space.low), device=self._device, dtype=a_dtype)
+#
+# assert (a_std > 0).all().item(), "init_std must be > 0 for action normalizer (Box action space wrong! Check your XML file. Joints must have 'limited=true' and non-zero bounds.)"
+
+# a_norm = normalizer.Normalizer(a_mean.shape, device=self._device, init_mean=a_mean, 
+#                                      init_std=a_std, dtype=a_dtype)
+
+# so why do they do this?:
+# well... 
+# we can model the standard deviation (average spread of values around the mean) with some basic assumptions about the type of distribution that it is
+# for a uniform distribution (each value has an equal chance of being selected in a range) we can model the standard deviation
+# of a uniform random variable whose support is exactly [a,b] through b-a/sqrt(12). prob derivation. just trust.
+# 
+
+# they use action normalizer to unormalize the action the model produces.
+# why?
+
+#they update normalizers each env step (32 times) and post update step.
+# each env step they call record(). update step they call update.
+
+#dicriminator optimizers and agent optimizers are the same dafuq
 
 @dataclass(frozen=True)
 class AMPHyperparams(PPOHyperparams):
@@ -62,7 +92,7 @@ class AMP(PPO):
     ) -> None:
         super().init_storage(num_envs, num_transitions, obs_dim, action_dim)
 
-        disc_obs_dim = self.networks.discriminator.network[0].in_features // 2
+        disc_obs_dim = self.networks.discriminator.in_channels
         self.discriminator_storage = CircularObsBuffer(
             capacity=self.params.discriminator_buffer_capacity,
             num_envs=num_envs,
@@ -79,18 +109,19 @@ class AMP(PPO):
         prev_disc_obs = torch.as_tensor(infos["prev_disc_obs"], dtype=torch.float32, device=self.networks.device)
         disc_obs = torch.as_tensor(infos["disc_obs"], dtype=torch.float32, device=self.networks.device)
 
-        stacked = torch.concatenate([prev_disc_obs, disc_obs], dim=-1).unsqueeze(0)
-
+        stacked = torch.concatenate([prev_disc_obs, disc_obs], dim=1)
+        #un problemo here 
         with torch.no_grad():
-            d = self.networks.discriminator(stacked).squeeze()
+            d = self.networks.disc(stacked).squeeze()
         
-        style_reward = torch.clamp(1.0 - 0.25 * (d - 1.0) ** 2, min=0.0).item()
-        goal_reward = rewards.clone() # why type cast style_reward?
+        style_reward = torch.clamp(1.0 - 0.25 * (d - 1.0) ** 2, min=0.0).clone()
+        goal_reward = rewards.clone()
         rewards = self.params.style_reward_lambda * style_reward + self.params.goal_reward_lambda * goal_reward
 
         super().process_env_step(rewards, dones, infos)
 
-        self.discriminator_storage.add(prev_disc_obs, disc_obs)
+        self.discriminator_storage.add(stacked)
+        self.networks.record_disc_obs(stacked)
 
     def update(self, optimizer: torch.optim.Optimizer) -> None:
         # PPO policy update
@@ -107,7 +138,6 @@ class AMP(PPO):
         if self.discriminator_storage.size == 0:
             return
 
-        disc = self.networks.discriminator
         mean_disc_loss = 0.0
         num_updates = self.params.disc_update_epochs * self.params.disc_mini_batches
 
@@ -131,8 +161,8 @@ class AMP(PPO):
             ref_input = torch.cat([ref_obs, ref_next_obs], dim=-1)
 
             # Logistic regression: agent → 0, reference → 1
-            agent_logits = disc(agent_input)
-            ref_logits = disc(ref_input)
+            agent_logits = self.networks.disc(agent_input)
+            ref_logits = self.networks.disc(ref_input)
 
             agent_loss = nn.functional.binary_cross_entropy_with_logits(
                 agent_logits, torch.zeros_like(agent_logits)

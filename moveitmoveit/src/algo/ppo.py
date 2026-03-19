@@ -9,14 +9,13 @@ import itertools
 
 from moveitmoveit.src.types import BaseParams
 from moveitmoveit.src.buffers import RolloutBuffer, Transition
-from moveitmoveit.src.networks.containers import PPONetworks
+from moveitmoveit.src.models import PPONetworks
 from utils import Logger
 
 from .base import BaseAlgo
 
 @dataclass(frozen=True)
 class PPOHyperparams(BaseParams):
-    num_transitions_per_env: int = 2048
     num_mini_batches: int = 1
     num_learning_epochs: int = 4
     clip_param: float = 0.2
@@ -59,14 +58,16 @@ class PPO(BaseAlgo):
         )
 
     def act(self, observations: torch.Tensor) -> torch.Tensor:
-        actions = self.networks.actor(observations)
+        actions = self.networks.act(observations)
         self.transition.actions = actions
-        self.transition.values = self.networks.critic(observations).detach()
-        self.transition.actions_log_prob = self.networks.actor.get_actions_log_prob(actions).detach()
-        self.transition.action_mean = self.networks.actor.action_mean.detach()
-        self.transition.action_sigma = self.networks.actor.action_std.detach()
+        self.transition.values = self.networks.crit(observations).detach()
+        self.transition.actions_log_prob = self.networks.get_actions_log_prob(actions).detach()
+        self.transition.action_mean = self.networks.action_mean.detach()
+        self.transition.action_sigma = self.networks.action_std.detach()
         self.transition.observations = observations
-        return actions
+        self.networks.record_obs(observations)
+        
+        return actions 
 
     def process_env_step(
         self,
@@ -83,8 +84,8 @@ class PPO(BaseAlgo):
         advantage = 0
 
         # Compute advantages backwards through time using GAE
-        for step in reversed(range(self.params.num_transitions_per_env)):
-            if step == self.params.num_transitions_per_env - 1:
+        for step in reversed(range(self.storage.size)):
+            if step == self.storage.size - 1:
                 next_values = last_values
             else:
                 next_values = self.storage.values[step + 1]
@@ -108,7 +109,7 @@ class PPO(BaseAlgo):
         self.storage.add_advantage(advantage)
 
     def get_value(self, observations: torch.Tensor) -> torch.Tensor:
-        return self.networks.critic(observations)
+        return self.networks.crit(observations)
 
     def update(self, optimizer: torch.optim.Optimizer) -> None:
         # Accumulators for mean metrics
@@ -180,12 +181,12 @@ class PPO(BaseAlgo):
                 )
 
             # --- Forward passes ---
-            self.networks.actor(observations_batch)
-            actions_log_prob_batch = self.networks.actor.get_actions_log_prob(actions_batch)
-            value_batch = self.networks.critic(observations_batch)
+            self.networks.act(observations_batch)
+            actions_log_prob_batch = self.networks.get_actions_log_prob(actions_batch)
+            value_batch = self.networks.crit(observations_batch)
 
-            mu_batch = self.networks.actor.action_mean
-            sigma_batch = self.networks.actor.action_std
+            mu_batch = self.networks.action_mean
+            sigma_batch = self.networks.action_std
             entropy_batch = self.networks.actor.entropy
 
             # --- Importance sampling ratio ---
@@ -275,9 +276,7 @@ class PPO(BaseAlgo):
             optimizer.zero_grad()
             total_loss.backward()
 
-            all_params = list(
-                itertools.chain(self.networks.actor.parameters(), self.networks.critic.parameters())
-            )
+            all_params = list(self.networks.parameters())
 
             grad_norm_before = torch.norm(
                 torch.stack(

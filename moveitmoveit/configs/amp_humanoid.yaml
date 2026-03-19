@@ -16,12 +16,22 @@ networks:
     hidden_layers: [1024, 512]
     activation: relu
 
+  obs_norm:
+    clip: 5.0
+    max_samples: 100000000
+
+
+  disc_obs_norm:
+    clip: 5.0
+    max_samples: 100000000
+
+  action_norm: {}
+
 algorithm:
   name: amp 
   # ppo
-  num_transitions_per_env: 2048
-  num_mini_batches: 1
-  num_learning_epochs: 4
+  num_mini_batches: 4
+  num_learning_epochs: 5
   clip_param: 0.2
   discount: 0.97
   td_lambda: 0.95
@@ -32,10 +42,11 @@ algorithm:
   normalize_advantage_per_mini_batch: false
 
   value_loss_coef: 1.0
-  entropy_coef: 0.2
+  entropy_coef: 0.0
 
   # amp
-  discriminator_buffer_capacity: 100000
+  num_disc_obs_steps: 10
+  discriminator_buffer_capacity: 200000
   disc_lr: 1e-4
   discriminator_update_interval: 4
   disc_update_epochs: 1
@@ -45,23 +56,35 @@ algorithm:
   style_reward_lambda: 0.5 
   goal_reward_lambda: 0.5
 
+  #from MimicKit. mby for surroage loss ?
+  action_bound_weight: 10.0
+  #not used
+  # exp_prob_beg: 1.0
+  # exp_prob_end: 1.0
+  #look into exp anneal samples
+
+#opt they use:
+#             optimizer = torch.optim.SGD(param_list, lr, momentum=0.9, weight_decay=weight_decay)
+# single opt?
+
 environment:
   id: "AMPEnv"
-  type: "gym:debug"
-  num_envs: 1
+  type: "gym:cpu"
+  num_envs: 3
   seed: 0
 
   kwargs:
-    model_path: "humanoid.xml"
-    motion_clips: ["not_exist.pkl"] 
+    model_path: "models/humanoid.xml"
+    motion_clips: ["test.npz"] 
     params:
       max_episode_time: 2.0 
       sim_freq: 120.0
       control_freq: 30.0
 
 runner:
+  num_transitions_per_env: 32 #32?
+
   total_timesteps: 500000
-  num_envs: 3
   log_interval: 10
   checkpoint_interval: 50
   checkpoint_ir: 5

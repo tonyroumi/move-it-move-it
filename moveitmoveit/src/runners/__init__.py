@@ -1,1 +1,1 @@
-from .on_policy_runner import OnPolicyRunner, OnPolicyRunnerConfig
+from .on_policy_runner import OnPolicyRunner, OnPolicyRunnerParams

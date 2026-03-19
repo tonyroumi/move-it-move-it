@@ -28,6 +28,10 @@ class MujocoInterface(SimInterface):
         self._model.opt.timestep = dt
 
     @property
+    def timestep(self) -> float
+        return self._model.opt.timestep
+
+    @property
     def root_pos(self) -> np.ndarray:
         """Root position (3,)."""
         return self._data.qpos[:3].copy()
@@ -91,12 +95,12 @@ class MujocoInterface(SimInterface):
         self._data.xpos[:] = value
 
     @property
-    def joint_quat(self) -> np.ndarray:
-        """All joints orientations (njnt, 4) in world frame (qpos)."""
+    def dof_pos(self) -> np.ndarray:
+        """All joints positions in world frame (qpos)."""
         return self._data.qpos.copy()
 
-    @joint_quat.setter
-    def joint_quat(self, value: np.ndarray) -> None:
+    @dof_pos.setter
+    def dof_pos(self, value: np.ndarray) -> None:
         self._data.qpos[:] = value
 
     @property

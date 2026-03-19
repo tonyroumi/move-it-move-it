@@ -24,6 +24,9 @@ def normalize_exp_map(exp_map):
     return norm_exp_map
 
 def quat_pos(x):
+    """ forces non scalar part to be non negative
+    this is to enforce the same quat convention. not ideal for learning: (q = -q)
+    """
     q = x.copy()
     z = (q[..., 3:] < 0).astype(q.dtype)
     q = (1 - 2 * z) * q
@@ -102,6 +105,11 @@ def quat_to_exp_map(q):
     exp_map = axis_angle_to_exp_map(axis, angle)
     return exp_map
 
+def exp_map_to_quat(exp_map):
+    axis, angle = exp_map_to_axis_angle(exp_map)
+    q = axis_angle_to_quat(axis, angle)
+    return q
+
 def exp_map_to_axis_angle(exp_map):
     min_theta = 1e-5
 
@@ -132,6 +140,9 @@ def axis_angle_to_quat(axis, angle):
     return quat_unit(np.concatenate([xyz, w], axis=-1))
 
 def calc_heading(q):
+    """
+    compues the yaw / heading angle of quat
+    """
     ref_dir = np.zeros_like(q[..., 0:3])
     ref_dir[..., 0] = 1
     rot_dir = quat_rotate(q, ref_dir)
@@ -140,6 +151,12 @@ def calc_heading(q):
     return heading
 
 def calc_heading_quat_inv(q):
+    """
+    extract the heading rotation from a quat. 
+    orientation is invariant to global yaw. 
+    two identical walking clips will produce different orientation vectors if facing a different direction.
+    simpler learning task
+    """
     heading = calc_heading(q)
     axis = np.zeros_like(q[..., 0:3])
     axis[..., 2] = 1
@@ -148,6 +165,10 @@ def calc_heading_quat_inv(q):
     return heading_q
 
 def quat_to_tan_norm(q):
+    """
+    Represent a quat as 6D continuous rotation representations.
+    q = -q resulting in discontnuity for nn. 
+    """
     ref_tan = np.zeros_like(q[..., 0:3])
     ref_tan[..., 0] = 1
     tan = quat_rotate(q, ref_tan)
@@ -189,6 +210,35 @@ def heading_quat_from_root(root_quat):
     heading_q[..., 3] = np.sin(half)
     return heading_q
 
+def slerp(q0, q1, t):
+    """
+    Interpolate between two quat rotations. 
+    Blend orienations between two poses over time so we can represent
+    motion times at any timestep in a smooth and continuous manner.
+
+    Assumes normalized quat 
+    """
+    cos_half_theta = np.sum(q0 * q1, dim=-1)
+
+    neg_mask = cos_half_theta < 0
+    q1 = np.where(neg_mask.unsqueeze(-1), -q1, q1)
+    
+    cos_half_theta = np.abs(cos_half_theta)
+    cos_half_theta = np.unsqueeze(cos_half_theta, dim=-1)
+
+    half_theta = np.acos(cos_half_theta)
+    sin_half_theta = np.sqrt(1.0 - cos_half_theta * cos_half_theta)
+
+    t = t.unsqueeze(-1)
+    ratioA = np.sin((1 - t) * half_theta) / sin_half_theta
+    ratioB = np.sin(t * half_theta) / sin_half_theta
+    
+    new_q = ratioA * q0 + ratioB * q1
+
+    new_q = np.where(np.abs(sin_half_theta) < 0.001, 0.5 * q0 + 0.5 * q1, new_q)
+    new_q = np.where(np.abs(cos_half_theta) >= 1, q0, new_q)
+
+    return new_q
 
 # ---------------------------------------------------------------------------
 # Frame transforms

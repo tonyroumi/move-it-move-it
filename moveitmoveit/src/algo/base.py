@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 import torch
 import torch.optim
 
-from moveitmoveit.src.networks.containers import NetworkContainer
+from moveitmoveit.src.models import NetworkContainer
 from moveitmoveit.src.types import BaseParams
 
 from utils import Logger

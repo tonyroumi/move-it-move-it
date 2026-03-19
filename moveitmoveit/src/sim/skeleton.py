@@ -33,6 +33,16 @@ class Joint:
     range: np.ndarray               # (2,) joint limits [lo, hi]
     has_limits: bool
 
+    def dof_to_quat(self, dof):
+        if self.semantic_type == JointType.HINGE:
+            axis = self.axis
+            quat = transforms.axis_angle_to_quat(axis, dof)
+        elif self.semantic_type == JointType.SPHERICAL:
+            quat = transforms.exp_map_to_quat(dof)
+        return quat
+
+
+
 @dataclass
 class Body:
     """Metadata for a single MuJoCo body."""
@@ -58,7 +68,10 @@ class Skeleton:
         self._bodies: List[Body] = []
         self._ee_ids = self._find_ee_bodies()
 
-        self._init_pose = model.key_qpos[0].copy()
+        init_pose = model.key_qpos[0].copy()
+        self._init_root_pose = init_pose[:3]
+        self._init_root_rot = init_pose[3:7]
+        self._init_dof_pos = init_pose[7:]
 
         self._parse()
 
@@ -149,7 +162,7 @@ class Skeleton:
             dof_idx=joints[0].dof_idx,
             qpos_offset=joints[0].qpos_offset,
             n_dof=3,
-            axis=None,
+            axis=np.stack([j.axis for j in joints]),
             range=np.stack([j.range for j in joints]),
             has_limits=True,
         )
@@ -218,7 +231,20 @@ class Skeleton:
         """Ordered array of dof addresses for all actuated joints."""
         return np.array([j.dof_idx for j in self.get_actuated_joints()])
     
-    def compute_dof_vel(self, joint_rot, dt: float, tf) -> np.ndarray:
+    def dof_to_rot(self, joint_dof) -> np.ndarray:
+        """ Convert MuJoCo's qpos representation into quaternion rotations"""
+        n_actuated = self.num_joints-1
+        joint_rot = np.zeros([n_actuated, 4], dtype=joint_dof.dtype)
+
+        for i, jnt in enumerate(self.joints[1:]):
+            start = jnt.qpos_offset
+            end = + start + jnt.n_dof
+            j_dof = joint_dof[start:end]
+            j_rot = jnt.dof_to_quat(j_dof)
+            joint_rot[i] = j_rot
+        return joint_rot
+
+    def compute_dof_vel(self, joint_rot, dt: float) -> np.ndarray:
         joint_rot0 = joint_rot[:-1, :, :]
         joint_rot1 = joint_rot[1:, :, :]
 

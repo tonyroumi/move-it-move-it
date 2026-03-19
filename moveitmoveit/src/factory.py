@@ -1,16 +1,18 @@
 from functools import partial
-from typing import Any, Dict, List, Callable
+from typing import Any, Dict, List, Callable, Tuple
 
+import torch
 from gymnasium.vector import AsyncVectorEnv
 from gymnasium.wrappers import RecordVideo
 import gymnasium as gym
 
 from moveitmoveit.src.algo import PPO, PPOHyperparams, AMP, AMPHyperparams
 from moveitmoveit.src.env import AMPEnv
-from moveitmoveit.src.networks import GaussianActor, BaseMLP, AMPNetworks, PPONetworks, NetworkContainer
-from moveitmoveit.src.runners import OnPolicyRunner, OnPolicyRunnerConfig
+from moveitmoveit.src.models import GaussianActor, BaseMLP, AMPNetworks, PPONetworks, NetworkContainer, EmpiricalNorm
+from moveitmoveit.src.runners import OnPolicyRunner, OnPolicyRunnerParams
+from utils import Logger
 
-def make_env(cfg):
+def make_env(cfg, logger: Logger):
     env_type = cfg.type.lower()
 
     if env_type == "jax":
@@ -19,16 +21,19 @@ def make_env(cfg):
     def env_factory(
         env_id: str, 
         env_idx: int, 
+        logger: Logger,
         record_video_path: str = None, 
         record_video_interval: int = 2000,
         env_kwargs: Dict[str, Any] = {}, 
-        wrappers: List[Callable] = []):
+        wrappers: List[Callable] = [],
+        ):
         """
         Creates a factory function that initializes and returns a wrapped Gymnasium environment.
         """
         def _init():
             env = gym.make(
                 env_id,
+                logger
                 **env_kwargs
             )
             for wrapper in wrappers:
@@ -68,17 +73,50 @@ def make_env(cfg):
     env.reset(seed=seed)
     return env
 
-def make_networks(cfg, in_channels: int, out_channels: int) -> NetworkContainer:
-    """Factory that builds a NetworkContainer. """
-    actor = GaussianActor(in_channels=in_channels, out_channels=out_channels, **cfg.actor)
-    critic = BaseMLP(in_channels=in_channels, out_channels=1, **cfg.critic)
+def make_networks(
+    cfg,
+    in_channels: int,
+    out_channels: int,
+    action_space: Tuple,
+    device: str
+) -> NetworkContainer:
+    """Factory that builds a NetworkContainer with normalizers."""
+    actor = GaussianActor(in_channels=in_channels, out_channels=out_channels, **cfg.actor).to(device)
+    critic = BaseMLP(in_channels=in_channels, out_channels=1, **cfg.critic).to(device)
 
-    if "discriminator" in cfg and cfg.discriminator is not None:
-        # 2x in_channels for now until i implement disc obs
-        discriminator = BaseMLP(in_channels=2*in_channels, out_channels=1, **cfg.discriminator)
-        return AMPNetworks(actor=actor, critic=critic, discriminator=discriminator)
+    obs_norm = None
+    if cfg.get("obs_norm") is not None:
+        obs_norm = EmpiricalNorm(shape=(in_channels,), device=device, **cfg.obs_norm)
 
-    return PPONetworks(actor=actor, critic=critic)
+    action_norm = None
+    if cfg.get("action_norm") is not None:
+        a_mean = torch.tensor(0.5 * (action_space.high + action_space.low), dtype=torch.float32)[0]
+        a_std = torch.tensor(0.5 * (action_space.high - action_space.low), dtype=torch.float32)[0]
+        action_norm = EmpiricalNorm(
+            shape=a_mean.shape,
+            device=device,
+            init_mean=a_mean,
+            init_std=a_std,
+            **cfg.action_norm,
+        )
+
+    if cfg.get("discriminator") is not None:
+        discriminator = BaseMLP(in_channels=2 * in_channels, out_channels=1, **cfg.discriminator).to(device)
+
+        disc_obs_norm = None
+        if cfg.get("disc_obs_norm") is not None:
+            disc_obs_norm = EmpiricalNorm(shape=(2*in_channels,), device=device, **cfg.disc_obs_norm)
+
+        return AMPNetworks(
+            actor=actor,
+            critic=critic,
+            discriminator=discriminator,
+            obs_norm=obs_norm,
+            action_norm=action_norm,
+            disc_obs_norm=disc_obs_norm,
+        )
+
+    return PPONetworks(actor=actor, critic=critic, obs_norm=obs_norm, action_norm=action_norm)
 
 def make_algo(cfg, networks: NetworkContainer, logger=None):
     name = cfg.name.lower()
@@ -92,5 +130,5 @@ def make_algo(cfg, networks: NetworkContainer, logger=None):
     return algo_cls(networks=networks, params=params, logger=logger)
 
 def make_runner(cfg, env, algo):
-    runner_config = OnPolicyRunnerConfig.from_dict(cfg)
-    return OnPolicyRunner(environment=env, algorithm=algo, runner_config=runner_config)
+    params = OnPolicyRunnerParams.from_dict(cfg)
+    return OnPolicyRunner(environment=env, algorithm=algo, params=params)
