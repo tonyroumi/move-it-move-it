@@ -17,15 +17,14 @@ from moveitmoveit.src.sim import Skeleton, MujocoInterface, SimParams
 class MujocoEnvParams(SimParams):
     max_episode_time: float = 10.0  # seconds
 
-
 class MujocoEnv(gym.Env):
     """Base MuJoCo environment with a gym-compatible interface."""
 
     metadata = {"render_modes": []}
 
-    def __init__(self, model_path: str | Path, params: MujocoEnvParams) -> None:
+    def __init__(self, model_path: str, params: MujocoEnvParams) -> None:
         super().__init__()
-        self._mj_model = mujoco.MjModel.from_xml_path(str(model_path))
+        self._mj_model = mujoco.MjModel.from_xml_path(model_path)
         self._mj_data = mujoco.MjData(self._mj_model)
 
         self.skeleton = Skeleton(self._mj_model)
@@ -45,7 +44,7 @@ class MujocoEnv(gym.Env):
     @property
     def episode_time(self) -> float:
         """Elapsed time in seconds for the current episode."""
-        return self._episode_step / self.params.control_freq
+        return self._episode_step * self.sim.timestep
 
     def reset(
         self,
@@ -72,7 +71,10 @@ class MujocoEnv(gym.Env):
         return obs, reward, terminated, truncated, {}
 
     def _action_to_ctrl(self, action: np.ndarray) -> np.ndarray:
-        return action
+        a = np.asarray(action, dtype=np.float64)
+        low = self.action_space.low
+        high = self.action_space.high
+        return np.minimum(np.maximum(a, low), high)
 
     @abstractmethod
     def _get_obs(self) -> np.ndarray:

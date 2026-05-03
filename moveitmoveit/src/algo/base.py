@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+import numpy as np
 import torch
 import torch.optim
 
@@ -17,11 +18,11 @@ class BaseAlgo(ABC):
         self,
         networks: NetworkContainer,
         params: BaseParams,
-        logger: Logger = None,
+        logger: Logger,
     ):
         self.networks = networks
         self.params = params
-        self.logger = logger if logger is not None else Logger()
+        self.logger = logger
 
     @abstractmethod
     def init_storage(
@@ -32,6 +33,9 @@ class BaseAlgo(ABC):
         action_dim: int,
     ) -> None:
         ...
+    # TODO typecast
+    def process_reset(self, infos: dict, env_ids: np.ndarray) -> None:
+        """Called after env.reset(). Override in subclasses for reset-specific logic."""
 
     @abstractmethod
     def act(self, observations: torch.Tensor) -> torch.Tensor:

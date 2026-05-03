@@ -22,10 +22,9 @@ def main(cfg: DictConfig):
     )
     algo = make_algo(cfg.algorithm, networks, logger)
 
-    runner = make_runner(cfg.runner, env, algo)
+    runner = make_runner(cfg.runner, env, algo, logger)
 
     runner.learn()
-
 
 if __name__ == "__main__":
     main()

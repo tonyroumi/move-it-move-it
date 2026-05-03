@@ -5,10 +5,12 @@ from dataclasses import dataclass, field
 from typing import List
 
 from gymnasium.vector import AsyncVectorEnv
+import gymnasium as gym
+import numpy as np
 import torch
 import torch.optim as optim
-import gymnasium as gym
 
+from utils import Logger
 from moveitmoveit.src.algo.base import BaseAlgo
 from moveitmoveit.src.types import BaseParams
 
@@ -32,11 +34,13 @@ class OnPolicyRunner:
         self,
         environment: AsyncVectorEnv,
         algorithm: BaseAlgo,
-        params: OnPolicyRunnerParams = OnPolicyRunnerParams(),
+        params: OnPolicyRunnerParams,
+        logger: Logger,
     ):
         self.env = environment
         self.algo = algorithm
         self.params = params
+        self.logger = logger
         self.device = torch.device(params.device)
 
         obs_dim = environment.observation_space.shape[-1]
@@ -54,7 +58,6 @@ class OnPolicyRunner:
             lr=algorithm.params.lr,
         )
 
-        self.current_timestep = 0
         self.current_iteration = 0
 
         os.makedirs(params.checkpoint_dir, exist_ok=True)
@@ -63,8 +66,9 @@ class OnPolicyRunner:
         steps_per_iter = self.env.num_envs * self.params.num_transitions_per_env
         total_iterations = self.params.total_timesteps // steps_per_iter
 
-        obs_np, _ = self.env.reset()
-        obs = torch.from_numpy(obs_np).to(self.device)
+        obs_np, info_np = self.env.reset()
+        obs = torch.from_numpy(obs_np).to(self.device) #TODO I don't want to do this here.
+        self.algo.process_reset(info_np)
 
         for iteration in range(total_iterations):
             # collect rollouts
@@ -72,21 +76,24 @@ class OnPolicyRunner:
                 with torch.no_grad():
                     actions = self.algo.act(obs)
 
-                next_obs_np, reward, terminated, truncated, info = self.env.step(
+                next_obs_np, reward, terminated, truncated, info_np = self.env.step(
                     actions.cpu().numpy()
                 )
 
+                dones = terminated | truncated
                 self.algo.process_env_step(
                     rewards=torch.from_numpy(reward).to(self.device),
-                    dones=torch.tensor(terminated).to(self.device),
-                    infos=info,
+                    dones=torch.tensor(dones).to(self.device),
+                    infos=info_np,
                 )
 
-                dones = terminated | truncated
+                # When I come back make sure that we are processing dones correctly. 
+                # TODO: 
+                # 1.) Ensure rollout collection is good.
+                # 4.) Update steps.
+                
                 if dones.any():
-                    pass
-                    # need to reset done environments somehow...
-                    # obs_reset, infos_reset = env.reset_done(dones)
+                    self.algo.process_reset(info_np, env_ids=dones.nonzero()[0])
 
                 obs = torch.from_numpy(next_obs_np).to(self.device)
 

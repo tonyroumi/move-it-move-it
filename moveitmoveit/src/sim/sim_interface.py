@@ -163,7 +163,7 @@ class SimInterface(ABC):
         ref_qpos,
         ref_qvel=None,
     ) -> None:
-        """Initialise simulation from a reference-motion frame."""
+        """Initialize simulation from a reference-motion frame."""
         ...
 
     @abstractmethod

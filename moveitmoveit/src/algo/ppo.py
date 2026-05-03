@@ -35,8 +35,8 @@ class PPO(BaseAlgo):
     def __init__(
         self,
         networks: PPONetworks,
-        params: PPOHyperparams = PPOHyperparams(),
-        logger: Logger = Logger(),
+        params: PPOHyperparams,
+        logger: Logger,
     ):
         super().__init__(networks, params, logger)
 
@@ -65,7 +65,6 @@ class PPO(BaseAlgo):
         self.transition.action_mean = self.networks.action_mean.detach()
         self.transition.action_sigma = self.networks.action_std.detach()
         self.transition.observations = observations
-        self.networks.record_obs(observations)
         
         return actions 
 

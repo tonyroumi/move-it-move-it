@@ -6,74 +6,73 @@ from typing import Tuple
 
 import numpy as np
 
+
 @dataclass
 class MotionClip:
-    """ A single motion sequence for learning. """
+    """A single motion sequence with pre-computed kinematic state."""
 
     name: str
     fps: float
-    positions: np.ndarray  # (T, J, 3) cm
-    rotations: np.ndarray  # (T, J, 4) (x, y, z, w)
+    dt: float
 
-    def __post_init__(self) -> None:
-        if self.positions.ndim != 3 or self.positions.shape[2] != 3:
-            raise ValueError(
-                f"positions must be (T, J, 3), got {self.positions.shape}"
-            )
-        if self.rotations.ndim != 3 or self.rotations.shape[2] != 4:
-            raise ValueError(
-                f"rotations must be (T, J, 4), got {self.rotations.shape}"
-            )
-        if self.positions.shape[:2] != self.rotations.shape[:2]:
-            raise ValueError(
-                f"positions and rotations must share (T, J) dims: "
-                f"{self.positions.shape[:2]} vs {self.rotations.shape[:2]}"
-            )
+    # Raw qpos (N, nq) — root free-joint + actuated DOFs
+    frames: np.ndarray
 
-    def get_frame(self, idx: int) -> dict:
-        idx = idx % self.num_frames
-        frame = {
-            "positions": self.positions[idx],
-            "rotations": self.rotations[idx]
-        }
-        return frame
-
-    def get_frame_pair(self, idx: int) -> Tuple[dict, dict]:
-        return self.get_frame(idx), self.get_frame(idx + 1)
+    root_pos: np.ndarray       # (N, 3)
+    root_rot: np.ndarray       # (N, 4)  quaternion (w, x, y, z)
+    root_vel: np.ndarray       # (N, 3)
+    root_ang_vel: np.ndarray   # (N, 3)
+    body_pos: np.ndarray       # (N, nbody, 3)
+    joint_pos: np.ndarray      # (N, njoint, 3)
+    dof_vel: np.ndarray        # (N, nv)
 
     @property
     def num_frames(self) -> int:
-        return int(self.positions.shape[0])
+        return int(self.frames.shape[0])
 
     @property
-    def num_joints(self) -> int:
-        return int(self.positions.shape[1])
-
-    @property
-    def dt(self) -> float:
-        return 1.0 / self.fps
+    def num_dof(self) -> int:
+        return int(self.frames.shape[1])
 
     @property
     def duration(self) -> float:
         return self.num_frames * self.dt
 
-    def save(self, path: str | Path) -> None:
+    def get_frame(self, idx: int) -> np.ndarray:
+        return self.frames[idx % self.num_frames]
+
+    def get_frame_pair(self, idx: int) -> Tuple[np.ndarray, np.ndarray]:
+        return self.get_frame(idx), self.get_frame(idx + 1)
+
+    def save(self, path: str) -> None:
         np.savez_compressed(
-            str(path),
+            path,
             name=np.array(self.name),
-            fps=np.array(self.fps, dtype=np.float32),
-            positions=self.positions.astype(np.float32),
-            rotations=self.rotations.astype(np.float32),
+            fps=np.float32(self.fps),
+            dt=np.float32(self.dt),
+            frames=self.frames.astype(np.float32),
+            root_pos=self.root_pos.astype(np.float32),
+            root_rot=self.root_rot.astype(np.float32),
+            root_vel=self.root_vel.astype(np.float32),
+            root_ang_vel=self.root_ang_vel.astype(np.float32),
+            body_pos=self.body_pos.astype(np.float32),
+            joint_pos=self.joint_pos.astype(np.float32),
+            dof_vel=self.dof_vel.astype(np.float32),
         )
 
     @classmethod
-    def load(cls, path: str | Path) -> "MotionClip":
-        d = np.load(str(path), allow_pickle=False)
-        # TODO In our motion repr class add a loop mode. from MimicKit they have WRAP and CLAMP. 
-        # for now we assume all of our motion clips are clamped. (they end)
+    def load(cls, path: str) -> MotionClip:
+        d = np.load(path, allow_pickle=False)
         return cls(
             name=str(d["name"]),
             fps=float(d["fps"]),
-            positions=d["positions"].astype(np.float32),
-            rotations=d["rotations"].astype(np.float32),
+            dt=float(d["dt"]),
+            frames=d["dof_pos"].astype(np.float32),
+            root_pos=d["root_pos"].astype(np.float32),
+            root_rot=d["root_rot"].astype(np.float32),
+            root_vel=d["root_vel"].astype(np.float32),
+            root_ang_vel=d["root_ang_vel"].astype(np.float32),
+            body_pos=d["body_pos"].astype(np.float32),
+            joint_pos=d["joint_pos"].astype(np.float32),
+            dof_vel=d["dof_vel"].astype(np.float32),
         )

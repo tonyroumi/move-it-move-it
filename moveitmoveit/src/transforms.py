@@ -134,10 +134,14 @@ def axis_angle_to_exp_map(axis, angle):
     return exp_map
 
 def axis_angle_to_quat(axis, angle):
-    theta = (angle / 2)[..., np.newaxis]
-    xyz = normalize_quat(axis) * np.sin(theta)
+    axis = axis / np.linalg.norm(axis, axis=-1, keepdims=True)
+
+    theta = 0.5 * angle[..., np.newaxis]
+
     w = np.cos(theta)
-    return quat_unit(np.concatenate([xyz, w], axis=-1))
+    xyz = axis * np.sin(theta)
+
+    return quat_unit(np.concatenate([w, xyz], axis=-1))
 
 def calc_heading(q):
     """
@@ -218,18 +222,18 @@ def slerp(q0, q1, t):
 
     Assumes normalized quat 
     """
-    cos_half_theta = np.sum(q0 * q1, dim=-1)
+    cos_half_theta = np.sum(q0 * q1, axis=-1)
 
     neg_mask = cos_half_theta < 0
-    q1 = np.where(neg_mask.unsqueeze(-1), -q1, q1)
+    q1 = np.where(neg_mask[..., np.newaxis], -q1, q1)
     
     cos_half_theta = np.abs(cos_half_theta)
-    cos_half_theta = np.unsqueeze(cos_half_theta, dim=-1)
+    cos_half_theta = cos_half_theta[..., np.newaxis]
 
     half_theta = np.acos(cos_half_theta)
     sin_half_theta = np.sqrt(1.0 - cos_half_theta * cos_half_theta)
 
-    t = t.unsqueeze(-1)
+    t = t[..., np.newaxis]
     ratioA = np.sin((1 - t) * half_theta) / sin_half_theta
     ratioB = np.sin(t * half_theta) / sin_half_theta
     

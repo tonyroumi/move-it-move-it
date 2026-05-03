@@ -74,12 +74,13 @@ environment:
   seed: 0
 
   kwargs:
-    model_path: "models/humanoid.xml"
-    motion_clips: ["test.npz"] 
+    model_path: "moveitmoveit/data/humanoid/humanoid.xml"
+    motion_clips: ["/home/tonyroumi/Desktop/move-it-move-it/moveitmoveit/data/humanoid_rollout/humanoid_walk.npz"] 
     params:
-      max_episode_time: 2.0 
+      max_episode_time: 1.0 
       sim_freq: 120.0
       control_freq: 30.0
+      num_disc_obs_steps: 10
 
 runner:
   num_transitions_per_env: 32 #32?

@@ -33,8 +33,8 @@ def make_env(cfg, logger: Logger):
         def _init():
             env = gym.make(
                 env_id,
-                logger
-                **env_kwargs
+                **env_kwargs,
+                logger=logger
             )
             for wrapper in wrappers:
                 env = wrapper(env)
@@ -54,6 +54,7 @@ def make_env(cfg, logger: Logger):
             env_factory(
                 env_id=cfg.id,
                 env_idx=idx,
+                logger=logger,
                 env_kwargs=env_kwargs,
                 wrappers=wrappers,
             )
@@ -63,6 +64,7 @@ def make_env(cfg, logger: Logger):
         env = env_factory(
             env_id=cfg.id,
             env_idx=0,
+            logger=logger,
             env_kwargs=env_kwargs,
             wrappers=wrappers,
             )()
@@ -90,8 +92,8 @@ def make_networks(
 
     action_norm = None
     if cfg.get("action_norm") is not None:
-        a_mean = torch.tensor(0.5 * (action_space.high + action_space.low), dtype=torch.float32)[0]
-        a_std = torch.tensor(0.5 * (action_space.high - action_space.low), dtype=torch.float32)[0]
+        a_mean = torch.tensor(0.5 * (action_space.high + action_space.low), dtype=torch.float32)
+        a_std = torch.tensor(0.5 * (action_space.high - action_space.low), dtype=torch.float32)
         action_norm = EmpiricalNorm(
             shape=a_mean.shape,
             device=device,
@@ -101,11 +103,11 @@ def make_networks(
         )
 
     if cfg.get("discriminator") is not None:
-        discriminator = BaseMLP(in_channels=2 * in_channels, out_channels=1, **cfg.discriminator).to(device)
+        discriminator = BaseMLP(in_channels=10 * in_channels, out_channels=1, **cfg.discriminator).to(device)
 
         disc_obs_norm = None
         if cfg.get("disc_obs_norm") is not None:
-            disc_obs_norm = EmpiricalNorm(shape=(2*in_channels,), device=device, **cfg.disc_obs_norm)
+            disc_obs_norm = EmpiricalNorm(shape=(in_channels,), device=device, **cfg.disc_obs_norm)
 
         return AMPNetworks(
             actor=actor,
@@ -118,7 +120,7 @@ def make_networks(
 
     return PPONetworks(actor=actor, critic=critic, obs_norm=obs_norm, action_norm=action_norm)
 
-def make_algo(cfg, networks: NetworkContainer, logger=None):
+def make_algo(cfg, networks: NetworkContainer, logger: Logger):
     name = cfg.name.lower()
 
     if name == "ppo":
@@ -129,6 +131,6 @@ def make_algo(cfg, networks: NetworkContainer, logger=None):
     params = params_cls.from_dict(cfg)
     return algo_cls(networks=networks, params=params, logger=logger)
 
-def make_runner(cfg, env, algo):
+def make_runner(cfg, env, algo, logger: Logger):
     params = OnPolicyRunnerParams.from_dict(cfg)
-    return OnPolicyRunner(environment=env, algorithm=algo, params=params)
+    return OnPolicyRunner(environment=env, algorithm=algo, params=params, logger=logger)

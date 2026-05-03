@@ -14,35 +14,6 @@ from utils import Logger
 
 from .ppo import PPO, PPOHyperparams
 
-#one of observations 
-# one for dics observations. these are separate. makes sense
-
-
-# we will also need an action normalizer. what they do is the 
-# this is what they do in mimickit
-#            a_mean = torch.tensor(0.5 * (a_space.high + a_space.low), device=self._device, dtype=a_dtype)
-#            a_std = torch.tensor(0.5 * (a_space.high - a_space.low), device=self._device, dtype=a_dtype)
-#
-# assert (a_std > 0).all().item(), "init_std must be > 0 for action normalizer (Box action space wrong! Check your XML file. Joints must have 'limited=true' and non-zero bounds.)"
-
-# a_norm = normalizer.Normalizer(a_mean.shape, device=self._device, init_mean=a_mean, 
-#                                      init_std=a_std, dtype=a_dtype)
-
-# so why do they do this?:
-# well... 
-# we can model the standard deviation (average spread of values around the mean) with some basic assumptions about the type of distribution that it is
-# for a uniform distribution (each value has an equal chance of being selected in a range) we can model the standard deviation
-# of a uniform random variable whose support is exactly [a,b] through b-a/sqrt(12). prob derivation. just trust.
-# 
-
-# they use action normalizer to unormalize the action the model produces.
-# why?
-
-#they update normalizers each env step (32 times) and post update step.
-# each env step they call record(). update step they call update.
-
-#dicriminator optimizers and agent optimizers are the same dafuq
-
 @dataclass(frozen=True)
 class AMPHyperparams(PPOHyperparams):
     # Discriminator replay-buffer settings
@@ -59,6 +30,7 @@ class AMPHyperparams(PPOHyperparams):
     disc_mini_batches: int = 4
 
     disc_grad_penalty_coef: float = 5.0
+    num_disc_obs_steps: int = 10
 
     style_reward_lambda: float = 0.5 
     goal_reward_lambda: float = 0.5
@@ -69,19 +41,12 @@ class AMP(PPO):
     def __init__(
         self,
         networks: AMPNetworks,
-        params: AMPHyperparams = AMPHyperparams(),
-        logger: Logger = Logger(),
-    ):
+        params: AMPHyperparams,
+        logger: Logger,
+    ):  
         super().__init__(networks, params, logger)
 
-        self.ref_obs_sampler = None
-
         self._update_count = 0
-
-        self.disc_optimizer = optim.Adam(
-            self.networks.discriminator.parameters(),
-            lr=params.disc_lr,
-        )
 
     def init_storage(
         self,
@@ -92,13 +57,17 @@ class AMP(PPO):
     ) -> None:
         super().init_storage(num_envs, num_transitions, obs_dim, action_dim)
 
-        disc_obs_dim = self.networks.discriminator.in_channels
         self.discriminator_storage = CircularObsBuffer(
+            obs_dim=obs_dim,
+            disc_obs_steps=self.params.num_disc_obs_steps,
+            n_envs=num_envs,
             capacity=self.params.discriminator_buffer_capacity,
-            num_envs=num_envs,
-            obs_dim=disc_obs_dim,
-            device=self.networks.device,
+            device=self.networks.device
         )
+
+    def process_reset(self, infos: dict, env_ids = None) -> None:
+        """Seed the discriminator sliding window from motion-lib frames returned at reset."""
+        self.discriminator_storage.seed_from_windows(infos["disc_obs"], env_ids=env_ids)
 
     def process_env_step(
         self,
@@ -106,22 +75,11 @@ class AMP(PPO):
         dones: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
-        prev_disc_obs = torch.as_tensor(infos["prev_disc_obs"], dtype=torch.float32, device=self.networks.device)
-        disc_obs = torch.as_tensor(infos["disc_obs"], dtype=torch.float32, device=self.networks.device)
-
-        stacked = torch.concatenate([prev_disc_obs, disc_obs], dim=1)
-        #un problemo here 
-        with torch.no_grad():
-            d = self.networks.disc(stacked).squeeze()
-        
-        style_reward = torch.clamp(1.0 - 0.25 * (d - 1.0) ** 2, min=0.0).clone()
-        goal_reward = rewards.clone()
-        rewards = self.params.style_reward_lambda * style_reward + self.params.goal_reward_lambda * goal_reward
+        # Slide the window left by one and append the new sim observation,
+        # then flush every env's window to the ring buffer.
+        self.discriminator_storage.add(infos["disc_obs"])
 
         super().process_env_step(rewards, dones, infos)
-
-        self.discriminator_storage.add(stacked)
-        self.networks.record_disc_obs(stacked)
 
     def update(self, optimizer: torch.optim.Optimizer) -> None:
         # PPO policy update
@@ -192,3 +150,14 @@ class AMP(PPO):
 
         mean_disc_loss /= num_updates
         self.logger.log_metric("disc/loss", mean_disc_loss)
+
+
+        # stacked = torch.concatenate([prev_disc_obs, disc_obs], dim=1)
+        #un problemo here 
+        # with torch.no_grad():
+        #     d = self.networks.disc(stacked).squeeze()
+        
+        # style_reward = torch.clamp(1.0 - 0.25 * (d - 1.0) ** 2, min=0.0).clone()
+        # goal_reward = rewards.clone()
+        # rewards = self.params.style_reward_lambda * style_reward + self.params.goal_reward_lambda * goal_reward
+        # self.discriminator_storage.add(disc_obs)
