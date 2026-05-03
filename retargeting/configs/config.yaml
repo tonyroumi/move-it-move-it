@@ -12,12 +12,12 @@ verbose: false
 visualize_data_first: false
 
 # TRAINING / RETARGETING
-source: character1 
-target: humanoid
+source: character2 
+target: Rub
 
 resume_from: Null
 
-seed: 1231313
+seed: 123132
 
 logger:
   use_wandb: False

@@ -143,12 +143,6 @@ def parse_args():
 
 
 def main():
-    # import debugpy
-    # print("[DEBUG] Waiting for debugger to attach on 0.0.0.0:5678 ...")
-    # debugpy.listen(("0.0.0.0", 5678))
-    # debugpy.wait_for_client()
-    # print("[DEBUG] Debugger attached.")
-
     """Main retargeting pipeline."""
     args = parse_args()
     
@@ -177,22 +171,6 @@ def main():
         source_motion,
         source_skeleton,
         target_skeleton
-    )
-    
-   
-    # Visualize offsets
-    source_skeleton_path = output_dirs['skeletons'] / f"{source_name}_offsets.png"
-    SkeletonVisualizer.visualize_offsets(
-        offsets=source_skeleton.offsets,
-        parent_indices=source_skeleton.kintree,
-        save_path=source_skeleton_path
-    )
-
-    target_skeleton_path = output_dirs['skeletons'] / f"{target_name}_offsets.png"
-    SkeletonVisualizer.visualize_offsets(
-        offsets=target_skeleton.offsets,
-        parent_indices=target_skeleton.kintree[0],
-        save_path=target_skeleton_path
     )
    
     # Source motion video

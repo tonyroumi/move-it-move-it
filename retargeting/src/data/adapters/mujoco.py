@@ -161,9 +161,9 @@ class MuJoCoAdapter(BaseAdapter):
         num_episodes: int = 50,
         episode_length: float = 20.0,
         tasks: list[str] | None = None,
-        kp_scale: float = 1.0,
+        kp_scale: float = 0.2,
         seed: int = 42,
-        target_fps: int = 30,
+        target_fps: int = 60,
     ) -> List[MotionSequence]:
         """
         Generate synthetic motion sequences for the character.

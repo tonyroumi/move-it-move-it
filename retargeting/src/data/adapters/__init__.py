@@ -13,8 +13,8 @@ __all__ = ['AMASSAdapter', 'BANDAIAdapter', 'MuJoCoAdapter', 'AdapterRegistry', 
 
 class AdapterRegistry:
     CHARACTER_ADAPTER_MAP = {
-        BANDAIAdapter : ['character1'],
-        AMASSAdapter : ['Karim','Medhi'],
+        BANDAIAdapter : ['character2'],
+        AMASSAdapter : ["Karim", "Aude", "Medhi", "Carine", 'Rub'],
         MuJoCoAdapter : ["humanoid"]
     }
 

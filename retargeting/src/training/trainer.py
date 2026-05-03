@@ -9,7 +9,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from src.models.networks.gan import SkeletalGAN
-from src.utils import ImagePool, Logger
+from src.utils import ImagePool, Logger, SkeletonVisualizer
 
 from .losses import LossBundle
 
@@ -87,7 +87,6 @@ class SkeletalGANTrainer:
             total_epoch_loss += (generator_loss + discriminator_loss).item()
 
             self.logger.step()
-
 
         return total_epoch_loss
 
@@ -204,10 +203,10 @@ class SkeletalGANTrainer:
             }
         }
 
-        path = ckpt_dir / f"skeletal_gan_epoch{epoch:03d}.pt"
-        torch.save(state, path)
+        self.path = ckpt_dir / f"skeletal_gan_epoch{epoch:03d}.pt"
+        torch.save(state, self.path)
 
-        self.logger.info(f"Checkpoint saved to: {path}")
+        self.logger.info(f"Checkpoint saved to: {self.path}")
 
     def load_checkpoint(self, checkpoint_path: str) -> int:
         """ Load trainer from checkpoint  """

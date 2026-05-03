@@ -89,7 +89,6 @@ class MotionDatasetBuilder:
         motion_chunks, position_chunks = [], []
         total_length = 0
         for m in motions:
-            rotations = RotationUtils.quat_canconical(m.rotations)
             rotations = m.rotations.reshape(m.rotations.shape[0], -1)
             root_pos = m.positions[:, 0]
 

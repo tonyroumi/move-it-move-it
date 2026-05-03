@@ -622,7 +622,7 @@ class COMTrackingTask(BaseTask):
         self.ctrl_filter.reset()
 
         com = self.skeleton.get_com_position(data)
-        ttype = np.random.choice(["sway", "squat", "circle", "spline"])
+        ttype = np.random.choice(["squat"])
         dur = 6.0
 
         if ttype == "sway":
@@ -848,7 +848,7 @@ class SyntheticMotionGenerator:
     """
 
     def __init__(self, model_path: str, kp_scale: float = 1.0,
-                 osc_kp: float = 100.0, osc_kd: float = 20.0,
+                 osc_kp: float = 50.0, osc_kd: float = 2.0,
                  ee_body_names: list[str] | None = None, seed: int = 42):
         np.random.seed(seed)
         self.model = mujoco.MjModel.from_xml_path(model_path)
@@ -880,11 +880,11 @@ class SyntheticMotionGenerator:
             List of dicts with "qpos", "qvel", "xpos", "xquat", "task" keys.
         """
         task_map = {
-            "reaching": ReachingTask,
-            "stepping": SteppingTask,
+            # "reaching": ReachingTask,
+            # "stepping": SteppingTask,
             "com_tracking": COMTrackingTask,
-            "coordinated": CoordinatedTask,
-            "random_primitives": RandomPrimitiveTask,
+            # "coordinated": CoordinatedTask,
+            # "random_primitives": RandomPrimitiveTask,
         }
 
         if tasks is None:
