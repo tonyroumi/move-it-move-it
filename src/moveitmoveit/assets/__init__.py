@@ -1,0 +1,1 @@
+from .humanoid import HUMANOID_CFG
