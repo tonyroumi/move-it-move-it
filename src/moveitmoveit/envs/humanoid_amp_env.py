@@ -20,7 +20,6 @@ from moveitmoveit.utils.transforms import quaternion_to_tangent_and_normal
 from moveitmoveit.motion import MotionLoader
 
 from .humanoid_amp_env_cfg import HumanoidAmpEnvCfg
-from .motions import MotionLoader
 
 
 class HumanoidAmpEnv(DirectRLEnv):
