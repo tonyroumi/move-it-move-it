@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moveitmoveit"
+version = "0.1.0"
+description = "Imitation learning and RL for motion tracking with IsaacLab"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "torch",
+    "gymnasium",
+    "matplotlib",
+    "scipy",
+]
+
+# isaaclab, isaaclab_tasks, isaaclab_physx, and other IsaacLab submodules are
+# not published to PyPI - install them into this environment separately via
+# `./isaaclab.sh --install` from the IsaacLab repo, not via this file.
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["moveitmoveit*"]
