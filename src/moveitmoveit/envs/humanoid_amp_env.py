@@ -168,14 +168,6 @@ class HumanoidAmpEnv(DirectRLEnv):
             body_angular_velocities,
         ) = self._motion_loader.sample(num_samples=num_samples, times=times)
 
-        body_rotations = torch.cat(
-            [
-                body_rotations[..., 1:4],
-                body_rotations[..., 0:1],
-            ],
-            dim=-1,
-        )
-
         # get root transforms (the humanoid torso)
         motion_torso_index = self._motion_loader.get_body_index(["torso"])[0]
         root_state = torch.cat(
