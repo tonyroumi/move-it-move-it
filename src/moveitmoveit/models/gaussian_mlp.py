@@ -1,12 +1,12 @@
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import torch.nn as nn
 import torch
 from torch.distributions import Normal
 
-from .base_mlp import BaseMLP
+from .base_mlp import MLP
 
-class GaussianMLP(BaseMLP):
+class GaussianMLP(MLP):
     """ Gaussian MLP. """
 
     def __init__(
@@ -17,7 +17,7 @@ class GaussianMLP(BaseMLP):
         activation: str = "relu",
         init_noise_std = 1.0,
         noise_std_type="scalar",
-        weight_init: Optional[Dict[str, Any]] = None,
+        weight_init: Optional[dict] = None,
         ):
 
         super().__init__(

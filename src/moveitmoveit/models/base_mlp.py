@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -6,14 +6,14 @@ import torch.nn as nn
 from moveitmoveit.utils.model import get_activation
 
 
-class BaseMLP(nn.Module):
+class MLP(nn.Module):
     def __init__(
         self,
         in_channels,
         out_channels,
         hidden_layers: List[int] = [256, 256],
         activation: str = "relu",
-        weight_init: Optional[Dict[str, Any]] = None,
+        weight_init: Optional[dict] = None,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -32,7 +32,7 @@ class BaseMLP(nn.Module):
         if weight_init is not None:
             self.apply_weight_init(weight_init)
 
-    def apply_weight_init(self, config: Dict[str, Any]) -> None:
+    def apply_weight_init(self, config: dict) -> None:
         """Initialize selected linear layers according to config."""
         init_type = config.get("type")
         init_type = init_type.lower() if isinstance(init_type, str) else init_type
@@ -47,8 +47,8 @@ class BaseMLP(nn.Module):
                 "Supported: 'orthogonal', 'uniform'."
             )
 
-        trunk_config: Dict[str, Any] = config.get("trunk") or {}
-        output_config: Dict[str, Any] = config.get("output") or {}
+        trunk_config: dict = config.get("trunk") or {}
+        output_config: dict = config.get("output") or {}
 
         for module in self.trunk.modules():
             if isinstance(module, nn.Linear):

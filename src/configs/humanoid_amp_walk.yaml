@@ -1,11 +1,64 @@
 seed: 42
 
+models:
+  actor:
+    hidden_layers: [1024, 512]
+    activation: relu
+    noise_std_type: fixed
+    init_noise_std: 0.05
+    weight_init:
+      type: uniform
+      trunk:
+        enabled: false
+        zero_bias: true
+      output:
+        enabled: true
+        gain: 0.01
+        zero_bias: true
+
+  critic:
+    hidden_layers: [1024, 512]
+    activation: relu
+    weight_init:
+      type: uniform
+      trunk:
+        enabled: false
+        gain: 1.0
+        zero_bias: true
+      output:
+        enabled: false
+        zero_bias: true
+
+  discriminator:
+    hidden_layers: [1024, 512]
+    activation: relu
+    weight_init:
+      type: uniform
+      trunk:
+        enabled: false
+        gain: 1.0
+        zero_bias: true
+      output:
+        enabled: true
+        gain: 1.0
+        zero_bias: true
+
+storage:
+  # something in the water.
+
 agent:
+  class_type: AMP
+
+
   experiment:
     directory: "humanoid_walk"
     experiment_name: ""
     write_interval: auto
     checkpoint_interval: auto
 
-trainer:
-  timesteps: 80000
+runner:
+  timesteps: 2000000
+  num_transitions_per_env: 32
+
+  log_interval: 1
+  checkpoint_interval: 100  # iterations between saves

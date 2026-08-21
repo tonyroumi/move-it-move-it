@@ -19,4 +19,3 @@ gym.register(
         "agent_cfg_entry_point": f"{CONFIGS_DIR}/humanoid_amp_walk.yaml",
     },
 )
-

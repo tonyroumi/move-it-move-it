@@ -50,7 +50,7 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 
 def main():
-    """Train with skrl agent."""
+    """Train an agent."""
     env_cfg, agent_cfg = resolve_task_config(args_cli.task, "agent_cfg_entry_point")
     with launch_simulation(env_cfg, args_cli):
         # override with CLI arguments
@@ -88,30 +88,26 @@ def main():
 
         start_time = time.time()
 
-        # // can configure runner here.
+        from moveitmoveit.runners import OnPolicyRunner
+        from moveitmoveit.utils.logger import Logger
+        logger = Logger(log_dir)
+        runner = OnPolicyRunner(
+            cfg=agent_cfg["agent"],
+            env=env,
+            logger=logger,
+        )
 
-        if args_cli.deterministic:
-            configure_seed(env_cfg.seed, True)
+        # // can configure runner here.
+        configure_seed(env_cfg.seed, True)
 
         # load checkpoint (if specified)
         if resume_path:
             print(f"[INFO] Loading model checkpoint from: {resume_path}")
-            # runner.agent.load(resume_path)
+            runner.load(resume_path)
 
         # run training
         try:
-            # reset environment
-            env.reset()
-            actions = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
-            while True:
-                with torch.inference_mode():
-                    # apply actions
-                    env.step(actions)
-
-            # close the simulator
-            # env.close()
-
-
+            runner.learn()
             
             # runner.run()
             print(f"Training time: {round(time.time() - start_time, 2)} seconds")
