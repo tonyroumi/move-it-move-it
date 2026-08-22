@@ -6,7 +6,7 @@ import time
 
 import torch
 import torch.optim as optim
-import tdqm
+import tqdm
 
 from isaaclab.envs import DirectRLEnv
 
@@ -40,26 +40,25 @@ class OnPolicyRunner:
         self.env = env
         self.logger = logger
 
-        self._initialize_agent()
+        self._initialize_agent(cfg)
 
-    def _initialize_agent(self):
-        agent_cls, cfg_cls = resolve_agent(self.cfg["agent"]["class_type"])
+    def _initialize_agent(self, cfg: dict):
+        agent_cls, cfg_cls = resolve_agent(cfg["agent"]["class_type"])
 
         self.agent = agent_cls(
-            cfg = cfg_cls(**self.cfg),
+            cfg = cfg_cls(**cfg["agent"]),
             logger = self.logger
         )
-        self.agent.initialize_models(self.env, self.cfg["models"])
-        self.agent.initialize_storage(self.env, self.cfg.num_transitions_per_env, **self.cfg["storage"])
+        self.agent.initialize_models(self.env, cfg["models"])
+        self.agent.initialize_storage(self.env, self.cfg.num_transitions_per_env, cfg["storage"])
 
     def learn(self) -> None:
         observations, infos = self.env.reset()
 
-        for timestep in tdqm.tdqm(range(self.cfg.timesteps)):
+        for timestep in tqdm.tqdm(range(self.cfg.timesteps)):
             with torch.no_grad():
                 for _ in range(self.cfg.num_transitions_per_env):
 
-                    #pre_proccess observations (observations)
                     actions = self.agent.act(observations)
 
                     observations, rewards, terminated, timeout, infos = self.env.step(actions)
@@ -71,7 +70,12 @@ class OnPolicyRunner:
                         infos
                     )
 
-                # last_values = self.agent.evaluate()
+                self.agent.update()
+
+
+                # compute returns?
+
+                #update 
 
 
         # for iteration in range(total_iterations):
