@@ -1,27 +1,27 @@
 seed: 42
 
 experiment:
-  directory: "humanoid_walk"
+  directory: "cartpole_test"
   experiment_name: ""
 
 models:
   actor:
-    hidden_layers: [1024, 512]
+    hidden_layers: [512, 256]
     activation: relu
     noise_std_type: fixed
-    init_noise_std: 0.05
+    init_noise_std: 0.055
     weight_init:
       type: uniform
       trunk:
         enabled: false
         zero_bias: true
       output:
-        enabled: true
+        enabled: false
         gain: 0.01
         zero_bias: true
 
   critic:
-    hidden_layers: [1024, 512]
+    hidden_layers: [512, 256]
     activation: relu
     weight_init:
       type: uniform
@@ -31,29 +31,32 @@ models:
         zero_bias: true
       output:
         enabled: false
-        zero_bias: true
-
-  discriminator:
-    hidden_layers: [1024, 512]
-    activation: relu
-    weight_init:
-      type: uniform
-      trunk:
-        enabled: false
-        gain: 1.0
-        zero_bias: true
-      output:
-        enabled: true
-        gain: 1.0
         zero_bias: true
 
 storage:
-  capacity: 2000000
+  # None
 
 agent:
-  class_type: AMP
+  class_type: PPO
 
-  num_mini_batches
+  num_mini_batches: 4
+  num_learning_epochs: 4
+  learning_rate: 1e-3
+
+  clip_param: 0.2
+  value_loss_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 1.0
+  use_clipped_value_loss: True
+  value_loss_clip_param: 0.2
+
+  desired_kl: 0.01
+  adaptive_kl: False
+  
+  gae_lambda: 0.95
+  discount: 0.99
+  normalize_advantage_per_batch: True
+
 
 runner:
   timesteps: 2000000

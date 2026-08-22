@@ -60,17 +60,17 @@ def main():
         env_cfg.seed = agent_cfg["seed"]
 
         # specify directory for logging experiments
-        log_root_path = os.path.join("logs", agent_cfg["agent"]["experiment"]["directory"], args_cli.algorithm)
+        log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"], args_cli.algorithm)
         log_root_path = os.path.abspath(log_root_path)
 
         print(f"[INFO] Logging experiment in directory: {log_root_path}")
         log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        print(f"Exact experiment name requested from command line: {log_dir}")
+        print(f"Exact experiment name: {log_dir}")
 
-        if agent_cfg["agent"]["experiment"]["experiment_name"]:
+        if agent_cfg["experiment"]["experiment_name"]:
             log_dir += f"_{agent_cfg['agent']['experiment']['experiment_name']}"
-        agent_cfg["agent"]["experiment"]["directory"] = log_root_path
-        agent_cfg["agent"]["experiment"]["experiment_name"] = log_dir
+        agent_cfg["experiment"]["directory"] = log_root_path
+        agent_cfg["experiment"]["experiment_name"] = log_dir
         log_dir = os.path.join(log_root_path, log_dir)
 
         # dump the configuration into log-directory
@@ -90,9 +90,10 @@ def main():
 
         from moveitmoveit.runners import OnPolicyRunner
         from moveitmoveit.utils.logger import Logger
-        logger = Logger(log_dir)
+        
+        logger = Logger(backend="tensorboard", log_dir=log_dir)
         runner = OnPolicyRunner(
-            cfg=agent_cfg["agent"],
+            cfg=agent_cfg,
             env=env,
             logger=logger,
         )

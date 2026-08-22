@@ -85,7 +85,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target_index(target=target)
 
-    def _get_observations(self) -> dict:
+    def _get_observations(self) -> tuple[torch.Tensor, dict]:
         # build task observation
         obs = compute_obs(
             self.robot.data.joint_pos.torch,
@@ -104,7 +104,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.amp_observation_buffer[:, 0] = obs.clone()
         self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
 
-        return {"policy": obs}
+        return obs, self.extras
 
     def _get_rewards(self) -> torch.Tensor:
         return torch.ones((self.num_envs,), dtype=torch.float32, device=self.sim.device)

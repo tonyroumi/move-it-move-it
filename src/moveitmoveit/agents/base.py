@@ -28,27 +28,19 @@ class BaseAgent(ABC):
         self.cfg = cfg
         self.logger = logger
 
+        self.grad_step = 0
+
     @abstractmethod
     def initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         pass
 
     @abstractmethod
-    def initialize_storage(self, env: DirectRLEnv, num_transitions_per_env: int, **kwargs: Any) -> None:
-        pass
-
-    @abstractmethod
-    def process_reset(self, infos: dict, env_ids: torch.Tensor = None) -> None:
-        """Called after env.reset(). Override in subclasses for reset-specific logic."""
+    def initialize_storage(self, env: DirectRLEnv, num_transitions_per_env: int, storage_cfg: dict) -> None:
         pass
 
     @abstractmethod
     def act(self, observations: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         """Sample actions for the current observations. """
-        pass
-
-    @abstractmethod
-    def evaluate(self, observations: torch.Tensor, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Evaluate the policy for the given observations and actions. """
         pass
 
     @abstractmethod

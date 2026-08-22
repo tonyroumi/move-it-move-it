@@ -38,15 +38,11 @@ class RolloutStorage:
             self.dones: torch.Tensor | None = None
             """Done flags indicating episode termination."""
 
-            # For reinforcement learning
             self.values: torch.Tensor | None = None
             """Value estimates at the current step."""
 
             self.actions_log_prob: torch.Tensor | None = None
             """Log probability of the taken actions."""
-
-            self.distribution_params: tuple[torch.Tensor, ...] | None = None
-            """Parameters of the action distribution."""
 
         def clear(self) -> None:
             """Reset all transition fields to None."""
@@ -114,7 +110,6 @@ class RolloutStorage:
 
         self.values = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
         self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-        self.distribution_params: tuple[torch.Tensor, ...] | None = None  # Lazily initialized on first transition
         self.returns = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
         self.advantages = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
 
@@ -145,8 +140,15 @@ class RolloutStorage:
 
     def mini_batch_generator(self, num_mini_batches: int, num_epochs: int = 8) -> Generator[Batch, None, None]:
         """Yield shuffled flat mini-batches for feedforward RL updates."""
-        batch_size = self.num_envs * self.num_transitions_per_env
+        batch_size = self.num_envs * self.num_transitions_per_env 
+
+        assert batch_size % num_mini_batches == 0, (
+            f"Batch size ({batch_size}) must be divisible by "
+            f"num_mini_batches ({num_mini_batches})"
+        )
+
         mini_batch_size = batch_size // num_mini_batches
+
         indices = torch.randperm(num_mini_batches * mini_batch_size, requires_grad=False, device=self.device)
 
         # Flatten the data
@@ -156,7 +158,6 @@ class RolloutStorage:
         returns = self.returns.flatten(0, 1)
         old_actions_log_prob = self.actions_log_prob.flatten(0, 1)
         advantages = self.advantages.flatten(0, 1)
-        old_distribution_params = tuple(p.flatten(0, 1) for p in self.distribution_params)  # type: ignore
 
         for epoch in range(num_epochs):
             for i in range(num_mini_batches):
@@ -172,6 +173,5 @@ class RolloutStorage:
                     values=values[batch_idx],
                     advantages=advantages[batch_idx],
                     returns=returns[batch_idx],
-                    old_actions_log_prob=old_actions_log_prob[batch_idx],
-                    old_distribution_params=tuple(p[batch_idx] for p in old_distribution_params),
+                    old_actions_log_prob=old_actions_log_prob[batch_idx]
                 )

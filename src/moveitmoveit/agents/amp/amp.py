@@ -24,19 +24,31 @@ class AMP(PPO):
         super().initialize_models(env, model_cfg)
 
         self.discriminator = MLP(
-            in_channels=env.single_observation_space.shape[0],
+            in_channels=env.observation_space.shape[-1],
             out_channels=1,
             **model_cfg["discriminator"]
-        )
+        ).to(env.unwrapped.device)
 
     def initialize_storage(
         self,
         env: DirectRLEnv,
         num_transitions_per_env: int,
-        device: torch.device,
-        **kwargs: Any
+        storage_cfg: dict,
     ) -> None:
-        super().initialize_storage(env, num_transitions_per_env, device)
+        super().initialize_storage(env, num_transitions_per_env)
+
+        self._ref_motion_buf = torch.zeros(
+            storage_cfg["capacity"],
+            env.unwrapped.num_envs,
+            self.cfg.num_disc_obs_steps,
+            device=env.unwrapped.device
+        )
+        self._motion_buf = torch.zeros(
+            storage_cfg["capacity"],
+            env.unwrapped.num_envs,
+            self.cfg.num_disc_obs_steps,
+            device=env.unwrapped.device
+        )
 
     def process_env_step(
         self,
@@ -46,6 +58,9 @@ class AMP(PPO):
         infos: dict | None = None,
     ) -> None:
         super().process_env_step(rewards, terminated, truncated, infos)
+
+        # self._ref_motion_buf ...
+        # self._motion_buf ... 
 
     def update(self, optimizer: torch.optim.Optimizer) -> None:
         super().update(optimizer)
