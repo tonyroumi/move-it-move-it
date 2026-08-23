@@ -6,8 +6,8 @@ experiment:
 
 models:
   actor:
-    hidden_layers: [512, 256]
-    activation: relu
+    hidden_layers: [64, 64]
+    activation: elu
     noise_std_type: fixed
     init_noise_std: 0.055
     weight_init:
@@ -21,8 +21,8 @@ models:
         zero_bias: true
 
   critic:
-    hidden_layers: [512, 256]
-    activation: relu
+    hidden_layers: [64, 64]
+    activation: elu
     weight_init:
       type: uniform
       trunk:
@@ -40,14 +40,14 @@ agent:
   class_type: PPO
 
   num_mini_batches: 4
-  num_learning_epochs: 4
-  learning_rate: 1e-3
+  num_learning_epochs: 8
+  learning_rate: 0.0005
 
   clip_param: 0.2
   value_loss_coef: 0.5
   entropy_coef: 0.01
   max_grad_norm: 1.0
-  use_clipped_value_loss: True
+  use_clipped_value_loss: False
   value_loss_clip_param: 0.2
 
   desired_kl: 0.01
@@ -55,11 +55,11 @@ agent:
   
   gae_lambda: 0.95
   discount: 0.99
-  normalize_advantage_per_batch: True
+  normalize_advantage_per_mini_batch: True
 
 
 runner:
-  timesteps: 2000000
+  timesteps: 6400
   num_transitions_per_env: 32
 
   log_interval: 1

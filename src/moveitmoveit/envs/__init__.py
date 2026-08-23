@@ -19,3 +19,13 @@ gym.register(
         "agent_cfg_entry_point": f"{CONFIGS_DIR}/humanoid_amp_walk.yaml",
     },
 )
+
+gym.register(
+    id="MoveitMoveit-Cartpole",
+    entry_point=f"{__name__}.cartpole_env:CartpoleEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.cartpole_env_cfg:CartpoleEnvCfg",
+        "agent_cfg_entry_point": f"{CONFIGS_DIR}/cartpole.yaml",
+    },
+)

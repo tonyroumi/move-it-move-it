@@ -46,6 +46,7 @@ class BaseAgent(ABC):
     @abstractmethod
     def process_env_step(
         self,
+        next_observations: torch.Tensor,
         rewards: torch.Tensor,
         terminated: torch.Tensor,
         truncated: torch.Tensor,

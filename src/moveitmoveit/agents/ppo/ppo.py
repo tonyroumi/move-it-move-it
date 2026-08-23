@@ -164,14 +164,17 @@ class PPO(BaseAgent):
             self.actor(observations)
 
             # actor loss
-            actions_log_prob = self.actor.get_actions_log_prob(batch.actions).unsqueeze(-1)
-            surrogate = torch.exp(actions_log_prob - batch.old_actions_log_prob)
-            surrogate_clipped = advantage * torch.clamp(surrogate, 1-self.cfg.clip_param, 1+self.cfg.clip_param)
+            actions_log_prob = self.actor.get_actions_log_prob(batch.actions)
+            ratio = torch.exp(actions_log_prob - batch.old_actions_log_prob)
+            surrogate = advantage * ratio 
+            surrogate_clipped = advantage * torch.clip(
+                        ratio, 1.0 - self.cfg.clip_param, 1.0 + self.cfg.clip_param
+            )
 
-            # actor loss
-            actor_loss = -surrogate_clipped.mean()
+            actor_loss = -torch.min(surrogate, surrogate_clipped).mean()
+
             # critic loss. can also use td here
-            value_loss = torch.mean((batch.rewards - self.critic(observations))**2)
+            value_loss = torch.mean((batch.returns - self.critic(observations))**2)
 
             if self.cfg.use_clipped_value_loss:
                 value_loss = torch.clamp(value_loss, 1-self.cfg.value_loss_clip_param, 1+self.cfg.value_loss_clip_param)
