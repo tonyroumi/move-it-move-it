@@ -65,6 +65,19 @@ class MLP(nn.Module):
     def trainable_parameters(self) -> List[nn.Parameter]:
         return [p for p in self.parameters() if p.requires_grad]
 
+    @property
+    def grad_norm(self):
+        grads = [
+            p.grad.detach().norm(2)
+            for p in self.parameters()
+            if p.requires_grad and p.grad is not None
+        ]
+
+        if not grads:
+            return 0.0
+
+        return torch.stack(grads).norm(2).item()
+
     @staticmethod
     def _init_linear_orthogonal(
         module: nn.Linear,

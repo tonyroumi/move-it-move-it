@@ -138,7 +138,7 @@ class RolloutStorage:
         """Reset the write cursor for the next rollout."""
         self.step = 0
 
-    def mini_batch_generator(self, num_mini_batches: int, num_epochs: int = 8) -> Generator[Batch, None, None]:
+    def mini_batch_generator(self, num_mini_batches: int) -> Generator[Batch, None, None]:
         """Yield shuffled flat mini-batches for feedforward RL updates."""
         batch_size = self.num_envs * self.num_transitions_per_env 
 
@@ -159,19 +159,18 @@ class RolloutStorage:
         old_actions_log_prob = self.actions_log_prob.flatten(0, 1)
         advantages = self.advantages.flatten(0, 1)
 
-        for epoch in range(num_epochs):
-            for i in range(num_mini_batches):
-                # Select the indices for the mini-batch
-                start = i * mini_batch_size
-                stop = (i + 1) * mini_batch_size
-                batch_idx = indices[start:stop]
+        for i in range(num_mini_batches):
+            # Select the indices for the mini-batch
+            start = i * mini_batch_size
+            stop = (i + 1) * mini_batch_size
+            batch_idx = indices[start:stop]
 
-                # Yield the mini-batch
-                yield RolloutStorage.Batch(
-                    observations=observations[batch_idx],  # type: ignore
-                    actions=actions[batch_idx],
-                    values=values[batch_idx],
-                    advantages=advantages[batch_idx],
-                    returns=returns[batch_idx],
-                    old_actions_log_prob=old_actions_log_prob[batch_idx]
-                )
+            # Yield the mini-batch
+            yield RolloutStorage.Batch(
+                observations=observations[batch_idx],  # type: ignore
+                actions=actions[batch_idx],
+                values=values[batch_idx],
+                advantages=advantages[batch_idx],
+                returns=returns[batch_idx],
+                old_actions_log_prob=old_actions_log_prob[batch_idx]
+            )

@@ -79,7 +79,7 @@ class GaussianMLP(MLP):
         return self.distribution.mean
 
     @property
-    def std(self) -> torch.Tensor:
+    def stddev(self) -> torch.Tensor:
         """Standard deviation of the action distribution."""
         return self.distribution.stddev
 

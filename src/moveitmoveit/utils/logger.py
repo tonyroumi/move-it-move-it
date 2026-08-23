@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from typing import Any, Dict, Optional
+import collections
 import os
 import time
-from typing import Any, Dict, Optional
 
+import numpy as np
 
 class Logger:
     """ Simple RL logger with optional TensorBoard and/or Weights & Biases backends. """
@@ -11,17 +13,17 @@ class Logger:
     def __init__(
         self,
         backend: str = "tensorboard",
-        log_dir: str = "runs",
+        log_dir: str = "logs",
         project: Optional[str] = None,
-        run_name: Optional[str] = None,
-        config: Optional[Dict[str, Any]] = None,
+        exp_cfg: Optional[Dict[str, Any]] = None,
         wandb_kwargs: Optional[Dict[str, Any]] = None,
     ):
         assert backend in ("tensorboard", "wandb", "both", "none"), (
             f"Unknown backend: {backend}"
         )
         self.backend = backend
-        self.run_name = run_name or time.strftime("run_%Y%m%d_%H%M%S")
+        self.log_dir = log_dir
+        self.exp_cfg = exp_cfg
 
         self._tb_writer = None
         self._wandb = None
@@ -32,25 +34,36 @@ class Logger:
         if use_tb:
             from torch.utils.tensorboard import SummaryWriter
 
-            full_dir = os.path.join(log_dir, self.run_name)
-            os.makedirs(full_dir, exist_ok=True)
-            self._tb_writer = SummaryWriter(log_dir=full_dir)
+            self._tb_writer = SummaryWriter(log_dir=log_dir)
 
         if use_wandb:
             import wandb
 
             wandb.init(
                 project=project,
-                name=self.run_name,
-                config=config,
                 **(wandb_kwargs or {}),
             )
             self._wandb = wandb
 
-        if config and self._tb_writer is not None:
-            # Dump hyperparams as text since SummaryWriter has no native dict logger
-            cfg_str = "\n".join(f"{k}: {v}" for k, v in config.items())
-            self._tb_writer.add_text("config", cfg_str)
+        self._tracking_data = collections.defaultdict(list)
+        self._tracking_step = collections.defaultdict(int)
+
+    def track_data(self, *, tag: str, value: float, step: int):
+        self._tracking_data[tag].append(value)
+        self._tracking_step[tag] = step
+
+    def write_tracking_data(self):
+        for k, v in self._tracking_data.items():
+            if k.endswith("(min)"):
+                self.writer.add_scalar(tag=k, value=np.min(v), timestep=self._tracking_step[k])
+            elif k.endswith("(max)"):
+                self.writer.add_scalar(tag=k, value=np.max(v), timestep=self._tracking_step[k])
+            else:
+                self.writer.add_scalar(tag=k, value=np.mean(v), timestep=self._tracking_step[k])
+
+        # reset data containers
+        self._tracking_data.clear()
+        self._tracking_step.clear()
 
     def log_scalar(self, tag: str, value: float, step: int) -> None:
         """Log a single scalar value."""

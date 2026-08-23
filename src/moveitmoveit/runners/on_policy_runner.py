@@ -55,7 +55,8 @@ class OnPolicyRunner:
     def learn(self) -> None:
         observations, infos = self.env.reset()
 
-        for timestep in tqdm.tqdm(range(self.cfg.timesteps)):
+        total_iterations = self.cfg.timesteps // self.cfg.num_transitions_per_env
+        for iteration in tqdm.tqdm(range(total_iterations), disable=True):
             with torch.no_grad():
                 for _ in range(self.cfg.num_transitions_per_env):
 
@@ -64,66 +65,14 @@ class OnPolicyRunner:
                     observations, rewards, terminated, timeout, infos = self.env.step(actions)
 
                     self.agent.process_env_step(
-                        rewards,
-                        terminated,
-                        timeout,
-                        infos
+                        next_observations=observations,
+                        rewards=rewards,
+                        terminated=terminated,
+                        truncated=timeout,
+                        infos=infos
                     )
 
-                self.agent.update()
+            self.agent.update()
 
-
-                # compute returns?
-
-                #update 
-
-
-        # for iteration in range(total_iterations):
-        #     # collect rollouts
-        #     for _ in range(self.params.num_transitions_per_env):
-        #         with torch.no_grad():
-        #             actions = self.algo.act(obs)
-
-        #         obs, reward, terminated, truncated, info = self.env.step(
-        #             actions
-        #         )
-
-        #         # gymnasium envs auto reset
-        #         self.algo.process_env_step(
-        #             rewards=reward,
-        #             terminated=terminated,
-        #             truncated=truncated,
-        #             infos=info,
-        #         )
-            
-        #     # compute returns and update
-        #     with torch.no_grad():
-        #         last_values = self.algo.get_value(obs)
-        #     self.algo.compute_returns(last_values)
-
-        #     self.algo.update(self.optimizer)
-
-        #     self.current_timestep += steps_per_iter
-        #     self.current_iteration += 1
-
-        #     if self.current_iteration % self.params.log_interval == 0:
-        #         self.logger.pprint(
-        #             iteration=self.current_iteration,
-        #             wall_time=time.perf_counter() - train_start,
-        #             samples=self.current_timestep,
-        #         )
-
-        #     if self.current_iteration % self.params.checkpoint_interval == 0:
-        #         path = os.path.join(
-        #             self.logger.log_dir,
-        #             f"checkpoint_{self.current_iteration}.pt",
-        #         )
-        #         self.save(path)
-        #         self.logger.info(f"  Checkpoint saved → {path}")
-
-    def save(self, path: str) -> None:
-        pass
-
-    def load(self, path: str) -> None:
-        # ckpt = torch.load(path, map_location=self.params.device)
-        pass
+            if iteration % self.cfg.checkpoint_interval == 0:
+                self.agent.write_checkpoint()

@@ -28,7 +28,12 @@ class BaseAgent(ABC):
         self.cfg = cfg
         self.logger = logger
 
-        self.grad_step = 0
+        self._track_rewards = collections.deque(maxlen=100)
+        self._track_timesteps = collections.deque(maxlen=100)
+        self._cumulative_rewards = None
+        self._cumulative_timesteps = None
+
+        self.env_step = 0
 
     @abstractmethod
     def initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
@@ -54,9 +59,21 @@ class BaseAgent(ABC):
     ) -> None:
         """Record reward, done flags, and optional step info, then flush the
         current transition into the rollout buffer. """
+        self.timestep += 1
+
+        self.logger.log_scalar("Rewards/Instantaneous reward (mean)", rewards.mean(), self.env_step)
+        
+    @abstractmethod
+    def update(self) -> None:
+        """Run gradient updates."""
         pass
 
     @abstractmethod
-    def update(self, optimizer: torch.optim.Optimizer) -> None:
-        """Run gradient updates."""
+    def write_checkpoint(self) -> None:
+        """Save the agent's models to the specified path."""
+        pass
+
+    @abstractmethod
+    def load_checkpoint(self, path: str, device: torch.device) -> None:
+        """Load the agent's models from the specified path."""
         pass

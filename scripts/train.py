@@ -55,7 +55,6 @@ def main():
     with launch_simulation(env_cfg, args_cli):
         # override with CLI arguments
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
-        env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
         env_cfg.seed = agent_cfg["seed"]
 
@@ -91,32 +90,29 @@ def main():
         from moveitmoveit.runners import OnPolicyRunner
         from moveitmoveit.utils.logger import Logger
         
-        logger = Logger(backend="tensorboard", log_dir=log_dir)
+        logger = Logger(backend="tensorboard", log_dir=log_dir, exp_cfg=agent_cfg["experiment"])
         runner = OnPolicyRunner(
             cfg=agent_cfg,
             env=env,
             logger=logger,
         )
 
-        # // can configure runner here.
         configure_seed(env_cfg.seed, True)
 
         # load checkpoint (if specified)
         if resume_path:
             print(f"[INFO] Loading model checkpoint from: {resume_path}")
-            runner.load(resume_path)
+            runner.agent.load_checkpoint(resume_path)
 
         # run training
         try:
             runner.learn()
             
-            # runner.run()
             print(f"Training time: {round(time.time() - start_time, 2)} seconds")
 
             # save a final checkpoint
-            total_timesteps = agent_cfg["trainer"]["timesteps"]
             os.makedirs(os.path.join(log_dir, "checkpoints"), exist_ok=True)
-            # runner.agent.write_checkpoint(timestep=total_timesteps, timesteps=total_timesteps)
+            runner.agent.write_checkpoint()
             print(f"[INFO] Saved final agent checkpoint to: {log_dir}/checkpoints")
             # close the simulator
             env.close()

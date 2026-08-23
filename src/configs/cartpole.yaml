@@ -3,6 +3,8 @@ seed: 42
 experiment:
   directory: "cartpole_test"
   experiment_name: ""
+  write_interval: 100
+  checkpoint_interval: 100
 
 models:
   actor:
@@ -39,12 +41,12 @@ storage:
 agent:
   class_type: PPO
 
-  num_mini_batches: 4
+  num_mini_batches: 8
   num_learning_epochs: 8
   learning_rate: 0.0005
 
   clip_param: 0.2
-  value_loss_coef: 0.5
+  value_loss_coef: 1.0
   entropy_coef: 0.01
   max_grad_norm: 1.0
   use_clipped_value_loss: False
@@ -59,8 +61,5 @@ agent:
 
 
 runner:
-  timesteps: 6400
+  timesteps: 100000
   num_transitions_per_env: 32
-
-  log_interval: 1
-  checkpoint_interval: 100  # iterations between saves
