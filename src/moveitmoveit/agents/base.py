@@ -3,9 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+import collections
 
 import torch
 import torch.optim
+import numpy as np
 
 from isaaclab.envs import DirectRLEnv
 
@@ -28,12 +30,7 @@ class BaseAgent(ABC):
         self.cfg = cfg
         self.logger = logger
 
-        self._track_rewards = collections.deque(maxlen=100)
-        self._track_timesteps = collections.deque(maxlen=100)
-        self._cumulative_rewards = None
-        self._cumulative_timesteps = None
-
-        self.env_step = 0
+        self._diagnostics = collections.defaultdict(list)
 
     @abstractmethod
     def initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
@@ -59,10 +56,8 @@ class BaseAgent(ABC):
     ) -> None:
         """Record reward, done flags, and optional step info, then flush the
         current transition into the rollout buffer. """
-        self.timestep += 1
+        pass
 
-        self.logger.log_scalar("Rewards/Instantaneous reward (mean)", rewards.mean(), self.env_step)
-        
     @abstractmethod
     def update(self) -> None:
         """Run gradient updates."""

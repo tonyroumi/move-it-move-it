@@ -97,7 +97,7 @@ class CartpoleEnv(DirectRLEnv):
 
         # Log survival success rate before resetting
         survived = self.reset_time_outs[env_ids].float()
-        self.extras.setdefault("log", {})["Metrics/success_rate"] = survived.mean().item()
+        self.extras.setdefault("log", {})["Episode/Success Rate"] = survived.mean().item()
 
         super()._reset_idx(env_ids)
 

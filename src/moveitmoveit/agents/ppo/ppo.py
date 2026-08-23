@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import Any, Dict
+import collections
 import itertools
 import math
 import os
@@ -70,7 +69,6 @@ class PPO(BaseAgent):
         ).to(env.unwrapped.device)
 
         self.obs_preprocessor = RunningStandardScaler(size=obs_size).to(env.unwrapped.device)
-        # self.value_preprocessor = RunningStandardScaler(size=1).to(env.unwrapped.device)
 
         self._initialize_optimizer()
 
@@ -93,7 +91,7 @@ class PPO(BaseAgent):
 
     def _initialize_optimizer(self) -> None:
         self.optimizer = torch.optim.Adam(
-            list(self.actor.parameters()) + list(self.critic.parameters()),
+            itertools.chain(self.actor.parameters(), self.critic.parameters()),
             lr=self.cfg.learning_rate,
         )
 
@@ -129,12 +127,9 @@ class PPO(BaseAgent):
         self._next_observations = next_observations
 
     def update(self) -> None:
-        train_evals = {}
-
         with torch.no_grad():
             last_observations = self.obs_preprocessor(self._next_observations)
             last_values = self.critic(last_observations)
-            # last_values = self.value_preprocessor(last_values)
 
         advantages, returns = compute_gae(
             self.storage.rewards,
@@ -144,21 +139,14 @@ class PPO(BaseAgent):
             self.cfg.gae_lambda,
             self.cfg.discount,
         )
+        self._diagnostics["Iter/Returns"] = list(returns)
+        self._diagnostics["Iter/Advantages"] = list(advantages)
 
         if (not self.cfg.normalize_advantage_per_mini_batch):
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        self.storage.advantages = advantages.detach()
+        self.storage.advantages = advantages
         self.storage.returns = returns
-
-        cumulative_loss = 0 
-        cumulative_policy_loss = 0
-        cumulative_entropy_loss = 0
-        cumulative_value_loss = 0
-        cumulative_policy_grad_norm = 0
-        cumulative_value_grad_norm = 0
-        cumulative_kl_divergence = 0
-        cumulative_ratio = 0
 
         for epoch in range(self.cfg.num_learning_epochs):
             for batch in self.storage.mini_batch_generator(self.cfg.num_mini_batches):
@@ -167,8 +155,6 @@ class PPO(BaseAgent):
                     advantage = (batch.advantages - batch.advantages.mean()) / (batch.advantages.std() + 1e-8)
                 else:
                     advantage = batch.advantages
-
-                # observations = self.obs_preprocessor(batch.observations)
 
                 # update policy distribution
                 self.actor(batch.observations)
@@ -205,59 +191,31 @@ class PPO(BaseAgent):
                     max_norm=self.cfg.max_grad_norm,
                 )
 
-                cumulative_policy_grad_norm += self.actor.grad_norm
-                cumulative_value_grad_norm += self.critic.grad_norm
+                self._diagnostics["Policy Grad Norm"].append(self.actor.grad_norm)
+                self._diagnostics["Value Grad Norm"].append(self.critic.grad_norm)
 
+                self.optimizer.step()
+
+                # Diagnostics
                 clip_fraction = (
                     (torch.abs(ratio - 1.0) > self.cfg.clip_param)
                     .float()
                     .mean()
                 )
-
-                print(
-                    f"ratio       | mean: {ratio.mean().item():>9.4f} "
-                    f"| min: {ratio.min().item():>9.4f} "
-                    f"| max: {ratio.max().item():>9.4f}"
-                )
-                print(
-                    f"clip fraciton: {clip_fraction.mean().item():>9.4f} "
-                )
-                print(
-                    f"advantage   | mean: {advantage.mean().item():>9.4f} "
-                    f"| std: {advantage.std().item():>9.4f}"
-                )
-                print(f"policy loss | {policy_loss.item():>9.4f}")
-                print(f"value loss  | {value_loss.item():>9.4f}")
-                print(f"KL          | {kl_divergence.item():>9.6f}")
-
-            for name, p in self.actor.named_parameters():
-                if p.grad is None:
-                    print(name, p.grad.norm())
-
-                self.optimizer.step()
-
-                cumulative_loss += loss.item()
-                cumulative_policy_loss += policy_loss.item()
-                cumulative_value_loss += value_loss.item()
-                cumulative_kl_divergence += kl_divergence.item()
-                cumulative_ratio += ratio.mean().item()             
+                self._diagnostics["Loss"].append(loss.item())
+                self._diagnostics["Policy Loss"].append(policy_loss.item())
+                self._diagnostics["Value Loss"].append(value_loss.item())
+                self._diagnostics["KL Divergence"].append(kl_divergence.item())
+                self._diagnostics["Clip Fraction"].append(clip_fraction.item())
+                self._diagnostics["Clip Ratio"].append(ratio.item())
 
                 self.grad_step += 1
 
             self.storage.clear()
 
-        scale = self.cfg.num_mini_batches * self.cfg.num_learning_epochs
-        train_evals.update({
-            "Train/Total Loss": loss / scale,
-            "Train/Policy Loss": cumulative_policy_loss / scale,
-            "Train/Policy Grad Norm": cumulative_policy_grad_norm / scale,
-            "Train/Value Loss": cumulative_value_loss / scale,
-            "Train/Value Grad Norm": cumulative_value_grad_norm / scale,
-            "Train/Ratio": cumulative_ratio / scale,
-            "Train/KL Divergence": cumulative_kl_divergence / scale,
-        })
-        self.logger.log_scalars(train_evals, self.grad_step)
-
+        diagnostics = self._diagnostics
+        self._diagnostics = collections.defaultdict(list)
+        return self.grad_step, diagnostics
 
     def write_checkpoint(self) -> None:
         """Save the agent's models to the specified path."""

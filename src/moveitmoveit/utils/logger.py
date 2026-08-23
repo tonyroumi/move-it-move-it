@@ -45,21 +45,16 @@ class Logger:
             )
             self._wandb = wandb
 
-        self._tracking_data = collections.defaultdict(list)
+        self._tracking_data = collections.defaultdict(float)
         self._tracking_step = collections.defaultdict(int)
 
-    def track_data(self, *, tag: str, value: float, step: int):
-        self._tracking_data[tag].append(value)
+    def track_data(self, tag: str, value: float, step: int):
+        self._tracking_data[tag] = value
         self._tracking_step[tag] = step
 
-    def write_tracking_data(self):
+    def write_data(self):
         for k, v in self._tracking_data.items():
-            if k.endswith("(min)"):
-                self.writer.add_scalar(tag=k, value=np.min(v), timestep=self._tracking_step[k])
-            elif k.endswith("(max)"):
-                self.writer.add_scalar(tag=k, value=np.max(v), timestep=self._tracking_step[k])
-            else:
-                self.writer.add_scalar(tag=k, value=np.mean(v), timestep=self._tracking_step[k])
+            self._tb_writer.add_scalar(tag=k, value=v, timestep=self._tracking_step[k])
 
         # reset data containers
         self._tracking_data.clear()
