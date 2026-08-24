@@ -42,9 +42,9 @@ def compute_gae(
 
         advantages[i] = advantage
 
-    returns = advantages + values
+    gae_returns = advantages + values
 
-    return advantages, returns
+    return advantages, gae_returns
 
 class PPO(BaseAgent):
     cfg: PPOCfg
@@ -54,7 +54,7 @@ class PPO(BaseAgent):
 
         self.grad_step = 0
 
-    def initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
+    def _initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         obs_size = env.observation_space.shape[-1]
 
         self.actor = GaussianMLP(
@@ -68,19 +68,17 @@ class PPO(BaseAgent):
             **model_cfg["critic"]
         ).to(env.unwrapped.device)
 
-        self.obs_preprocessor = RunningStandardScaler(size=obs_size).to(env.unwrapped.device)
+        self._obs_preprocessor = RunningStandardScaler(size=obs_size).to(env.unwrapped.device)
+        self._value_preprocessor = RunningStandardScaler(size=1).to(env.unwrapped.device)
 
-        self._initialize_optimizer()
-
-    def initialize_storage(
+    def _initialize_storage(
         self,
         env: DirectRLEnv,
-        num_transitions_per_env: int,
         storage_cfg: dict,
     ) -> None:
         self.storage = RolloutStorage(
             num_envs=env.unwrapped.num_envs,
-            num_transitions_per_env=num_transitions_per_env,
+            num_transitions_per_env=self.cfg.num_transitions_per_env,
             obs_dim=env.observation_space.shape[-1],
             action_dim=env.action_space.shape[-1],
             device=env.unwrapped.device
@@ -96,15 +94,15 @@ class PPO(BaseAgent):
         )
 
     def act(self, observations: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
-        normed_obs = self.obs_preprocessor(observations, train=(not deterministic))
+        normed_obs = self._obs_preprocessor(observations)
         
         actions = self.actor(normed_obs, deterministic=deterministic)
         values = self.critic(normed_obs)
 
-        self.transition.observations = normed_obs
+        self.transition.observations = observations
         self.transition.actions = actions # sampled action
         self.transition.actions_log_prob = self.actor.get_actions_log_prob(actions) #log_prob
-        self.transition.values = values
+        self.transition.values = self._value_preprocessor(values, inverse=True)
 
         return actions
 
@@ -116,8 +114,6 @@ class PPO(BaseAgent):
         truncated: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
-        super().process_env_step(next_observations, rewards, terminated, truncated, infos)
-
         self.transition.rewards = rewards
         self.transition.dones = terminated
 
@@ -127,9 +123,12 @@ class PPO(BaseAgent):
         self._next_observations = next_observations
 
     def update(self) -> None:
+        super().update()
+
         with torch.no_grad():
-            last_observations = self.obs_preprocessor(self._next_observations)
+            last_observations = self._obs_preprocessor(self._next_observations)
             last_values = self.critic(last_observations)
+            last_values = self._value_preprocessor(last_values, inverse=True)
 
         advantages, returns = compute_gae(
             self.storage.rewards,
@@ -139,14 +138,13 @@ class PPO(BaseAgent):
             self.cfg.gae_lambda,
             self.cfg.discount,
         )
-        self._diagnostics["Iter/Returns"] = list(returns)
-        self._diagnostics["Iter/Advantages"] = list(advantages)
+        self._diagnostics["Iter/Advantage"] = advantages.tolist()
 
         if (not self.cfg.normalize_advantage_per_mini_batch):
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        self.storage.advantages = advantages
-        self.storage.returns = returns
+        self.storage.set_advantage(advantages)
+        self.storage.set_returns(self._value_preprocessor(returns, train=True))
 
         for epoch in range(self.cfg.num_learning_epochs):
             for batch in self.storage.mini_batch_generator(self.cfg.num_mini_batches):
@@ -156,8 +154,11 @@ class PPO(BaseAgent):
                 else:
                     advantage = batch.advantages
 
+                # update normalizer with samples that we update the policy from once. 
+                observations = self._obs_preprocessor(batch.observations, train=(not epoch))
+
                 # update policy distribution
-                self.actor(batch.observations)
+                self.actor(observations)
                 actions_log_prob = self.actor.get_actions_log_prob(batch.actions).unsqueeze(-1)
 
                 # compute approximate KL divergence
@@ -174,50 +175,84 @@ class PPO(BaseAgent):
 
                 policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
 
-                values = self.critic(batch.observations)
+                values = self.critic(observations)
+
+                # For Diagnostics
+                with torch.no_grad():
+                    explained_variance = (
+                        1.0
+                        - (batch.returns - values).var()
+                        / (batch.returns.var() + 1e-8)
+                    )
+                    clip_fraction = (
+                        (torch.abs(ratio - 1.0) > self.cfg.clip_param)
+                        .float()
+                        .mean()
+                    )
+
                 if self.cfg.use_clipped_value_loss:
                     values = batch.values + torch.clip(
                         values - batch.values, -self.cfg.value_loss_clip_param, self.cfg.value_loss_clip_param
                     )
-                value_loss = F.mse_loss(values, batch.returns)
+                value_loss = self.cfg.value_loss_coef * F.mse_loss(values, batch.returns)
 
-                loss = policy_loss + value_loss * self.cfg.value_loss_coef #- self.cfg.entropy_coef * self.actor.entropy
+                loss = policy_loss + value_loss #- self.cfg.entropy_coef * self.actor.entropy
 
                 self.optimizer.zero_grad()
                 loss.backward()
 
-                torch.nn.utils.clip_grad_norm_(
-                    itertools.chain(self.actor.parameters(), self.critic.parameters()),
-                    max_norm=self.cfg.max_grad_norm,
-                )
-
                 self._diagnostics["Policy Grad Norm"].append(self.actor.grad_norm)
                 self._diagnostics["Value Grad Norm"].append(self.critic.grad_norm)
 
+                theta_before = torch.cat([
+                    p.detach().flatten().clone()
+                    for p in self.actor.parameters()
+                ])
+
+                torch.nn.utils.clip_grad_norm_(
+                    self.actor.parameters(),
+                    max_norm=self.cfg.max_grad_norm,
+                )
+
+                torch.nn.utils.clip_grad_norm_(
+                    self.critic.parameters(),
+                    max_norm=self.cfg.max_grad_norm,
+                )
+
                 self.optimizer.step()
 
-                # Diagnostics
-                clip_fraction = (
-                    (torch.abs(ratio - 1.0) > self.cfg.clip_param)
-                    .float()
-                    .mean()
+                theta_after = torch.cat([
+                    p.detach().flatten()
+                    for p in self.actor.parameters()
+                ])
+
+                relative_update = (
+                    torch.norm(theta_after - theta_before)
+                    / torch.norm(theta_before)
                 )
-                self._diagnostics["Loss"].append(loss.item())
+
+                self._diagnostics["Relative Policy Update"].append(relative_update)
+
+                # Diagnostics
+                self._diagnostics["Total Loss"].append(loss.item())
                 self._diagnostics["Policy Loss"].append(policy_loss.item())
                 self._diagnostics["Value Loss"].append(value_loss.item())
                 self._diagnostics["KL Divergence"].append(kl_divergence.item())
                 self._diagnostics["Clip Fraction"].append(clip_fraction.item())
-                self._diagnostics["Clip Ratio"].append(ratio.item())
+                self._diagnostics["Clip Ratio (std)"].append(ratio.std().item())
+                self._diagnostics["Clip Ratio (min)"].append(ratio.min().item())
+                self._diagnostics["Clip Ratio (max)"].append(ratio.max().item())
+                self._diagnostics["Explained Variance"].append(explained_variance.mean().item())
 
                 self.grad_step += 1
 
-            self.storage.clear()
+        self.storage.clear()
 
         diagnostics = self._diagnostics
         self._diagnostics = collections.defaultdict(list)
         return self.grad_step, diagnostics
 
-    def write_checkpoint(self) -> None:
+    def write_checkpoint(self, timestep: int) -> None:
         """Save the agent's models to the specified path."""
         path = os.path.join(self.logger.log_dir, "checkpoints")
         os.makedirs(path, exist_ok=True)
@@ -225,14 +260,14 @@ class PPO(BaseAgent):
         torch.save({
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
-            "obs_preprocessor": self.obs_preprocessor.state_dict(),
+            "_obs_preprocessor": self._obs_preprocessor.state_dict(),
             "optimizer": self.optimizer.state_dict(),
-        }, f"{path}/{self.env_step}.pt")
+        }, f"{path}/{timestep}.pt")
 
     def load_checkpoint(self, path: str, device: torch.device) -> None:
         """Load the agent's models from the specified path."""
         checkpoint = torch.load(path, map_location=device)
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
-        self.obs_preprocessor.load_state_dict(checkpoint["obs_preprocessor"])
+        self._obs_preprocessor.load_state_dict(checkpoint["_obs_preprocessor"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])

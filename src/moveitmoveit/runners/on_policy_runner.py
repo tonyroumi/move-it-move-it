@@ -21,8 +21,6 @@ class OnPolicyRunnerCfg:
     timesteps: int = 100000
     """Number of timesteps to train/evaluate for."""
 
-    num_transitions_per_env: int = 32
-
     write_interval: int = 1000
     """ Interval to log shtuff. """
 
@@ -44,8 +42,8 @@ class OnPolicyRunner:
         self.logger = logger
 
         # Diagnostics
-        self._track_rewards = collections.deque(maxlen=env.unwrapped.max_episode_length)
-        self._track_timesteps = collections.deque(maxlen=env.unwrapped.max_episode_length)
+        self._track_rewards = collections.deque(maxlen=100)
+        self._track_timesteps = collections.deque(maxlen=100)
         self._cumulative_rewards = None
         self._cumulative_timesteps = None
 
@@ -59,17 +57,16 @@ class OnPolicyRunner:
             cfg = cfg_cls(**cfg["agent"]),
             logger = self.logger
         )
-        self.agent.initialize_models(self.env, cfg["models"])
-        self.agent.initialize_storage(self.env, self.cfg.num_transitions_per_env, cfg["storage"])
+        self.agent.init(self.env, cfg)
 
     def learn(self) -> None:
         observations, infos = self.env.reset()
 
-        total_iterations = self.cfg.timesteps // self.cfg.num_transitions_per_env
+        total_iterations = self.cfg.timesteps // self.agent.cfg.num_transitions_per_env
         timestep = 0
 
-        for iteration in tqdm.tqdm(range(total_iterations), disable=True):
-            for _ in range(self.cfg.num_transitions_per_env):
+        for iteration in tqdm.tqdm(range(total_iterations), disable=False):
+            for _ in range(self.agent.cfg.num_transitions_per_env):
                 with torch.no_grad():
                     actions = self.agent.act(observations)
 
@@ -91,7 +88,7 @@ class OnPolicyRunner:
             self.write_agent_diagnostics(infos, iteration, grad_steps, timestep)
 
             if iteration % self.cfg.checkpoint_interval == 0:
-                self.agent.write_checkpoint()
+                self.agent.write_checkpoint(timestep)
             self.logger.write_data()
 
     def write_env_diagnostics(self, rewards: torch.Tensor, dones: torch.Tensor, infos: dict, timestep):
@@ -114,14 +111,13 @@ class OnPolicyRunner:
             track_rewards = np.array(self._track_rewards)
             track_timesteps = np.array(self._track_timesteps)
 
-            self.logger.track_data("Performance / Episode Reward (max)", np.max(track_rewards), timestep)
-            self.logger.track_data("Performance / Episode Reward (min)", np.min(track_rewards), timestep)
-            self.logger.track_data("Performance / Episode Reward (mean)", np.mean(track_rewards), timestep)
+            self.logger.track_data("Performance/Episode Reward (max)", np.max(track_rewards), timestep)
+            self.logger.track_data("Performance/Episode Reward (min)", np.min(track_rewards), timestep)
+            self.logger.track_data("Performance/Episode Reward (mean)", np.mean(track_rewards), timestep)
 
-            self.logger.track_data("Performance / Episode Length (max)", np.max(track_timesteps), timestep)
-            self.logger.track_data("Performance / Episode Length (min)", np.min(track_timesteps), timestep)
-            self.logger.track_data("Performance / Episode Length (mean)", np.mean(track_timesteps), timestep)
-            self.logger.track_data("Performance / Episode Length (mean)", np.std(track_timesteps), timestep)
+            self.logger.track_data("Performance/Episode Length (max)", np.max(track_timesteps), timestep)
+            self.logger.track_data("Performance/Episode Length (min)", np.min(track_timesteps), timestep)
+            self.logger.track_data("Performance/Episode Length (mean)", np.mean(track_timesteps), timestep)
 
         for k, v in infos.get("log", {}).items():
             self.logger.track_data(tag=k, value=v, step=timestep)
@@ -129,8 +125,9 @@ class OnPolicyRunner:
     def write_agent_diagnostics(self, infos: dict[str, list], iteration: int, grad_step: int, timestep: int):
         for k, v in infos.items():
             if "Iter" in k:
-                k = k.split("/")[-1]# some flag then the returns and advatnages will be for the rollout phase
-                self.logger.track_data(f"Debug / {k}", v, iteration)
+                k = k.split("/")[-1]
+                self.logger.track_data(f"Debug /{k} (mean)", np.mean(v[0]), iteration)
             else:
-                self.logger.track_data(f"Train / {k}", v, timestep)
-                self.logger.track_data(f"Debug / {k}", v, grad_step)
+                # per-minibatch values collected across the whole update; report their mean
+                value = sum(v) / len(v) if isinstance(v, list) else v
+                self.logger.track_data(f"Train/{k}", value, grad_step)

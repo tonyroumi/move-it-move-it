@@ -54,7 +54,7 @@ class Logger:
 
     def write_data(self):
         for k, v in self._tracking_data.items():
-            self._tb_writer.add_scalar(tag=k, value=v, timestep=self._tracking_step[k])
+            self._tb_writer.add_scalar(tag=k, scalar_value=v, global_step=self._tracking_step[k])
 
         # reset data containers
         self._tracking_data.clear()

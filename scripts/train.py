@@ -104,15 +104,16 @@ def main():
             print(f"[INFO] Loading model checkpoint from: {resume_path}")
             runner.agent.load_checkpoint(resume_path)
 
-        # run training
+        # run training  
         try:
             runner.learn()
             
             print(f"Training time: {round(time.time() - start_time, 2)} seconds")
 
             # save a final checkpoint
+            timesteps = agent_cfg["runner"]["timesteps"]
             os.makedirs(os.path.join(log_dir, "checkpoints"), exist_ok=True)
-            runner.agent.write_checkpoint()
+            runner.agent.write_checkpoint(timesteps)
             print(f"[INFO] Saved final agent checkpoint to: {log_dir}/checkpoints")
             # close the simulator
             env.close()

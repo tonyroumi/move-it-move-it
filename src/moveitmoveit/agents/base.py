@@ -32,12 +32,24 @@ class BaseAgent(ABC):
 
         self._diagnostics = collections.defaultdict(list)
 
+        self._update_step = 0
+
+    def init(self, env: DirectRLEnv, cfg: dict) -> None:
+        """Initialize the agent with the environment and configuration."""
+        self._initialize_models(env, cfg["models"])
+        self._initialize_optimizer()
+        self._initialize_storage(env, cfg["storage"])
+
     @abstractmethod
-    def initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
+    def _initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         pass
 
     @abstractmethod
-    def initialize_storage(self, env: DirectRLEnv, num_transitions_per_env: int, storage_cfg: dict) -> None:
+    def _initialize_optimizer(self) -> None:
+        pass
+
+    @abstractmethod
+    def _initialize_storage(self, env: DirectRLEnv, num_transitions_per_env: int, storage_cfg: dict) -> None:
         pass
 
     @abstractmethod
@@ -61,10 +73,10 @@ class BaseAgent(ABC):
     @abstractmethod
     def update(self) -> None:
         """Run gradient updates."""
-        pass
+        self._update_step += 1
 
     @abstractmethod
-    def write_checkpoint(self) -> None:
+    def write_checkpoint(self, timestep: int) -> None:
         """Save the agent's models to the specified path."""
         pass
 

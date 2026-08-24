@@ -6,13 +6,16 @@ from moveitmoveit.agents.base import BaseCfg
 @dataclass(kw_only=True)
 class PPOCfg(BaseCfg):
 
+    num_transitions_per_env: int = 32 
+    """Number of transitions in a rollout."""
+
     num_mini_batches: int = 1
     """Number of mini-batches used to split each collected rollout batch."""
 
     num_learning_epochs: int = 4
     """Number of optimization passes over the collected rollout data."""
 
-    learning_rate: float = 3e-4
+    learning_rate: float = 5e-4
     """Learning rate used by the optimizer."""
 
     max_grad_norm: float = 1.0

@@ -11,7 +11,7 @@ models:
     hidden_layers: [64, 64]
     activation: elu
     noise_std_type: fixed
-    init_noise_std: 0.055
+    init_noise_std: 0.1
     weight_init:
       type: uniform
       trunk:
@@ -41,13 +41,15 @@ storage:
 agent:
   class_type: PPO
 
+  num_transitions_per_env: 32
+
   num_mini_batches: 8
   num_learning_epochs: 8
   learning_rate: 0.0005
 
   clip_param: 0.2
   value_loss_coef: 1.0
-  entropy_coef: 0.01
+  entropy_coef: 0.0
   max_grad_norm: 1.0
   use_clipped_value_loss: False
   value_loss_clip_param: 0.2
@@ -57,9 +59,8 @@ agent:
   
   gae_lambda: 0.95
   discount: 0.99
-  normalize_advantage_per_mini_batch: True
+  normalize_advantage_per_mini_batch: False
 
 
 runner:
-  timesteps: 100000
-  num_transitions_per_env: 32
+  timesteps: 6400
