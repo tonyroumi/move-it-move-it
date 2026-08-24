@@ -30,12 +30,10 @@ class BaseAgent(ABC):
         self.cfg = cfg
         self.logger = logger
 
-        self._diagnostics = collections.defaultdict(list)
-
-        self._update_step = 0
-
     def init(self, env: DirectRLEnv, cfg: dict) -> None:
         """Initialize the agent with the environment and configuration."""
+        self._step_dt = env.unwrapped.step_dt # policy frequency
+
         self._initialize_models(env, cfg["models"])
         self._initialize_optimizer()
         self._initialize_storage(env, cfg["storage"])
@@ -68,12 +66,26 @@ class BaseAgent(ABC):
     ) -> None:
         """Record reward, done flags, and optional step info, then flush the
         current transition into the rollout buffer. """
-        pass
+        infos = infos or {}
+        infos.update({
+            "rewards": rewards,
+            "dones": terminated | truncated,
+            "step_dt": self._step_dt,
+        })
+        self.logger.add_env_info(infos)
+        self.logger.env_step()
 
     @abstractmethod
     def update(self) -> None:
         """Run gradient updates."""
-        self._update_step += 1
+
+    @abstractmethod
+    def inference(self) -> None:
+        """Inference Mode """
+
+    @abstractmethod
+    def train(self) -> None:
+        """Train mode"""
 
     @abstractmethod
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:

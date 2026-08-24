@@ -134,6 +134,12 @@ class RolloutStorage:
         # Increment the counter
         self.step += 1
 
+    def set_advantage(self, advantage: torch.Tensor) -> None:
+        self.advantages.copy_(advantage)
+
+    def set_returns(self, returns: torch.Tensor) -> None:
+        self.returns.copy_(returns)
+
     def clear(self) -> None:
         """Reset the write cursor for the next rollout."""
         self.step = 0

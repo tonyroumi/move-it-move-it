@@ -1,13 +1,18 @@
 seed: 42
 
 experiment:
-  directory: "humanoid_walk"
+  directory: "walk"
   experiment_name: ""
+
+logger:
+  backend: tensorboard
+  write_interval: 1
+  checkpoint_interval: 1000
 
 models:
   actor:
     hidden_layers: [1024, 512]
-    activation: relu
+    activation: elu
     noise_std_type: fixed
     init_noise_std: 0.05
     weight_init:
@@ -22,7 +27,7 @@ models:
 
   critic:
     hidden_layers: [1024, 512]
-    activation: relu
+    activation: elu
     weight_init:
       type: uniform
       trunk:
@@ -35,7 +40,7 @@ models:
 
   discriminator:
     hidden_layers: [1024, 512]
-    activation: relu
+    activation: elu
     weight_init:
       type: uniform
       trunk:
@@ -53,11 +58,26 @@ storage:
 agent:
   class_type: AMP
 
-  num_mini_batches
+  num_transitions_per_env: 16
+
+  num_mini_batches: 8
+  num_learning_epochs: 8
+  learning_rate: 0.0005
+
+  clip_param: 0.2
+  value_loss_coef: 2.0
+  entropy_coef: 0.01
+  max_grad_norm: 1.0
+  use_clipped_value_loss: False
+  value_loss_clip_param: 0.2
+
+  desired_kl: 0.01
+  adaptive_kl: False
+  
+  gae_lambda: 0.95
+  discount: 0.99
+  normalize_advantage_per_mini_batch: False
+
 
 runner:
   timesteps: 2000000
-  num_transitions_per_env: 32
-
-  log_interval: 1
-  checkpoint_interval: 100  # iterations between saves

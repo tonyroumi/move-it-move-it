@@ -3,7 +3,6 @@
 import argparse
 import contextlib
 import os
-import random
 import sys
 import time
 
@@ -11,17 +10,12 @@ import gymnasium as gym
 import torch
 
 import moveitmoveit
+from moveitmoveit.utils.paths import resolve_checkpoint
 
-from isaaclab.envs import DirectMARLEnvCfg
-from isaaclab.utils.dict import print_dict
 from isaaclab.utils.seed import configure_seed
 
-from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
-
-import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import (
     add_launcher_args,
-    get_checkpoint_path,
     launch_simulation,
     resolve_task_config,
     setup_preset_cli,
@@ -36,6 +30,15 @@ parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent f
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint.")
+parser.add_argument(
+    "--step",
+    type=int,
+    default=None,
+    help=(
+        "Timestep of the checkpoint to play (checkpoints/{step}.pt), taken from the most recently "
+        "written run directory. Ignored if --checkpoint is provided."
+    ),
+)
 parser.add_argument(
     "--algorithm",
     type=str,
@@ -66,10 +69,7 @@ def main():
 
         print(f"[INFO] Loading experiment from directory: {log_root_path}")
 
-        if args_cli.checkpoint:
-            resume_path = os.path.abspath(args_cli.checkpoint)
-        else:
-            raise ValueError("Please specify a checkpoint path to play.")
+        resume_path = resolve_checkpoint(log_root_path, checkpoint=args_cli.checkpoint, step=args_cli.step)
 
         log_dir = os.path.dirname(os.path.dirname(resume_path))
 
@@ -100,10 +100,7 @@ def main():
         print(f"[INFO] Loading model checkpoint from: {resume_path}")
         runner.agent.load_checkpoint(resume_path, device=env.unwrapped.device)
 
-        # reset environment
         obs, _ = env.reset()
-        timestep = 0
-        # simulate environment
         try:
             while True:
                 start_time = time.time()

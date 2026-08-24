@@ -21,7 +21,6 @@ class AMPCfg(PPOCfg):
     disc_batch_size: int = 2048
 
     disc_grad_penalty_coef: float = 5.0
-    num_disc_obs_steps: int = 10
 
-    disc_reward_lambda: float = 2 
+    style_reward_lambda: float = 2 
     goal_reward_lambda: float = 1.0

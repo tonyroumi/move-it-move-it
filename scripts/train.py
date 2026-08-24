@@ -9,7 +9,6 @@ import time
 from datetime import datetime
 
 import gymnasium as gym
-import torch
 
 import moveitmoveit
 
@@ -17,7 +16,6 @@ from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.io import dump_yaml
 from isaaclab.utils.seed import configure_seed
 
-# import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import (
     add_launcher_args,
     launch_simulation,
@@ -90,14 +88,19 @@ def main():
         from moveitmoveit.runners import OnPolicyRunner
         from moveitmoveit.utils.logger import Logger
         
-        logger = Logger(backend="tensorboard", log_dir=log_dir, exp_cfg=agent_cfg["experiment"])
+        logger = Logger(
+            log_dir=log_dir,
+            **agent_cfg["logger"],
+            total_timesteps=agent_cfg["runner"]["timesteps"],
+        )
         runner = OnPolicyRunner(
             cfg=agent_cfg,
             env=env,
             logger=logger,
         )
 
-        configure_seed(env_cfg.seed, True)
+        if args_cli.deterministic:
+            configure_seed(env_cfg.seed, True)
 
         # load checkpoint (if specified)
         if resume_path:
