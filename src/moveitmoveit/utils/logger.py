@@ -80,6 +80,13 @@ class Logger:
         self.mean_episode_reward: Optional[float] = None
         self._best_mean_episode_reward = float("-inf")
 
+        # Per-episode reward term tracking (mirrors the episode reward tracking above,
+        # keyed by term name), staged from `info["reward_terms"]`.
+        self._track_reward_terms: Dict[str, collections.deque] = collections.defaultdict(
+            lambda: collections.deque(maxlen=100)
+        )
+        self._cumulative_reward_terms: Dict[str, torch.Tensor] = {}
+
         # Per-step env info staged by `add_env_info`, consumed by `env_step`.
         self._env_info: Dict[str, Any] = {}
 
@@ -94,6 +101,7 @@ class Logger:
         # Curated values shown by `log`, refreshed by `env_step` / `log`.
         self._core_performance: Dict[str, float] = {}
         self._core_train: Dict[str, float] = {}
+        self._core_rewards: Dict[str, float] = {}
 
     def step(self, num_steps: int = 1) -> None:
         """Advance the env-step counter used as the x-axis for step-indexed tags."""
@@ -175,6 +183,24 @@ class Logger:
         for k, v in info.get("log", {}).items():
             self.track_data(tag=k, value=v, step=timestep)
 
+        core_rewards = {}
+        for name, values in info.get("reward_terms", {}).items():
+            if name not in self._cumulative_reward_terms:
+                self._cumulative_reward_terms[name] = torch.zeros_like(values, dtype=torch.float32)
+            self._cumulative_reward_terms[name].add_(values)
+
+            if dones.any():
+                self._track_reward_terms[name].extend(self._cumulative_reward_terms[name][dones].tolist())
+                self._cumulative_reward_terms[name][dones] = 0
+
+            if len(self._track_reward_terms[name]):
+                mean_value = float(np.mean(self._track_reward_terms[name]))
+                self.track_data(f"Reward/{name} (mean)", mean_value, timestep)
+                core_rewards[f"{name} (mean)"] = mean_value
+
+        if core_rewards:
+            self._core_rewards = core_rewards
+
     def add_training_info(self, name: str, value) -> None:
         """Record a per-update training diagnostic (loss, KL, ...); averaged over the update."""
         self._add_diagnostic(name, value)
@@ -237,6 +263,11 @@ class Logger:
         if self._core_performance:
             lines.append("-" * width)
             for k, v in self._core_performance.items():
+                lines.append(f"{k + ':':<24}{v:.4f}")
+
+        if self._core_rewards:
+            lines.append("-" * width)
+            for k, v in self._core_rewards.items():
                 lines.append(f"{k + ':':<24}{v:.4f}")
 
         core_train_display = {k: v for k, v in self._core_train.items() if k != "Learning Rate"}
