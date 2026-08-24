@@ -252,17 +252,18 @@ class PPO(BaseAgent):
         self._diagnostics = collections.defaultdict(list)
         return self.grad_step, diagnostics
 
-    def write_checkpoint(self, timestep: int) -> None:
+    def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:
         """Save the agent's models to the specified path."""
         path = os.path.join(self.logger.log_dir, "checkpoints")
         os.makedirs(path, exist_ok=True)
 
+        filename = filename if filename is not None else f"{timestep}.pt"
         torch.save({
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
             "_obs_preprocessor": self._obs_preprocessor.state_dict(),
             "optimizer": self.optimizer.state_dict(),
-        }, f"{path}/{timestep}.pt")
+        }, f"{path}/{filename}")
 
     def load_checkpoint(self, path: str, device: torch.device) -> None:
         """Load the agent's models from the specified path."""
