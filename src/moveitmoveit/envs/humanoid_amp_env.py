@@ -104,7 +104,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.amp_observation_buffer[:, 0] = obs.clone()
         self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
 
-        return obs, self.extras
+        return obs
 
     def _get_rewards(self) -> torch.Tensor:
         return torch.ones((self.num_envs,), dtype=torch.float32, device=self.sim.device)

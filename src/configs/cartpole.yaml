@@ -1,11 +1,14 @@
 seed: 42
 
 experiment:
-  directory: "cartpole_test"
+  directory: "ppo_test"
   experiment_name: ""
-  write_interval: 100
-  checkpoint_interval: 100
 
+logger:
+  backend: tensorboard
+  write_interval: 1
+  checkpoint_interval: 100
+  
 models:
   actor:
     hidden_layers: [64, 64]
@@ -63,4 +66,5 @@ agent:
 
 
 runner:
-  timesteps: 6400
+  timesteps: 10000000
+  use_pbar: False

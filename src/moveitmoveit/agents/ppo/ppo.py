@@ -4,6 +4,7 @@ import collections
 import itertools
 import math
 import os
+import time
 
 import torch
 import torch.nn as nn
@@ -16,6 +17,7 @@ from skrl.resources.preprocessors.torch import RunningStandardScaler
 from moveitmoveit.models import GaussianMLP, MLP
 from moveitmoveit.storage import RolloutStorage
 from moveitmoveit.utils.logger import Logger
+from moveitmoveit.utils.utils import explained_variance, fraction_outside_bounds
 
 from .ppo_cfg import PPOCfg
 from ..base import BaseAgent
@@ -51,8 +53,6 @@ class PPO(BaseAgent):
 
     def __init__(self, cfg: dict, logger: Logger):
         super().__init__(cfg=cfg, logger=logger)
-
-        self.grad_step = 0
 
     def _initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         obs_size = env.observation_space.shape[-1]
@@ -94,15 +94,16 @@ class PPO(BaseAgent):
         )
 
     def act(self, observations: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
-        normed_obs = self._obs_preprocessor(observations)
-        
-        actions = self.actor(normed_obs, deterministic=deterministic)
-        values = self.critic(normed_obs)
+        with torch.no_grad():
+            normed_obs = self._obs_preprocessor(observations)
+            
+            actions = self.actor(normed_obs, deterministic=deterministic)
+            values = self.critic(normed_obs)
 
-        self.transition.observations = observations
-        self.transition.actions = actions # sampled action
-        self.transition.actions_log_prob = self.actor.get_actions_log_prob(actions) #log_prob
-        self.transition.values = self._value_preprocessor(values, inverse=True)
+            self.transition.observations = observations
+            self.transition.actions = actions # sampled action
+            self.transition.actions_log_prob = self.actor.get_actions_log_prob(actions) #log_prob
+            self.transition.values = self._value_preprocessor(values, inverse=True)
 
         return actions
 
@@ -122,9 +123,9 @@ class PPO(BaseAgent):
 
         self._next_observations = next_observations
 
-    def update(self) -> None:
-        super().update()
+        super().process_env_step(next_observations, rewards, terminated, truncated, infos)
 
+    def update(self) -> None:
         with torch.no_grad():
             last_observations = self._obs_preprocessor(self._next_observations)
             last_values = self.critic(last_observations)
@@ -138,7 +139,7 @@ class PPO(BaseAgent):
             self.cfg.gae_lambda,
             self.cfg.discount,
         )
-        self._diagnostics["Iter/Advantage"] = advantages.tolist()
+        self.logger.add_training_info("Advantage", advantages)
 
         if (not self.cfg.normalize_advantage_per_mini_batch):
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -177,19 +178,6 @@ class PPO(BaseAgent):
 
                 values = self.critic(observations)
 
-                # For Diagnostics
-                with torch.no_grad():
-                    explained_variance = (
-                        1.0
-                        - (batch.returns - values).var()
-                        / (batch.returns.var() + 1e-8)
-                    )
-                    clip_fraction = (
-                        (torch.abs(ratio - 1.0) > self.cfg.clip_param)
-                        .float()
-                        .mean()
-                    )
-
                 if self.cfg.use_clipped_value_loss:
                     values = batch.values + torch.clip(
                         values - batch.values, -self.cfg.value_loss_clip_param, self.cfg.value_loss_clip_param
@@ -201,56 +189,45 @@ class PPO(BaseAgent):
                 self.optimizer.zero_grad()
                 loss.backward()
 
-                self._diagnostics["Policy Grad Norm"].append(self.actor.grad_norm)
-                self._diagnostics["Value Grad Norm"].append(self.critic.grad_norm)
-
-                theta_before = torch.cat([
-                    p.detach().flatten().clone()
-                    for p in self.actor.parameters()
-                ])
+                self.logger.add_info("Policy Grad Norm", self.actor.grad_norm)
+                self.logger.add_info("Value Grad Norm", self.critic.grad_norm)
 
                 torch.nn.utils.clip_grad_norm_(
-                    self.actor.parameters(),
+                    itertools.chain(self.actor.parameters(), self.critic.parameters()),
                     max_norm=self.cfg.max_grad_norm,
                 )
-
-                torch.nn.utils.clip_grad_norm_(
-                    self.critic.parameters(),
-                    max_norm=self.cfg.max_grad_norm,
-                )
-
                 self.optimizer.step()
 
-                theta_after = torch.cat([
-                    p.detach().flatten()
-                    for p in self.actor.parameters()
-                ])
-
-                relative_update = (
-                    torch.norm(theta_after - theta_before)
-                    / torch.norm(theta_before)
-                )
-
-                self._diagnostics["Relative Policy Update"].append(relative_update)
 
                 # Diagnostics
-                self._diagnostics["Total Loss"].append(loss.item())
-                self._diagnostics["Policy Loss"].append(policy_loss.item())
-                self._diagnostics["Value Loss"].append(value_loss.item())
-                self._diagnostics["KL Divergence"].append(kl_divergence.item())
-                self._diagnostics["Clip Fraction"].append(clip_fraction.item())
-                self._diagnostics["Clip Ratio (std)"].append(ratio.std().item())
-                self._diagnostics["Clip Ratio (min)"].append(ratio.min().item())
-                self._diagnostics["Clip Ratio (max)"].append(ratio.max().item())
-                self._diagnostics["Explained Variance"].append(explained_variance.mean().item())
+                ev = explained_variance(values.detach(), batch.returns)
+                clip_fraction = fraction_outside_bounds(
+                    ratio.detach(),
+                    1.0 - self.cfg.clip_param,
+                    1.0 + self.cfg.clip_param,
+                )
 
-                self.grad_step += 1
+                self.logger.add_training_info("Total Loss", loss.item())
+                self.logger.add_training_info("Policy Loss", policy_loss.item())
+                self.logger.add_training_info("Value Loss", value_loss.item())
+                self.logger.add_training_info("KL Divergence", kl_divergence.item())
+                self.logger.add_training_info("Clip Fraction", clip_fraction.item())
+                self.logger.add_training_info("Clip Ratio (std)", ratio.std().item())
+                self.logger.add_training_info("Clip Ratio (min)", ratio.min().item())
+                self.logger.add_training_info("Clip Ratio (max)", ratio.max().item())
+                self.logger.add_training_info("Explained Variance", ev.mean().item())
+                self.logger.grad_step(0)
 
         self.storage.clear()
 
-        diagnostics = self._diagnostics
-        self._diagnostics = collections.defaultdict(list)
-        return self.grad_step, diagnostics
+    def train(self) -> None:
+        """Train mode"""
+        self.actor.train()
+        self.critic.train()
+
+    def inference(self) -> None:
+        self.actor.eval()
+        self.critic.eval()
 
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:
         """Save the agent's models to the specified path."""
