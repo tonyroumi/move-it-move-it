@@ -46,6 +46,8 @@ class OnPolicyRunner:
         self._track_timesteps = collections.deque(maxlen=100)
         self._cumulative_rewards = None
         self._cumulative_timesteps = None
+        self._mean_episode_reward = None
+        self._best_mean_episode_reward = float("-inf")
 
         # Agent
         self._initialize_agent(cfg)
@@ -89,6 +91,9 @@ class OnPolicyRunner:
 
             if iteration % self.cfg.checkpoint_interval == 0:
                 self.agent.write_checkpoint(timestep)
+            if self._mean_episode_reward is not None and self._mean_episode_reward > self._best_mean_episode_reward:
+                self._best_mean_episode_reward = self._mean_episode_reward
+                self.agent.write_checkpoint(timestep, filename="best_agent.pt")
             self.logger.write_data()
 
     def write_env_diagnostics(self, rewards: torch.Tensor, dones: torch.Tensor, infos: dict, timestep):
@@ -111,13 +116,19 @@ class OnPolicyRunner:
             track_rewards = np.array(self._track_rewards)
             track_timesteps = np.array(self._track_timesteps)
 
+            self._mean_episode_reward = np.mean(track_rewards)
+
             self.logger.track_data("Performance/Episode Reward (max)", np.max(track_rewards), timestep)
             self.logger.track_data("Performance/Episode Reward (min)", np.min(track_rewards), timestep)
-            self.logger.track_data("Performance/Episode Reward (mean)", np.mean(track_rewards), timestep)
+            self.logger.track_data("Performance/Episode Reward (mean)", self._mean_episode_reward, timestep)
 
             self.logger.track_data("Performance/Episode Length (max)", np.max(track_timesteps), timestep)
             self.logger.track_data("Performance/Episode Length (min)", np.min(track_timesteps), timestep)
             self.logger.track_data("Performance/Episode Length (mean)", np.mean(track_timesteps), timestep)
+
+            self.logger.track_data(
+                "Performance/Episode Time (mean) [s]", np.mean(track_timesteps) * self.env.step_dt, timestep
+            )
 
         for k, v in infos.get("log", {}).items():
             self.logger.track_data(tag=k, value=v, step=timestep)

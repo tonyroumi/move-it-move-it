@@ -76,7 +76,7 @@ class BaseAgent(ABC):
         self._update_step += 1
 
     @abstractmethod
-    def write_checkpoint(self, timestep: int) -> None:
+    def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:
         """Save the agent's models to the specified path."""
         pass
 
