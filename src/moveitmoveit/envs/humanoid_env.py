@@ -72,10 +72,10 @@ def compute_rot(
     return vel_loc, angvel_loc, roll, pitch, yaw, angle_to_target
 
 
-class HumanoidEnv(DirectRLEnv):
-    cfg: HumanoidEnvCfg
+class LocomotionEnv(DirectRLEnv):
+    cfg: DirectRLEnvCfg
 
-    def __init__(self, cfg: HumanoidEnvCfg, render_mode: str | None = None, **kwargs):
+    def __init__(self, cfg: DirectRLEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.action_scale = self.cfg.action_scale
@@ -108,7 +108,7 @@ class HumanoidEnv(DirectRLEnv):
         self.basis_vec0 = self.heading_vec.clone()
         self.basis_vec1 = self.up_vec.clone()
 
-        self.commands = torch.zeros(self.num_envs, 2, device=self.sim.device)
+        self.command = torch.zeros(self.num_envs, 3, device=self.sim.device)
 
     def _setup_scene(self):
         self.robot = self.scene["humanoid"]
@@ -163,15 +163,6 @@ class HumanoidEnv(DirectRLEnv):
         )
 
     def _get_observations(self) -> dict:
-
-        # resample commands
-        elapsed_time = self.episode_length_buf * self.step_dt
-        env_ids = torch.nonzero(
-            torch.remainder(elapsed_time, self.cfg.command_resample_time) < self.step_dt,
-            as_tuple=False,
-        ).squeeze(-1)
-        self._resample_commands(env_ids)
-
         obs = torch.cat(
             (
                 self.torso_position[:, 2].view(-1, 1),
@@ -185,11 +176,10 @@ class HumanoidEnv(DirectRLEnv):
                 self.dof_pos_scaled,
                 self.dof_vel * self.cfg.dof_vel_scale,
                 self.actions,
-                self.commands
             ),
             dim=-1,
         )
-        observations = obs
+        observations = obs #{"policy": obs}
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
@@ -202,8 +192,6 @@ class HumanoidEnv(DirectRLEnv):
             actions_cost_term,
             energy_cost_term,
             dof_limit_term,
-            lin_vel_term,
-            yaw_term,
             death_term,
         ) = compute_reward_terms(
             self.actions,
@@ -216,18 +204,14 @@ class HumanoidEnv(DirectRLEnv):
             self.dof_pos_scaled,
             self.potentials,
             self.prev_potentials,
-            self.vel_loc,
-            self.angvel_loc,
-            self.commands,
             self.cfg.actions_cost_scale,
             self.cfg.energy_cost_scale,
             self.cfg.dof_vel_scale,
             self.cfg.death_cost,
             self.cfg.alive_reward_scale,
-            self.cfg.track_lin_scale,
-            self.cfg.track_yaw_scale,
             self.motor_effort_ratio,
         )
+
         # scaled reward terms as the algorithm sees them, accumulated per-episode by the logger
         self.extras["reward_terms"] = {
             "Progress": progress_reward,
@@ -237,8 +221,6 @@ class HumanoidEnv(DirectRLEnv):
             "Actions Cost": actions_cost_term,
             "Energy Cost": energy_cost_term,
             "DOF Limit Cost": dof_limit_term,
-            "Linear Velocity Tracking": lin_vel_term,
-            "Angular Velocity Tracking": yaw_term,
             "Death": death_term,
         }
 
@@ -259,7 +241,6 @@ class HumanoidEnv(DirectRLEnv):
         self.extras.setdefault("log", {})["Metrics/success_rate"] = survived.mean().item()
 
         self.robot.reset(env_ids)
-        self._resample_commands()
         super()._reset_idx(env_ids)
 
         joint_pos = self.robot.data.default_joint_pos.torch[env_ids].clone()
@@ -279,14 +260,6 @@ class HumanoidEnv(DirectRLEnv):
 
         self._compute_intermediate_values()
 
-    def _resample_commands(self, env_ids):
-        commands = self.commands[env_ids]
-
-        commands[:, 0].uniform_(self.cfg.lin_range[0], self.cfg.lin_range[1])
-        commands[:, 1].uniform_(self.cfg.yaw_range[0], self.cfg.yaw_range[1])
-
-        no_command = torch.rand(len(env_ids), device=self.device) < 0.15
-        commands[no_command] = 0.0
 
 @torch.jit.script
 def compute_reward_terms(
@@ -300,20 +273,14 @@ def compute_reward_terms(
     dof_pos_scaled: torch.Tensor,
     potentials: torch.Tensor,
     prev_potentials: torch.Tensor,
-    vel_loc: torch.Tensor,
-    angvel_loc: torch.Tensor,
-    commands: torch.Tensor,
     actions_cost_scale: float,
     energy_cost_scale: float,
     dof_vel_scale: float,
     death_cost: float,
     alive_reward_scale: float,
-    track_lin_scale: float,
-    track_yaw_scale: float,
     motor_effort_ratio: torch.Tensor,
 ) -> tuple[
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
-    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
 ]:
     """Same decomposition as `locomotion_env.compute_rewards`, but broken out per term
@@ -339,31 +306,6 @@ def compute_reward_terms(
     alive_reward = torch.ones_like(potentials) * alive_reward_scale
     progress_reward = potentials - prev_potentials
 
-    #command rewards
-    lin_vel_error = torch.sum(
-        torch.square(vel_loc[:, :2] - commands[:, :2]),
-        dim=1,
-    )
-
-    lin_vel_reward = torch.exp(-lin_vel_error / 0.25)
-
-    yaw_error = torch.square(
-        angvel_loc[:, 2] - commands[:, 2]
-    )
-    yaw_reward = torch.exp(-yaw_error / 0.25)
-
-    # stationary = torch.linalg.vector_norm(commands, dim=1) < 0.05
-
-    # stand_joint_error = torch.sum(
-    #     torch.square(dof_pos_scaled - default_joint_pos),
-    #     dim=1,
-    # )
-
-    # stationary_term -= stationary * 0.5 * stand_joint_error
-
-    lin_vel_term = track_lin_scale * lin_vel_reward 
-    yaw_term = track_yaw_scale * yaw_reward
-
     actions_cost_term = -actions_cost_scale * actions_cost
     energy_cost_term = -energy_cost_scale * electricity_cost
     dof_limit_term = -dof_at_limit_cost
@@ -372,15 +314,13 @@ def compute_reward_terms(
     # out the continuous terms and route the whole penalty through a "Death" term instead,
     # keeping sum(terms) == total_reward exactly (matches the `torch.where` override below).
     alive_mask = (~reset_terminated).float()
-    progress_reward = progress_reward * 0 #alive_mask
+    progress_reward = progress_reward * alive_mask
     alive_reward = alive_reward * alive_mask
     up_reward = up_reward * alive_mask
     heading_reward = heading_reward * alive_mask
     actions_cost_term = actions_cost_term * alive_mask
     energy_cost_term = energy_cost_term * alive_mask
     dof_limit_term = dof_limit_term * alive_mask
-    lin_vel_term = lin_vel_term * alive_mask
-    yaw_term = yaw_term * alive_mask
     death_term = death_cost * reset_terminated.float()
 
     total_reward = (
@@ -391,8 +331,6 @@ def compute_reward_terms(
         + actions_cost_term
         + energy_cost_term
         + dof_limit_term
-        + lin_vel_term
-        + yaw_term 
         + death_term
     )
 
@@ -405,8 +343,6 @@ def compute_reward_terms(
         actions_cost_term,
         energy_cost_term,
         dof_limit_term,
-        lin_vel_term,
-        yaw_term,
         death_term,
     )
 
