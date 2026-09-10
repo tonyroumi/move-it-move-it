@@ -71,6 +71,24 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
     early_termination = True
     termination_height = 0.65
 
+    deviation_termination: bool = False
+    """Whether to terminate an episode early when the tracked pose deviates too far from the reference motion."""
+
+    deviation_termination_threshold: float = 1.0
+    """Weighted per-DOF squared-error threshold (see ``tracking_joint_weights``) above which an episode
+    terminates when ``deviation_termination`` is enabled.
+    """
+
+    tracking_joint_weights: dict[str, float] = {}
+    """Per-DOF weight used by the tracking reward (``reward_type == "tracking"``).
+
+    Maps DOF name to its weight in the pose-tracking error. DOFs not present in this
+    mapping default to a weight of 1.0.
+    """
+
+    tracking_reward_scale: float = 2.0
+    """Scale applied to the weighted per-DOF tracking error: ``exp(-tracking_reward_scale * error)``."""
+
     motion_file: str = MISSING
     reference_body = "torso"
     reset_strategy = "random"  # default, random,
@@ -83,7 +101,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 120,
+        dt=1 / 60,
         render_interval=decimation,
         physics=PhysxCfg(gpu_found_lost_pairs_capacity=2**23, gpu_total_aggregate_pairs_capacity=2**23),
     )
