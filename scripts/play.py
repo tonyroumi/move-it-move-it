@@ -47,6 +47,15 @@ parser.add_argument(
     help="The RL algorithm used for training the agent.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument(
+    "--joystick",
+    action="store_true",
+    default=False,
+    help=(
+        "Drive the policy's velocity command live from the keyboard instead of the env's sampled commands."
+        " Requires a command-conditioned task (e.g. Humanoid-Joystick-AMP-Locomotion) and a non-headless renderer."
+    ),
+)
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
 sys.argv = [sys.argv[0]] + hydra_args
@@ -79,6 +88,28 @@ def main():
         # create isaac environment
         env = gym.make(args_cli.task, cfg=env_cfg)
 
+        keyboard = None
+        if args_cli.joystick:
+            if args_cli.headless:
+                raise ValueError("--joystick requires a renderer; do not combine it with --headless.")
+            if not hasattr(env.unwrapped, "commands"):
+                raise ValueError(
+                    f"--joystick requires a command-conditioned task (got '{args_cli.task}', which has no"
+                    " `commands` buffer)."
+                )
+
+            from isaaclab.devices import Se2Keyboard, Se2KeyboardCfg
+
+            keyboard = Se2Keyboard(
+                Se2KeyboardCfg(
+                    sim_device=env.unwrapped.device,
+                    v_x_sensitivity=env.unwrapped.cfg.command_lin_vel_range[1],
+                    v_y_sensitivity=env.unwrapped.cfg.command_lat_vel_range[1],
+                    omega_z_sensitivity=env.unwrapped.cfg.command_ang_vel_range[1],
+                )
+            )
+            print(keyboard)
+
         # get environment (step) dt for real-time evaluation
         try:
             dt = env.step_dt
@@ -104,6 +135,10 @@ def main():
         try:
             while True:
                 start_time = time.time()
+
+                if keyboard is not None:
+                    command = keyboard.advance().to(env.unwrapped.device)
+                    env.unwrapped.commands[:] = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1)
 
                 with torch.inference_mode():
                     actions = runner.agent.act(obs, deterministic=True)
