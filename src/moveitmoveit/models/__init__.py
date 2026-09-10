@@ -1,2 +1,2 @@
-from .base_mlp import MLP
-from .gaussian_mlp import GaussianMLP
+from .base import MLP
+from .gaussian import GaussianMLP

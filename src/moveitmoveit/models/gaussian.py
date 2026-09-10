@@ -4,7 +4,8 @@ import torch.nn as nn
 import torch
 from torch.distributions import Normal
 
-from .base_mlp import MLP
+from .base import MLP
+
 
 class GaussianMLP(MLP):
     """ Gaussian MLP. """

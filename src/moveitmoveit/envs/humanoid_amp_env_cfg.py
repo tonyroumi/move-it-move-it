@@ -10,9 +10,10 @@ from dataclasses import MISSING
 
 from isaaclab_physx.physics import PhysxCfg
 
-from isaaclab.actuators import ImplicitActuatorCfg
+import isaaclab.sim as sim_utils
 
-from isaaclab.assets import ArticulationCfg
+from isaaclab.actuators import ImplicitActuatorCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
@@ -22,6 +23,29 @@ from isaaclab_assets import HUMANOID_28_CFG
 
 from moveitmoveit.utils.paths import MOTIONS_DIR
 
+@configclass
+class HumanoidSceneCfg(InteractiveSceneCfg):
+    """Scene configuration for the humanoid."""
+
+    # humanoid
+    humanoid: ArticulationCfg = HUMANOID_28_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/Robot"
+    )
+
+    # ground
+    ground = AssetBaseCfg(
+        prim_path="/World/ground",
+        spawn=sim_utils.GroundPlaneCfg(),
+    )
+
+    # light
+    dome_light = AssetBaseCfg(
+        prim_path="/World/Light",
+        spawn=sim_utils.DomeLightCfg(
+            intensity=2000.0,
+            color=(0.75, 0.75, 0.75),
+        ),
+    )
 
 @configclass
 class HumanoidAmpEnvCfg(DirectRLEnvCfg):
@@ -30,6 +54,13 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 10.0
     decimation = 2
+    reward_type: str = "none" #tracking, joystick
+    """Type of reward to be used in the environment.  
+
+    * none: reward is one for all steps.
+    * tracking: reward is based on tracking a reference motion.
+    * joystick: reward is based on joystick input. For locomotion tasks only. 
+    """
 
     # spaces
     observation_space = 81
@@ -38,7 +69,7 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
     amp_observation_space = 81
 
     early_termination = True
-    termination_height = 0.5
+    termination_height = 0.65
 
     motion_file: str = MISSING
     reference_body = "torso"
@@ -52,13 +83,15 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 60,
+        dt=1 / 120,
         render_interval=decimation,
         physics=PhysxCfg(gpu_found_lost_pairs_capacity=2**23, gpu_total_aggregate_pairs_capacity=2**23),
     )
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=10.0, replicate_physics=True)
+    scene: HumanoidSceneCfg = HumanoidSceneCfg(
+        num_envs=4096, env_spacing=10.0, replicate_physics=True, clone_in_fabric=True
+    )
 
     # robot
     robot: ArticulationCfg = HUMANOID_28_CFG.replace(prim_path="/World/envs/env_.*/Robot").replace(
@@ -77,4 +110,4 @@ class HumanoidAmpEnvCfg(DirectRLEnvCfg):
 
 @configclass
 class HumanoidAmpWalkEnvCfg(HumanoidAmpEnvCfg):
-    motion_file = os.path.join(MOTIONS_DIR, "humanoid_run.npz")
+    motion_file = os.path.join(MOTIONS_DIR, "humanoid_walk.npz")

@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import collections
 import itertools
-import math
 import os
-import time
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 from isaaclab.envs import DirectRLEnv
@@ -21,6 +17,7 @@ from moveitmoveit.utils.utils import explained_variance, fraction_outside_bounds
 
 from .ppo_cfg import PPOCfg
 from ..base import BaseAgent
+
 
 def compute_gae(
     rewards: torch.Tensor,
@@ -126,6 +123,8 @@ class PPO(BaseAgent):
         super().process_env_step(next_observations, rewards, terminated, truncated, infos)
 
     def update(self) -> None:
+        super().update()
+
         with torch.no_grad():
             last_observations = self._obs_preprocessor(self._next_observations)
             last_values = self.critic(last_observations)
@@ -139,7 +138,9 @@ class PPO(BaseAgent):
             self.cfg.gae_lambda,
             self.cfg.discount,
         )
-        self.logger.add_training_info("Advantage", advantages)
+        # Advantages are tracked after every rollout. 
+        self.logger.add_info("Advantage", advantages.mean().item(), 1)
+        self.logger.step_metric(1)
 
         if (not self.cfg.normalize_advantage_per_mini_batch):
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -207,16 +208,16 @@ class PPO(BaseAgent):
                     1.0 + self.cfg.clip_param,
                 )
 
-                self.logger.add_training_info("Total Loss", loss.item())
-                self.logger.add_training_info("Policy Loss", policy_loss.item())
-                self.logger.add_training_info("Value Loss", value_loss.item())
-                self.logger.add_training_info("KL Divergence", kl_divergence.item())
-                self.logger.add_training_info("Clip Fraction", clip_fraction.item())
-                self.logger.add_training_info("Clip Ratio (std)", ratio.std().item())
-                self.logger.add_training_info("Clip Ratio (min)", ratio.min().item())
-                self.logger.add_training_info("Clip Ratio (max)", ratio.max().item())
-                self.logger.add_training_info("Explained Variance", ev.mean().item())
-                self.logger.grad_step(0)
+                self.logger.add_info("Total Loss", loss.item())
+                self.logger.add_info("Policy Loss", policy_loss.item())
+                self.logger.add_info("Value Loss", value_loss.item())
+                self.logger.add_info("KL Divergence", kl_divergence.item())
+                self.logger.add_info("Clip Fraction", clip_fraction.item())
+                self.logger.add_info("Clip Ratio (std)", ratio.std().item())
+                self.logger.add_info("Clip Ratio (min)", ratio.min().item())
+                self.logger.add_info("Clip Ratio (max)", ratio.max().item())
+                self.logger.add_info("Explained Variance", ev.mean().item())
+                self.logger.step_metric(0)
 
         self.storage.clear()
 
