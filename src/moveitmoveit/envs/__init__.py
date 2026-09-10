@@ -14,6 +14,16 @@ gym.register(
 )
 
 gym.register(
+    id="Humanoid-Joystick-AMP-Locomotion",
+    entry_point=f"{__name__}.joystick_humanoid_amp_env:JoystickHumanoidAmpEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.joystick_humanoid_amp_env_cfg:JoystickHumanoidAmpWalkEnvCfg",
+        "agent_cfg_entry_point": f"{CONFIGS_DIR}/humanoid_amp_locomotion.yaml",
+    },
+)
+
+gym.register(
     id="Humanoid-PPO-Locomotion",
     entry_point=f"{__name__}.humanoid_env:HumanoidLocomotionEnv",
     disable_env_checker=True,
