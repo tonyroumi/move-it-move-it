@@ -59,7 +59,7 @@ class AMP(PPO):
     ) -> None:
         super()._initialize_storage(env, storage_cfg)
 
-        self.buf_capacity = storage_cfg.get("capacity", 1_000_000)
+        self.buf_capacity = storage_cfg.get("capacity", 2_000_000)
 
         self._amp_observations_buf = None 
 
@@ -97,13 +97,15 @@ class AMP(PPO):
                 torch.maximum(1 - 1 / (1 + torch.exp(-disc_logits)), torch.tensor(0.0001, device=rewards.device))
             ).view(rewards.shape)
 
-        # Style reward is tracked against policy update nums
-        self.logger.add_info("Style Reward", style_reward.mean().item())
+        scaled_style_reward = self.cfg.style_reward_lambda * style_reward
+        combined_rewards = self.cfg.goal_reward_lambda * rewards + scaled_style_reward
+        rewards.copy_(combined_rewards)
+
+        # Style reward is logged against policy update nums
+        self.logger.add_info("Style Reward", scaled_style_reward.mean().item())
+        self.logger.add_info("Combined Reward", combined_rewards.mean().item())
         # Discriminator prediction logits is against discriminator updates
         self.logger.add_info("Disc Prediction Logits", disc_logits.mean().item(), 2)
-
-        combined_rewards = self.cfg.goal_reward_lambda * rewards + self.cfg.style_reward_lambda * style_reward
-        rewards.copy_(combined_rewards)
 
         super().update()
 
@@ -119,7 +121,7 @@ class AMP(PPO):
             ref_motion = self._disc_obs_preprocessor(ref_motion, train=True)
             agent_motion = self._disc_obs_preprocessor(agent_motion, train=True)
 
-            agent_motion.requires_grad_(True)
+            ref_motion.requires_grad_(True)
             agent_logits = self.discriminator(agent_motion)
             ref_logits = self.discriminator(ref_motion)
 
@@ -136,9 +138,9 @@ class AMP(PPO):
 
             if self.cfg.disc_grad_penalty:
                 amp_motion_gradient = torch.autograd.grad(
-                    agent_logits,
-                    agent_motion,
-                    grad_outputs=torch.ones_like(agent_logits),
+                    ref_logits,
+                    ref_motion,
+                    grad_outputs=torch.ones_like(ref_logits),
                     create_graph=True,
                     retain_graph=True,
                     only_inputs=True,
@@ -189,6 +191,7 @@ class AMP(PPO):
             "obs_preprocessor": self._obs_preprocessor.state_dict(),
             "disc_obs_preprocessor": self._disc_obs_preprocessor.state_dict(),
             "optimizer": self.optimizer.state_dict(),
+            "disc_optimizer": self.disc_optimizer.state_dict(),
         }, f"{path}/{filename}")
 
     def load_checkpoint(self, path: str, device: torch.device) -> None:
@@ -196,6 +199,8 @@ class AMP(PPO):
         checkpoint = torch.load(path, map_location=device)
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
+        self.discriminator.load_state_dict(checkpoint["discriminator"])
         self._obs_preprocessor.load_state_dict(checkpoint["obs_preprocessor"])
         self._disc_obs_preprocessor.load_state_dict(checkpoint["disc_obs_preprocessor"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.disc_optimizer.load_state_dict(checkpoint["disc_optimizer"])
