@@ -46,6 +46,14 @@ class HumanoidAmpEnv(DirectRLEnv):
         self.motion_ref_body_index = self._motion_loader.get_body_index([self.cfg.reference_body])[0]
         self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
 
+        # motion time (s) each env is currently tracking, set on reset and advanced via episode_length_buf
+        self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
+
+        # per-DOF weight for the tracking reward, ordered to match self.robot.data.joint_names
+        self.tracking_joint_weights = torch.ones(len(self.robot.data.joint_names), device=self.device)
+        for joint_name, weight in self.cfg.tracking_joint_weights.items():
+            self.tracking_joint_weights[self.robot.data.joint_names.index(joint_name)] = weight
+
         # reconfigure AMP observation space according to the number of observations and create the buffer
         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
         self.amp_observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.amp_observation_size,))
@@ -84,12 +92,25 @@ class HumanoidAmpEnv(DirectRLEnv):
 
         return obs
 
+    def _sample_reference_dof_positions(self) -> torch.Tensor:
+        # current motion time (s) tracked per env: reset-time offset + elapsed steps in episode
+        current_times = self.motion_start_times + self.episode_length_buf.to(torch.float32) * self.step_dt
+        ref_dof_positions = self._motion_loader.sample(
+            num_samples=self.num_envs, times=current_times.cpu().numpy()
+        )[0]
+        return ref_dof_positions[:, self.motion_dof_indexes]
+
     def _get_rewards(self) -> torch.Tensor:
         if self.cfg.reward_type == "none":
             return torch.ones((self.num_envs,), dtype=torch.float32, device=self.sim.device)
         elif self.cfg.reward_type == "tracking":
-            # Implement tracking reward computation here
-            pass
+            ref_dof_positions = self._sample_reference_dof_positions()
+            return compute_tracking_reward(
+                self.robot.data.joint_pos.torch,
+                ref_dof_positions,
+                self.tracking_joint_weights,
+                self.cfg.tracking_reward_scale,
+            )
         elif self.cfg.reward_type == "joystick":
             # Implement joystick reward computation here
             pass
@@ -103,6 +124,12 @@ class HumanoidAmpEnv(DirectRLEnv):
             died = self.robot.data.body_pos_w.torch[:, self.ref_body_index, 2] < self.cfg.termination_height
         else:
             died = torch.zeros_like(time_out)
+        if self.cfg.deviation_termination:
+            ref_dof_positions = self._sample_reference_dof_positions()
+            deviation = compute_tracking_error(
+                self.robot.data.joint_pos.torch, ref_dof_positions, self.tracking_joint_weights
+            )
+            died = died | (deviation > self.cfg.deviation_termination_threshold)
         return died, time_out
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
@@ -138,6 +165,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         root_state = torch.cat([default_root_pose, default_root_vel], dim=-1)
         joint_pos = self.robot.data.default_joint_pos.torch[env_ids].clone()
         joint_vel = self.robot.data.default_joint_vel.torch[env_ids].clone()
+        self.motion_start_times[env_ids] = 0.0
         return root_state, joint_pos, joint_vel
 
     def _reset_strategy_random(
@@ -146,6 +174,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         # sample random motion times (or zeros if start is True)
         num_samples = env_ids.shape[0]
         times = np.zeros(num_samples) if start else self._motion_loader.sample_times(num_samples)
+        self.motion_start_times[env_ids] = torch.tensor(times, dtype=torch.float32, device=self.device)
         # sample random motions
         (
             dof_positions,
@@ -210,6 +239,27 @@ class HumanoidAmpEnv(DirectRLEnv):
             body_positions[:, self.motion_key_body_indexes],
         )
         return amp_observation.view(-1, self.amp_observation_size)
+
+
+@torch.jit.script
+def compute_tracking_error(
+    dof_positions: torch.Tensor,
+    ref_dof_positions: torch.Tensor,
+    joint_weights: torch.Tensor,
+) -> torch.Tensor:
+    # dof_positions, ref_dof_positions: (N, num_dofs); joint_weights: (num_dofs,)
+    return torch.sum(joint_weights * (dof_positions - ref_dof_positions) ** 2, dim=-1)  # (N,)
+
+
+@torch.jit.script
+def compute_tracking_reward(
+    dof_positions: torch.Tensor,
+    ref_dof_positions: torch.Tensor,
+    joint_weights: torch.Tensor,
+    reward_scale: float,
+) -> torch.Tensor:
+    weighted_error = compute_tracking_error(dof_positions, ref_dof_positions, joint_weights)  # (N,)
+    return torch.exp(-reward_scale * weighted_error)
 
 
 @torch.jit.script
