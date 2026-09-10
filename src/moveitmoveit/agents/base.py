@@ -29,6 +29,8 @@ class BaseAgent(ABC):
     ):
         self.cfg = cfg
         self.logger = logger
+        
+        self._update_step = 0
 
     def init(self, env: DirectRLEnv, cfg: dict) -> None:
         """Initialize the agent with the environment and configuration."""
@@ -78,6 +80,7 @@ class BaseAgent(ABC):
     @abstractmethod
     def update(self) -> None:
         """Run gradient updates."""
+        self._update_step += 1
 
     @abstractmethod
     def inference(self) -> None:

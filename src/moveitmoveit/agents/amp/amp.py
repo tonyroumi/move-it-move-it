@@ -18,6 +18,7 @@ from moveitmoveit.utils.logger import Logger
 from .amp_cfg import AMPCfg
 from ..ppo import PPO
 
+
 class AMP(PPO):
     """Adversarial Motion Priors (AMP) algorithm. """
     cfg: AMPCfg
@@ -33,8 +34,6 @@ class AMP(PPO):
     def _initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         super()._initialize_models(env, model_cfg)
 
-        assert hasattr(env.unwrapped, "amp_observation_space")
-
         amp_obs = env.unwrapped.amp_observation_space
         self.discriminator = MLP(
             in_channels=amp_obs.shape[-1],
@@ -45,13 +44,12 @@ class AMP(PPO):
         self._disc_obs_preprocessor = RunningStandardScaler(size=amp_obs.shape[-1]).to(env.unwrapped.device)
 
     def _initialize_optimizer(self) -> None:
-        self.optimizer = torch.optim.Adam(
+        super()._initialize_optimizer()
+        self.disc_optimizer = torch.optim.Adam(
             itertools.chain(
-                self.actor.parameters(),
-                self.critic.parameters(),
                 self.discriminator.parameters()
             ),
-            lr=self.cfg.learning_rate,
+            lr=self.cfg.disc_lr,
         )
 
     def _initialize_storage(
@@ -63,8 +61,7 @@ class AMP(PPO):
 
         self.buf_capacity = storage_cfg.get("capacity", 1_000_000)
 
-        self._ref_motion_buf = None 
-        self._motion_buf = None 
+        self._amp_observations_buf = None 
 
     def process_env_step(
         self,
@@ -76,44 +73,21 @@ class AMP(PPO):
     ) -> None:
         super().process_env_step(next_observations, rewards, terminated, truncated, infos)
 
-        if infos is None or "amp_obs" not in infos:
-            return
-
-        # RESUME HERE. Need to make sure items check out. don't know about shapes. but it runs.
-        # # need ppo working too 
-
         amp_obs_size = infos["amp_obs"].shape
 
         # Lazy load motion buffers after first step
-        if self._motion_buf is None:
-            self._ref_motion_buf = TensorCircularBuffer(
+        if self._amp_observations_buf is None:
+            self._amp_observations_buf = TensorCircularBuffer(
                 capacity=self.buf_capacity,
-                sample_shape=(amp_obs_size),
+                sample_shape=(amp_obs_size[-1],),
                 device=rewards.device,
             )
 
-            self._motion_buf = TensorCircularBuffer(
-                capacity=self.buf_capacity,
-                sample_shape=(amp_obs_size),
-                device=rewards.device,
-            )
-
-        # Agent motion
-        if "amp_obs" in infos:
-            self._motion_buf.append(infos["amp_obs"])
-
-        # Reference motion for environments that reset
-        if "ref_amp_obs" in infos:
-            dones = (terminated | truncated).view(-1)
-
-            if dones.any():
-                self._ref_motion_buf.append(
-                    infos["ref_amp_obs"][dones]
-                )
+        self._amp_observations_buf.append(infos["amp_obs"])
 
     def update(self) -> None:
         rewards = self.storage.rewards
-        amp_observations = self._motion_buf.get()
+        amp_observations = self._amp_observations_buf.get_since_last()
 
         with torch.no_grad():
             disc_logits = self.discriminator(
@@ -123,38 +97,84 @@ class AMP(PPO):
                 torch.maximum(1 - 1 / (1 + torch.exp(-disc_logits)), torch.tensor(0.0001, device=rewards.device))
             ).view(rewards.shape)
 
+        # Style reward is tracked against policy update nums
+        self.logger.add_info("Style Reward", style_reward.mean().item())
+        # Discriminator prediction logits is against discriminator updates
+        self.logger.add_info("Disc Prediction Logits", disc_logits.mean().item(), 2)
+
         combined_rewards = self.cfg.goal_reward_lambda * rewards + self.cfg.style_reward_lambda * style_reward
         rewards.copy_(combined_rewards)
 
         super().update()
 
-        # NOTE: unreachable until discriminator training is wired up (see _update_discriminator).
-        return
-
-        if self.cfg.discriminator_update_interval % self._update_step == 0:
+        if self._update_step % self.cfg.discriminator_update_interval == 0:
             self._update_discriminator()
-
-        self._motion_buf.clear()
-        self._ref_motion_buf.clear()
 
     def _update_discriminator(self) -> None:
         """Run one round of discriminator gradient updates."""
+        for _ in range(self.cfg.disc_num_updates):
+            ref_motion = self.collect_reference_motions(self.cfg.disc_batch_size)
+            agent_motion = self._amp_observations_buf.sample(self.cfg.disc_batch_size)
 
-        for update in self.cfg.disc_num_updates:
-            ref_motion = self._ref_motion_buf.sample(self.cfg.disc_batch_size)
-            # agent_motion = self._motion_buf.sample(self.cfg.disc_batch_size)
+            ref_motion = self._disc_obs_preprocessor(ref_motion, train=True)
+            agent_motion = self._disc_obs_preprocessor(agent_motion, train=True)
 
-            # ref_motion = self.disc_obs_processor(ref_motion, train=True)
-            # agent_motion = self.disc_obs_processor(agent_motion, train=True)
+            agent_motion.requires_grad_(True)
+            agent_logits = self.discriminator(agent_motion)
+            ref_logits = self.discriminator(ref_motion)
 
-            # # do discriminator work here. 
-            # loss = 0
+            discriminator_loss = 0.5 * (
+                    nn.BCEWithLogitsLoss()(agent_logits, torch.zeros_like(agent_logits))
+                    + torch.nn.BCEWithLogitsLoss()(ref_logits, torch.ones_like(ref_logits))
+                )
 
-            # self.optimizer.zero_grad()
-            # loss.backward()
-            # self.optimizer.step()
+            if self.cfg.disc_logit_reg:
+                logit_weights = torch.flatten(self.discriminator.get_logit_weights())
+                discriminator_loss += self.cfg.disc_logit_reg * torch.sum(
+                    torch.square(logit_weights)
+                )
 
-            # self._diagnostics["Disc Loss"].append(loss)
+            if self.cfg.disc_grad_penalty:
+                amp_motion_gradient = torch.autograd.grad(
+                    agent_logits,
+                    agent_motion,
+                    grad_outputs=torch.ones_like(agent_logits),
+                    create_graph=True,
+                    retain_graph=True,
+                    only_inputs=True,
+                )
+                gradient_penalty = torch.sum(torch.square(amp_motion_gradient[0]), dim=-1).mean()
+                discriminator_loss += self.cfg.disc_grad_penalty * gradient_penalty
+
+            # discriminator weight decay
+            if self.cfg.disc_weight_decay:
+                weights = [
+                    torch.flatten(module.weight)
+                    for module in self.discriminator.modules()
+                    if isinstance(module, torch.nn.Linear)
+                ]
+                weight_decay = torch.sum(torch.square(torch.cat(weights, dim=-1)))
+                discriminator_loss += self.cfg.disc_weight_decay * weight_decay
+
+            discriminator_loss *= self.cfg.disc_loss_scale
+
+            self.disc_optimizer.zero_grad()
+            discriminator_loss.backward()
+
+            if self.cfg.grad_norm_clip > 0:
+                nn.utils.clip_grad_norm_(
+                    itertools.chain(
+                        self.discriminator.parameters()
+                    ),
+                    self.cfg.grad_norm_clip,
+                )
+
+            self.disc_optimizer.step()
+
+            self.logger.add_info("Discriminator Loss", discriminator_loss.item(), 2)
+            self.logger.add_info("Agent Motion Logits", agent_logits.mean().item(), 2)
+            self.logger.add_info("Reference Motion Logits", ref_logits.mean().item(), 2)
+            self.logger.step_metric(2)
 
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:
         """Save the agent's models to the specified path."""

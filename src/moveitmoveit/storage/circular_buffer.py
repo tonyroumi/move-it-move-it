@@ -20,29 +20,12 @@ class TensorCircularBuffer:
         self._write_idx = 0
         self._size = 0
 
-    @property
-    def size(self) -> int:
-        return self._size
-
-    @property
-    def full(self) -> bool:
-        return self._size == self.capacity
-
-    @property
-    def storage(self) -> torch.Tensor:
-        """Underlying storage. Not necessarily chronological."""
-        return self._buffer
+        # Monotonic counters (never wrapped) used to compute how many
+        # new samples have arrived since the last windowed retrieval.
+        self._total_appended = 0
+        self._last_window_total = 0
 
     def append(self, samples: torch.Tensor) -> None:
-        """
-        Append one or more samples.
-
-        Expected shape:
-            [num_samples, *sample_shape]
-
-        If more samples than capacity are provided, only the most recent
-        `capacity` samples are retained.
-        """
         if samples.ndim == self._buffer.ndim - 1:
             samples = samples.unsqueeze(0)
 
@@ -51,8 +34,6 @@ class TensorCircularBuffer:
         if num_samples == 0:
             return
 
-        # If the incoming batch itself exceeds capacity,
-        # only the newest samples can possibly survive.
         if num_samples >= self.capacity:
             samples = samples[-self.capacity:]
             num_samples = self.capacity
@@ -60,9 +41,9 @@ class TensorCircularBuffer:
             self._buffer.copy_(samples)
             self._write_idx = 0
             self._size = self.capacity
+            self._total_appended += num_samples
             return
 
-        # Number of samples that fit before reaching end of storage.
         first_count = min(
             num_samples,
             self.capacity - self._write_idx,
@@ -74,7 +55,6 @@ class TensorCircularBuffer:
 
         remaining = num_samples - first_count
 
-        # Wrap around to beginning.
         if remaining > 0:
             self._buffer[:remaining].copy_(samples[first_count:])
 
@@ -86,6 +66,8 @@ class TensorCircularBuffer:
             self._size + num_samples,
             self.capacity,
         )
+
+        self._total_appended += num_samples
 
     def sample(self, batch_size: int) -> torch.Tensor:
         if self._size == 0:
@@ -100,32 +82,56 @@ class TensorCircularBuffer:
 
         return self._buffer[indices]
 
-    def get(self) -> torch.Tensor:
+    def _slice_circular(self, start: int, count: int) -> torch.Tensor:
         """
-        Return valid samples in chronological order:
-        oldest -> newest.
+        Return `count` samples starting at physical index `start`,
+        wrapping around the end of storage if needed.
         """
-        if self._size == 0:
+        if count == 0:
             return self._buffer[:0]
 
-        if self._size < self.capacity:
-            return self._buffer[:self._size]
+        end = start + count
+        if end <= self.capacity:
+            return self._buffer[start:end]
 
-        # Once full, write_idx points to the oldest element.
-        if self._write_idx == 0:
-            return self._buffer
+        first_part = self._buffer[start:]
+        second_part = self._buffer[:end - self.capacity]
+        return torch.cat((first_part, second_part), dim=0)
 
-        return torch.cat(
-            (
-                self._buffer[self._write_idx:],
-                self._buffer[:self._write_idx],
-            ),
-            dim=0,
+    def get_since_last(self) -> torch.Tensor:
+        """
+        Return samples appended since the last call to `get_since_last`,
+        in chronological order (oldest -> newest), then advance the
+        internal marker so the next call only returns newer samples.
+
+        Intended for the rollout -> update pattern: append every env
+        step, then call this once after rollout collection to pull out
+        exactly that rollout's observations. If more samples were
+        appended than `capacity` since the last call, older ones have
+        already been overwritten, so this is clamped to `capacity`
+        (equivalent to a full `get()`).
+        """
+        num_new = min(
+            self._total_appended - self._last_window_total,
+            self._size,
         )
+
+        self._last_window_total = self._total_appended
+
+        if num_new == 0:
+            return self._buffer[:0]
+
+        # The window ends at the sample most recently written, i.e.
+        # physical index (write_idx - 1), and spans `num_new` samples
+        # backward from there.
+        start = (self._write_idx - num_new) % self.capacity
+        return self._slice_circular(start, num_new)
 
     def clear(self) -> None:
         self._write_idx = 0
         self._size = 0
+        self._total_appended = 0
+        self._last_window_total = 0
 
     def __len__(self) -> int:
         return self._size

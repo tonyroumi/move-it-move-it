@@ -1,20 +1,20 @@
 seed: 42
 
 experiment:
-  directory: "ppo_test"
+  directory: "humanoid_ppo_locomotion"
   experiment_name: ""
 
 logger:
   backend: tensorboard
   write_interval: 1
-  checkpoint_interval: 100
-  
+  checkpoint_interval: 60
+
 models:
   actor:
-    hidden_layers: [64, 64]
+    hidden_layers: [256, 256]
     activation: elu
     noise_std_type: fixed
-    init_noise_std: 0.1
+    init_noise_std: 0.055
     weight_init:
       type: uniform
       trunk:
@@ -26,7 +26,7 @@ models:
         zero_bias: true
 
   critic:
-    hidden_layers: [64, 64]
+    hidden_layers: [256, 256]
     activation: elu
     weight_init:
       type: uniform
@@ -46,12 +46,12 @@ agent:
 
   num_transitions_per_env: 32
 
-  num_mini_batches: 8
+  num_mini_batches: 16
   num_learning_epochs: 8
-  learning_rate: 0.0005
+  learning_rate: 0.00005
 
   clip_param: 0.2
-  value_loss_coef: 1.0
+  value_loss_coef: 2.0
   entropy_coef: 0.0
   max_grad_norm: 1.0
   use_clipped_value_loss: False
@@ -66,5 +66,5 @@ agent:
 
 
 runner:
-  timesteps: 10000000
+  timesteps: 200000000
   use_pbar: False

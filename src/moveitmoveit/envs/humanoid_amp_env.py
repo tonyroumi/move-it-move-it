@@ -54,29 +54,7 @@ class HumanoidAmpEnv(DirectRLEnv):
         )
 
     def _setup_scene(self):
-        self.robot = Articulation(self.cfg.robot)
-        # add ground plane
-        spawn_ground_plane(
-            prim_path="/World/ground",
-            cfg=GroundPlaneCfg(
-                physics_material=sim_utils.RigidBodyMaterialCfg(
-                    static_friction=1.0,
-                    dynamic_friction=1.0,
-                    restitution=0.0,
-                ),
-            ),
-        )
-        # clone and replicate
-        self.scene.clone_environments(copy_from_source=False)
-        # we need to explicitly filter collisions for CPU simulation
-        if self.device == "cpu":
-            self.scene.filter_collisions(global_prim_paths=["/World/ground"])
-
-        # add articulation to scene
-        self.scene.articulations["robot"] = self.robot
-        # add lights
-        light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
-        light_cfg.func("/World/Light", light_cfg)
+        self.robot = self.scene["humanoid"]
 
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = actions.clone()
@@ -107,6 +85,16 @@ class HumanoidAmpEnv(DirectRLEnv):
         return obs
 
     def _get_rewards(self) -> torch.Tensor:
+        if self.cfg.reward_type == "none":
+            return torch.ones((self.num_envs,), dtype=torch.float32, device=self.sim.device)
+        elif self.cfg.reward_type == "tracking":
+            # Implement tracking reward computation here
+            pass
+        elif self.cfg.reward_type == "joystick":
+            # Implement joystick reward computation here
+            pass
+        else:
+            raise ValueError(f"Unknown reward type: {self.cfg.reward_type}")
         return torch.ones((self.num_envs,), dtype=torch.float32, device=self.sim.device)
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:

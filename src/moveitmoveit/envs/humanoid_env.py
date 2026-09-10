@@ -11,71 +11,17 @@ from isaaclab_newton.physics import NewtonCfg
 from isaaclab_ovphysx.physics import OvPhysxCfg
 from isaaclab_physx.physics import PhysxCfg
 
-import isaaclab.sim as sim_utils
-from isaaclab.assets import Articulation
-from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
-from isaaclab.utils.math import (
-    euler_xyz_from_quat,
-    normalize,
-    quat_apply,
-    quat_apply_inverse,
-    quat_conjugate,
-    quat_mul,
-    scale_transform,
-)
+from isaaclab.envs import DirectRLEnv
+
+from moveitmoveit.utils import transforms
 
 from .humanoid_env_cfg import HumanoidEnvCfg
 
-def normalize_angle(x):
-    return torch.atan2(torch.sin(x), torch.cos(x))
 
+class HumanoidLocomotionEnv(DirectRLEnv):
+    cfg: HumanoidEnvCfg
 
-@torch.jit.script
-def compute_heading_and_up(
-    torso_rotation: torch.Tensor,
-    inv_start_rot: torch.Tensor,
-    to_target: torch.Tensor,
-    vec0: torch.Tensor,
-    vec1: torch.Tensor,
-    up_idx: int,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Compute heading and up vectors for locomotion tasks."""
-    num_envs = torso_rotation.shape[0]
-    target_dirs = normalize(to_target)
-
-    torso_quat = quat_mul(torso_rotation, inv_start_rot)
-    up_vec = quat_apply(torso_quat, vec1).view(num_envs, 3)
-    heading_vec = quat_apply(torso_quat, vec0).view(num_envs, 3)
-    up_proj = up_vec[:, up_idx]
-    heading_proj = torch.bmm(heading_vec.view(num_envs, 1, 3), target_dirs.view(num_envs, 3, 1)).view(num_envs)
-
-    return torso_quat, up_proj, heading_proj, up_vec, heading_vec
-
-
-@torch.jit.script
-def compute_rot(
-    torso_quat: torch.Tensor,
-    velocity: torch.Tensor,
-    ang_velocity: torch.Tensor,
-    targets: torch.Tensor,
-    torso_positions: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Compute rotation-related quantities for locomotion tasks."""
-    vel_loc = quat_apply_inverse(torso_quat, velocity)
-    angvel_loc = quat_apply_inverse(torso_quat, ang_velocity)
-
-    roll, pitch, yaw = euler_xyz_from_quat(torso_quat)
-
-    walk_target_angle = torch.atan2(targets[:, 1] - torso_positions[:, 1], targets[:, 0] - torso_positions[:, 0])
-    angle_to_target = walk_target_angle - yaw
-
-    return vel_loc, angvel_loc, roll, pitch, yaw, angle_to_target
-
-
-class LocomotionEnv(DirectRLEnv):
-    cfg: DirectRLEnvCfg
-
-    def __init__(self, cfg: DirectRLEnvCfg, render_mode: str | None = None, **kwargs):
+    def __init__(self, cfg: HumanoidEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.action_scale = self.cfg.action_scale
@@ -104,7 +50,7 @@ class LocomotionEnv(DirectRLEnv):
         self.heading_vec = torch.tensor([1, 0, 0], dtype=torch.float32, device=self.sim.device).repeat(
             (self.num_envs, 1)
         )
-        self.inv_start_rot = quat_conjugate(self.start_rotation).repeat((self.num_envs, 1))
+        self.inv_start_rot = transforms.quat_conjugate(self.start_rotation).repeat((self.num_envs, 1))
         self.basis_vec0 = self.heading_vec.clone()
         self.basis_vec1 = self.up_vec.clone()
 
@@ -168,9 +114,9 @@ class LocomotionEnv(DirectRLEnv):
                 self.torso_position[:, 2].view(-1, 1),
                 self.vel_loc,
                 self.angvel_loc * self.cfg.angular_velocity_scale,
-                normalize_angle(self.yaw).unsqueeze(-1),
-                normalize_angle(self.roll).unsqueeze(-1),
-                normalize_angle(self.angle_to_target).unsqueeze(-1),
+                transforms.normalize_angle(self.yaw).unsqueeze(-1),
+                transforms.normalize_angle(self.roll).unsqueeze(-1),
+                transforms.normalize_angle(self.angle_to_target).unsqueeze(-1),
                 self.up_proj.unsqueeze(-1),
                 self.heading_proj.unsqueeze(-1),
                 self.dof_pos_scaled,
@@ -367,15 +313,15 @@ def compute_intermediate_values(
     to_target = targets - torso_position
     to_target[:, 2] = 0.0
 
-    torso_quat, up_proj, heading_proj, up_vec, heading_vec = compute_heading_and_up(
+    torso_quat, up_proj, heading_proj, up_vec, heading_vec = transforms.compute_heading_and_up(
         torso_rotation, inv_start_rot, to_target, basis_vec0, basis_vec1, 2
     )
 
-    vel_loc, angvel_loc, roll, pitch, yaw, angle_to_target = compute_rot(
+    vel_loc, angvel_loc, roll, pitch, yaw, angle_to_target = transforms.compute_rot(
         torso_quat, velocity, ang_velocity, targets, torso_position
     )
 
-    dof_pos_scaled = scale_transform(dof_pos, dof_lower_limits, dof_upper_limits)
+    dof_pos_scaled = transforms.scale_transform(dof_pos, dof_lower_limits, dof_upper_limits)
 
     to_target = targets - torso_position
     to_target[:, 2] = 0.0

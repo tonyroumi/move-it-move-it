@@ -17,7 +17,7 @@ class Logger:
     diagnostics, and iteration timing (collection/learning time, ETA).
 
     Agents push data in via `add_env_info` + `env_step` (per env step) and
-    `add_training_info` / `add_info` + `grad_step` (per gradient step); the
+    `add_info` / `add_info` + `grad_step` (per gradient step); the
     runner brackets each phase with the `timing` context manager and calls
     `step` once per env step. `log` then flushes everything (all tracked tags
     go to tensorboard/wandb via `write_data`; only a curated "core" subset is
@@ -26,7 +26,7 @@ class Logger:
     """
 
     # Training diagnostics considered "core" enough to print to the screen.
-    _CORE_TRAIN_KEYS = ("Total Loss", "Policy Loss", "Value Loss")
+    _CORE_TRAIN_KEYS = ("Total Loss", "Policy Loss", "Value Loss", "Discriminator Loss")
 
     def __init__(
         self,
@@ -67,7 +67,7 @@ class Logger:
 
         self.timestep = 0
         self._iteration = 0
-        self._grad_step = 0
+        self._metric_step = collections.defaultdict(int)
 
         self._tracking_data = collections.defaultdict(float)
         self._tracking_step = collections.defaultdict(int)
@@ -90,9 +90,10 @@ class Logger:
         # Per-step env info staged by `add_env_info`, consumed by `env_step`.
         self._env_info: Dict[str, Any] = {}
 
-        # Per-update training diagnostics staged by `add_training_info`/`add_info`,
+        # Per-update training diagnostics staged by `add_info`/`add_info`,
         # averaged and flushed by `log`.
         self._update_diagnostics: Dict[str, list] = collections.defaultdict(list)
+        self._step_tracker : Dict[str, int] = collections.defaultdict(int)
 
         # Named wall-clock timings recorded by `timing`, e.g. "Collection Time".
         self._start_time = time.time()
@@ -107,9 +108,9 @@ class Logger:
         """Advance the env-step counter used as the x-axis for step-indexed tags."""
         self.timestep += num_steps
 
-    def grad_step(self, *_args) -> None:
-        """Advance the gradient-step counter used as the x-axis for `Train/*` tags."""
-        self._grad_step += 1
+    def step_metric(self, idx: int = 0) -> None:
+        """Advance the metric step counter used as the x-axis for `Train/*` tags."""
+        self._metric_step[idx] += 1
 
     @contextmanager
     def timing(self, name: str):
@@ -201,29 +202,21 @@ class Logger:
         if core_rewards:
             self._core_rewards = core_rewards
 
-    def add_training_info(self, name: str, value) -> None:
-        """Record a per-update training diagnostic (loss, KL, ...); averaged over the update."""
-        self._add_diagnostic(name, value)
+    def add_info(self, name: str, value, grad_num: int = 0) -> None:
+        """Record a diagnostic."""
+        self._add_diagnostic(name, value, grad_num=grad_num)
 
-    def add_info(self, name: str, value) -> None:
-        """Record a per-update debug diagnostic (grad norms, ...); averaged over the update."""
-        self._add_diagnostic(name, value)
-
-    def _add_diagnostic(self, name: str, value) -> None:
-        if torch.is_tensor(value):
-            if value.numel() > 1:
-                # a full per-step/per-env tensor (e.g. GAE advantages); log its mean once
-                self.track_data(f"Debug /{name} (mean)", value.mean().item(), self.timestep)
-                return
-            value = value.item()
-
+    def _add_diagnostic(self, name: str, value, grad_num: int = 0) -> None:
         self._update_diagnostics[name].append(value)
+        self._step_tracker[name] = grad_num
 
     def _flush_update_diagnostics(self) -> None:
         core = {}
         for name, values in self._update_diagnostics.items():
             value = sum(values) / len(values)
-            self.track_data(f"Train/{name}", value, self._grad_step)
+            assoc_grad_num = self._step_tracker[name]
+            step = self._metric_step[assoc_grad_num]
+            self.track_data(f"Train/{name}", value, step)
             self.track_data(f"Debug /{name}", value, self.timestep)
 
             if name in self._CORE_TRAIN_KEYS:
