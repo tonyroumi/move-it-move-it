@@ -56,6 +56,12 @@ parser.add_argument(
         " Requires a command-conditioned task (e.g. Humanoid-Joystick-AMP-Locomotion) and a non-headless renderer."
     ),
 )
+parser.add_argument(
+    "--joystick-overlay",
+    action="store_true",
+    default=False,
+    help="With --joystick, overlay a faint keyboard on the renderer highlighting the currently held keys.",
+)
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
 sys.argv = [sys.argv[0]] + hydra_args
@@ -89,6 +95,9 @@ def main():
         env = gym.make(args_cli.task, cfg=env_cfg)
 
         keyboard = None
+        keyboard_overlay = None
+        if args_cli.joystick_overlay and not args_cli.joystick:
+            raise ValueError("--joystick-overlay requires --joystick.")
         if args_cli.joystick:
             if args_cli.headless:
                 raise ValueError("--joystick requires a renderer; do not combine it with --headless.")
@@ -109,6 +118,11 @@ def main():
                 )
             )
             print(keyboard)
+
+            if args_cli.joystick_overlay:
+                from moveitmoveit.utils.keyboard_overlay import KeyboardOverlay
+
+                keyboard_overlay = KeyboardOverlay()
 
         # get environment (step) dt for real-time evaluation
         try:
@@ -139,6 +153,8 @@ def main():
                 if keyboard is not None:
                     command = keyboard.advance().to(env.unwrapped.device)
                     env.unwrapped.commands[:] = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1)
+                if keyboard_overlay is not None:
+                    keyboard_overlay.update()
 
                 with torch.inference_mode():
                     actions = runner.agent.act(obs, deterministic=True)
@@ -151,7 +167,8 @@ def main():
             # close the simulator
             env.close()
         except KeyboardInterrupt:
-            pass
+            if keyboard_overlay is not None:
+                keyboard_overlay.close()
 
 
 if __name__ == "__main__":
