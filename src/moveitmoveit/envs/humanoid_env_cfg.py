@@ -5,40 +5,23 @@
 
 from __future__ import annotations
 
-from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
-from isaaclab_ovphysx.physics import OvPhysxCfg
+import os
+from dataclasses import MISSING
+
 from isaaclab_physx.physics import PhysxCfg
 
 import isaaclab.sim as sim_utils
+
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
-from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils.configclass import configclass
 
-from isaaclab_tasks.utils import PresetCfg
+from isaaclab_assets import HUMANOID_28_CFG
 
-from isaaclab_assets import HUMANOID_CFG
-
-
-@configclass
-class HumanoidPhysicsCfg(PresetCfg):
-    default: PhysxCfg = PhysxCfg()
-    physx: PhysxCfg = PhysxCfg()
-    newton_mjwarp: NewtonCfg = NewtonCfg(
-        solver_cfg=MJWarpSolverCfg(
-            njmax=80,
-            nconmax=25,
-            cone="pyramidal",
-            update_data_interval=2,
-            integrator="implicitfast",
-            impratio=1,
-        ),
-        num_substeps=2,
-        debug_mode=False,
-    )
-    ovphysx: OvPhysxCfg = OvPhysxCfg()
+from moveitmoveit.utils.paths import MOTIONS_DIR
 
 
 @configclass
@@ -46,7 +29,7 @@ class HumanoidSceneCfg(InteractiveSceneCfg):
     """Scene configuration for the humanoid."""
 
     # humanoid
-    humanoid: ArticulationCfg = HUMANOID_CFG.replace(
+    humanoid: ArticulationCfg = HUMANOID_28_CFG.replace(
         prim_path="{ENV_REGEX_NS}/Robot"
     )
 
@@ -68,99 +51,126 @@ class HumanoidSceneCfg(InteractiveSceneCfg):
 
 @configclass
 class HumanoidEnvCfg(DirectRLEnvCfg):
+    """Humanoid environment config (base class), shared by PPO and AMP.
+
+    The environment always learns from motion capture data: it can (re)initialize episodes from
+    a reference motion clip (``reset_strategy``) and/or reward tracking one (``reward_terms``).
+    Which RL algorithm (PPO or AMP) drives training is decided entirely on the agent side; the
+    environment itself doesn't distinguish between them.
+    """
+
     # env
-    episode_length_s = 15.0
+    episode_length_s = 10.0
     decimation = 2
-    action_scale = 1.0
-    action_space = 21
-    observation_space = 75
+
+    reward_terms: list[str] = ["joystick"]
+    """Reward components to sum in ``_get_rewards``. Available terms:
+
+    * tracking: reward for tracking a reference motion's DOF positions.
+    * joystick: reward for tracking a commanded base-frame velocity.
+
+    An empty list yields a constant reward of 1 for every step (e.g. for an AMP run driven purely
+    by the style/discriminator reward).
+    """
+
+    # spaces
+    observation_space = 81
+    action_space = 28
     state_space = 0
 
+    early_termination = True
+    termination_height = 0.65
+
+    deviation_termination: bool = False
+    """Whether to terminate an episode early when the tracked pose deviates too far from the reference motion."""
+
+    deviation_termination_threshold: float = 2.0
+    """Weighted per-DOF squared-error threshold (see ``tracking_joint_weights``) above which an episode
+    terminates when ``deviation_termination`` is enabled.
+    """
+
+    tracking_joint_weights: dict[str, float] = {}
+    """Per-DOF weight used by the tracking reward (``"tracking" in reward_terms``).
+
+    Maps DOF name to its weight in the pose-tracking error. DOFs not present in this
+    mapping default to a weight of 1.0.
+    """
+
+    tracking_reward_scale: float = 2.0
+    """Scale applied to the weighted per-DOF tracking error: ``exp(-tracking_reward_scale * error)``."""
+
+    motion_files: list[str] = MISSING
+    """Motion clip file paths. Sampled from uniformly at random each time a reference motion is drawn."""
+    reference_body = "torso"
+    reset_strategy = "random"  # default, random,
+    """Strategy to be followed when resetting each environment (humanoid's pose and joint states).
+
+    * default: pose and joint states are set to the initial state of the asset.
+    * random: pose and joint states are set by sampling motions at random, uniform times.
+    * random-start: pose and joint states are set by sampling motion at the start (time zero).
+    """
+
+    standing_probability: float = 0.15
+    """Probability that a sampled command is zeroed out (all-zero command), so the policy also
+    learns to stand in place. Applied independently per env each time commands are (re)sampled."""
+
+    # velocity command sampling ranges
+    command_lin_vel_range: tuple[float, float] = (-1.5, 1.5)
+    """Range (m/s) to sample the forward (base-frame x) linear velocity command from."""
+
+    command_lat_vel_range: tuple[float, float] = (-1.0, 1.0)
+    """Range (m/s) to sample the lateral (base-frame y) linear velocity command from."""
+
+    command_ang_vel_range: tuple[float, float] = (-1.0, 1.0)
+    """Range (rad/s) to sample the yaw rate command from."""
+
+    command_lin_vel_scale: float = 3.0
+    """Scale applied to the squared linear velocity-command tracking error: ``exp(-command_lin_vel_scale * error)``."""
+
+    command_ang_vel_scale: float = 3.0
+    """Scale applied to the squared angular velocity-command tracking error: ``exp(-command_ang_vel_scale * error)``."""
+
+    command_resampling_strategy: str = "interval"
+    """When to resample each env's velocity command.
+
+    * reset: resample only when the env resets (a new command each episode).
+    * interval: also resample every ``command_resampling_interval_steps`` steps during the episode.
+    """
+
+    command_resampling_interval_steps: int = 150
+    """Number of steps between command resamples when ``command_resampling_strategy == "interval"``."""
+
+    def __post_init__(self):
+        if "joystick" in self.reward_terms:
+            self.observation_space += 3
+
     # simulation
-    sim: SimulationCfg = SimulationCfg(dt=1 / 120, render_interval=decimation, physics=HumanoidPhysicsCfg())
-    terrain = TerrainImporterCfg(
-        prim_path="/World/ground",
-        terrain_type="plane",
-        collision_group=-1,
-        physics_material=sim_utils.RigidBodyMaterialCfg(
-            friction_combine_mode="average",
-            restitution_combine_mode="average",
-            static_friction=1.0,
-            dynamic_friction=1.0,
-            restitution=0.0,
-        ),
-        debug_vis=False,
+    sim: SimulationCfg = SimulationCfg(
+        dt=1 / 60,
+        render_interval=decimation,
+        physics=PhysxCfg(gpu_found_lost_pairs_capacity=2**23, gpu_total_aggregate_pairs_capacity=2**23),
     )
 
     # scene
     scene: HumanoidSceneCfg = HumanoidSceneCfg(
-        num_envs=4096, env_spacing=4.0, replicate_physics=True, clone_in_fabric=True
+        num_envs=4096, env_spacing=10.0, replicate_physics=True, clone_in_fabric=True
     )
 
     # robot
-    robot: ArticulationCfg = HUMANOID_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    robot: ArticulationCfg = HUMANOID_28_CFG.replace(prim_path="/World/envs/env_.*/Robot").replace(
+        actuators={
+            "body": ImplicitActuatorCfg(
+                joint_names_expr=[".*"],
+                stiffness=None,
+                damping=None,
+                velocity_limit_sim={
+                    ".*": 100.0,
+                },
+            ),
+        },
+    )
 
-    physx_joint_gears: list = [
-        67.5000,  # lower_waist
-        67.5000,  # lower_waist
-        67.5000,  # right_upper_arm
-        67.5000,  # right_upper_arm
-        67.5000,  # left_upper_arm
-        67.5000,  # left_upper_arm
-        67.5000,  # pelvis
-        45.0000,  # right_lower_arm
-        45.0000,  # left_lower_arm
-        45.0000,  # right_thigh: x
-        135.0000,  # right_thigh: y
-        45.0000,  # right_thigh: z
-        45.0000,  # left_thigh: x
-        135.0000,  # left_thigh: y
-        45.0000,  # left_thigh: z
-        90.0000,  # right_knee
-        90.0000,  # left_knee
-        22.5,  # right_foot
-        22.5,  # right_foot
-        22.5,  # left_foot
-        22.5,  # left_foot
-    ]
-    newton_joint_gears: list = [
-        67.5000,  # left_upper_arm
-        67.5000,  # left_upper_arm
-        45.0000,  # left_lower_arm
-        67.5000,  # lower_waist
-        67.5000,  # lower_waist
-        67.5000,  # pelvis
-        45.0000,  # left_thigh: x
-        135.0000,  # left_thigh: y
-        45.0000,  # left_thigh: z
-        90.0000,  # left_knee
-        22.5,  # left_foot
-        22.5,  # left_foot
-        45.0000,  # right_thigh: x
-        135.0000,  # right_thigh: y
-        45.0000,  # right_thigh: z
-        90.0000,  # right_knee
-        22.5,  # right_foot
-        22.5,  # right_foot
-        67.5000,  # right_upper_arm
-        67.5000,  # right_upper_arm
-        45.0000,  # right_lower_arm
-    ]
-    joint_gears = {
-        "physx": physx_joint_gears,
-        "newton": newton_joint_gears,
-    }
 
-    heading_weight: float = 0.5
-    up_weight: float = 0.1
-
-    energy_cost_scale: float = 0.05
-    actions_cost_scale: float = 0.01
-    alive_reward_scale: float = 2.0
-    dof_vel_scale: float = 0.1
-
-    death_cost: float = -1.0
-    termination_height: float = 0.8
-
-    angular_velocity_scale: float = 0.25
-    contact_force_scale: float = 0.01
+@configclass
+class HumanoidWalkEnvCfg(HumanoidEnvCfg):
+    motion_files = [os.path.join(MOTIONS_DIR, "humanoid_walk.npz")]

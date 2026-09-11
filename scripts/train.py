@@ -34,13 +34,7 @@ parser = argparse.ArgumentParser(description="Train an agent to MOVE with IsaacL
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint to resume training.")
-parser.add_argument(
-    "--algorithm",
-    type=str,
-    default="PPO",
-    choices=["AMP", "PPO"],
-    help="The RL algorithm used for training the agent to MOVE.",
-)
+
 # append AppLauncher cli args
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
@@ -57,7 +51,7 @@ def main():
         env_cfg.seed = agent_cfg["seed"]
 
         # specify directory for logging experiments
-        log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"], args_cli.algorithm)
+        log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"])
         log_root_path = os.path.abspath(log_root_path)
 
         print(f"[INFO] Logging experiment in directory: {log_root_path}")

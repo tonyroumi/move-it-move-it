@@ -39,13 +39,6 @@ parser.add_argument(
         "written run directory. Ignored if --checkpoint is provided."
     ),
 )
-parser.add_argument(
-    "--algorithm",
-    type=str,
-    default="PPO",
-    choices=["AMP", "PPO"],
-    help="The RL algorithm used for training the agent.",
-)
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument(
     "--joystick",
@@ -53,7 +46,7 @@ parser.add_argument(
     default=False,
     help=(
         "Drive the policy's velocity command live from the keyboard instead of the env's sampled commands."
-        " Requires a command-conditioned task (e.g. Humanoid-Joystick-AMP-Locomotion) and a non-headless renderer."
+        " Requires a task configured with env.reward_type=joystick and a non-headless renderer."
     ),
 )
 parser.add_argument(
@@ -79,7 +72,7 @@ def main():
         args_cli.seed = agent_cfg["seed"]
 
         # specify directory for logging experiments
-        log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"], args_cli.algorithm)
+        log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"])
         log_root_path = os.path.abspath(log_root_path)
 
         print(f"[INFO] Loading experiment from directory: {log_root_path}")

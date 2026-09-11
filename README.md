@@ -18,11 +18,11 @@ them via `./isaaclab.sh --install` from the IsaacLab repo.
 Train:
 
 ```bash
-./isaaclab.sh -p scripts/train.py --task <task_name> --algorithm PPO
+./isaaclab.sh -p scripts/train.py --task <task_name>
 ```
 
 Play a checkpoint:
 
 ```bash
-./isaaclab.sh -p scripts/play.py --task <task_name> --algorithm PPO --checkpoint <path>
+./isaaclab.sh -p scripts/play.py --task <task_name> --checkpoint <path>
 ```

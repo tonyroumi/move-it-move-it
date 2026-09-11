@@ -1,17 +1,17 @@
 seed: 42
 
 experiment:
-  directory: "humanoid_amp_locomotion"
+  directory: "humanoid_ppo_walk"
   experiment_name: ""
 
 logger:
   backend: tensorboard
   write_interval: 1
-  checkpoint_interval: 50
+  checkpoint_interval: 60
 
 models:
   actor:
-    hidden_layers: [1024, 512]
+    hidden_layers: [256, 256]
     activation: elu
     noise_std_type: fixed
     init_noise_std: 0.055
@@ -26,7 +26,7 @@ models:
         zero_bias: true
 
   critic:
-    hidden_layers: [1024, 512]
+    hidden_layers: [256, 256]
     activation: elu
     weight_init:
       type: uniform
@@ -36,38 +36,24 @@ models:
         zero_bias: true
       output:
         enabled: false
-        zero_bias: true
-
-  discriminator:
-    hidden_layers: [1024, 512]
-    activation: elu
-    weight_init:
-      type: uniform
-      trunk:
-        enabled: false
-        gain: 1.0
-        zero_bias: true
-      output:
-        enabled: true
-        gain: 1.0
         zero_bias: true
 
 storage:
-  capacity: 2000000
+  # None
 
 agent:
-  class_type: AMP
+  class_type: PPO
 
   num_transitions_per_env: 16
 
-  num_mini_batches: 16
-  num_learning_epochs: 8
+  num_mini_batches: 2
+  num_learning_epochs: 6
   learning_rate: 0.00005
 
   clip_param: 0.2
   value_loss_coef: 2.0
-  entropy_coef: 0.01
-  max_grad_norm: 1.0
+  entropy_coef: 0.0
+  max_grad_norm: 0.0
   use_clipped_value_loss: False
   value_loss_clip_param: 0.2
 
@@ -78,21 +64,7 @@ agent:
   discount: 0.99
   normalize_advantage_per_mini_batch: False
 
-  # AMP params
-  discriminator_update_interval: 1
-
-  disc_lr: 0.00005
-  disc_logit_reg: 0.01
-  disc_grad_penalty: 4.0
-  disc_weight_decay: 0.0001
-  disc_loss_scale: 1.0
-  grad_norm_clip: 1.0
-  disc_num_updates: 5
-  disc_batch_size: 2048
-  
-  style_reward_lambda: 5.0
-  goal_reward_lambda: 1.0
-
 
 runner:
   timesteps: 200000000
+  use_pbar: False
