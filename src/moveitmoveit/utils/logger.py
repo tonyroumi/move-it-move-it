@@ -10,20 +10,7 @@ import torch
 
 
 class Logger:
-    """ RL logger with optional TensorBoard and/or Weights & Biases backends.
-
-    In addition to generic scalar/histogram/video logging, this class owns all
-    training diagnostics: episode reward/length tracking, agent update
-    diagnostics, and iteration timing (collection/learning time, ETA).
-
-    Agents push data in via `add_env_info` + `env_step` (per env step) and
-    `add_info` / `add_info` + `grad_step` (per gradient step); the
-    runner brackets each phase with the `timing` context manager and calls
-    `step` once per env step. `log` then flushes everything (all tracked tags
-    go to tensorboard/wandb via `write_data`; only a curated "core" subset is
-    printed to stdout) and checkpoints the agent when a new best mean episode
-    reward is reached.
-    """
+    """ RL logger with optional TensorBoard and/or Weights & Biases backends. """
 
     # Training diagnostics considered "core" enough to print to the screen.
     _CORE_TRAIN_KEYS = ("Total Loss", "Policy Loss", "Value Loss", "Discriminator Loss")

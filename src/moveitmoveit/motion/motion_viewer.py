@@ -40,11 +40,11 @@ class MotionViewer:
         self._render_scene = render_scene
 
         # load motions
-        self._motion_loader = MotionLoader(motion_file=motion_file, device=device)
+        self._motion_loader = MotionLoader(motion_files=[motion_file], device=device)
 
-        self._num_frames = self._motion_loader.num_frames
+        self._num_frames = int(self._motion_loader.num_frames[0])
         self._current_frame = 0
-        self._body_positions = self._motion_loader.body_positions.cpu().numpy()
+        self._body_positions = self._motion_loader.body_positions[0, : self._num_frames].cpu().numpy()
 
         print("\nBody")
         for i, name in enumerate(self._motion_loader.body_names):

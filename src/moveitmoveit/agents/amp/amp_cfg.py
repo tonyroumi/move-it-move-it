@@ -41,3 +41,6 @@ class AMPCfg(PPOCfg):
 
     goal_reward_lambda: float = 1.0
     """Coefficient applied to the task or goal reward."""
+
+    num_amp_observations: int = 2
+    """Number of consecutive observation frames stacked into one AMP/style observation."""

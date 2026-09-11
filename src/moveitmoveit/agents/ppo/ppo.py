@@ -167,7 +167,6 @@ class PPO(BaseAgent):
                 with torch.no_grad():
                     log_ratio = actions_log_prob - batch.old_actions_log_prob
                     kl_divergence = ((torch.exp(log_ratio) - 1) - log_ratio).mean()
-                    # kl_divergences.append(kl_divergence)
 
                 ratio = torch.exp(actions_log_prob - batch.old_actions_log_prob)
                 surrogate = advantage * ratio 

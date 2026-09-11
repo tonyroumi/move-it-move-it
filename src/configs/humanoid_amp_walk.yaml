@@ -1,0 +1,98 @@
+seed: 42
+
+experiment:
+  directory: "humanoid_amp_walk"
+  experiment_name: ""
+
+logger:
+  backend: tensorboard
+  write_interval: 1
+  checkpoint_interval: 50
+
+models:
+  actor:
+    hidden_layers: [1024, 512]
+    activation: relu
+    noise_std_type: fixed
+    init_noise_std: 0.055
+    # weight_init:
+    #   type: uniform
+    #   trunk:
+    #     enabled: false
+    #     zero_bias: true
+    #   output:
+    #     enabled: false
+    #     gain: 0.01
+    #     zero_bias: true
+
+  critic:
+    hidden_layers: [1024, 512]
+    activation: relu
+    # weight_init:
+    #   type: uniform
+    #   trunk:
+    #     enabled: false
+    #     gain: 1.0
+    #     zero_bias: true
+    #   output:
+    #     enabled: false
+    #     zero_bias: true
+
+  discriminator:
+    hidden_layers: [1024, 512]
+    activation: relu
+    # weight_init:
+    #   type: uniform
+    #   trunk:
+    #     enabled: false
+    #     gain: 1.0
+    #     zero_bias: true
+    #   output:
+    #     enabled: false
+    #     gain: 1.0
+    #     zero_bias: true
+
+storage:
+  capacity: 2000000
+
+agent:
+  class_type: AMP
+
+  num_transitions_per_env: 16
+
+  num_mini_batches: 2
+  num_learning_epochs: 6
+  learning_rate: 0.00005
+
+  clip_param: 0.2
+  value_loss_coef: 2.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.0
+  use_clipped_value_loss: False
+  value_loss_clip_param: 0.2
+
+  desired_kl: 0.01
+  adaptive_kl: False
+
+  gae_lambda: 0.95
+  discount: 0.99
+  normalize_advantage_per_mini_batch: False
+
+  # AMP params
+  discriminator_update_interval: 1
+
+  disc_lr: 0.00005
+  disc_logit_reg: 0.05
+  disc_grad_penalty: 5.0
+  disc_weight_decay: 0.0001
+  disc_loss_scale: 5.0
+  grad_norm_clip: 0.0
+  disc_num_updates: 4
+  disc_batch_size: 4096
+  
+  style_reward_lambda: 2.0
+  goal_reward_lambda: 5.0
+
+
+runner:
+  timesteps: 200000000
