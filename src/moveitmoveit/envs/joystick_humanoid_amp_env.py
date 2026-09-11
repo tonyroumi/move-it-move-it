@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import numpy as np 
 
 from isaaclab.utils.math import quat_apply_inverse
 
@@ -58,8 +59,7 @@ class JoystickHumanoidAmpEnv(HumanoidAmpEnv):
 
     def _get_observations(self) -> torch.Tensor:
         # updates self.extras["amp_obs"] from the (unmodified, world-frame) AMP style observation
-        super()._get_observations()
-        return compute_joystick_obs(
+        obs = compute_obs(
             self.robot.data.joint_pos.torch,
             self.robot.data.joint_vel.torch,
             self.robot.data.body_pos_w.torch[:, self.ref_body_index],
@@ -67,23 +67,61 @@ class JoystickHumanoidAmpEnv(HumanoidAmpEnv):
             self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
             self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index],
             self.robot.data.body_pos_w.torch[:, self.key_body_indexes],
-            self.commands,
         )
+
+        # update AMP observation history
+        for i in reversed(range(self.cfg.num_amp_observations - 1)):
+            self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
+        # build AMP observation
+        self.amp_observation_buffer[:, 0] = obs.clone()
+        self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
+
+        obs = torch.hstack((obs, self.commands))
+        return obs
 
     def _get_rewards(self) -> torch.Tensor:
         root_rotation = self.robot.data.body_quat_w.torch[:, self.ref_body_index]
         local_lin_vel = quat_apply_inverse(root_rotation, self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index])
         local_ang_vel = quat_apply_inverse(root_rotation, self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index])
         reward = compute_command_tracking_reward(
-            local_lin_vel, local_ang_vel, self.commands, self.cfg.command_tracking_scale
+            local_lin_vel, local_ang_vel, self.commands, self.cfg.command_lin_vel_scale, self.cfg.command_ang_vel_scale
         )
         # resample commands (if due) after computing the reward for the command active during this transition
         self._resample_commands_mid_episode()
         return reward
 
+    def collect_reference_motions(self, num_samples: int, current_times: np.ndarray | None = None) -> torch.Tensor:
+        # sample random motion times (or use the one specified)
+        if current_times is None:
+            current_times = self._motion_loader.sample_times(num_samples)
+        times = (
+            np.expand_dims(current_times, axis=-1)
+            - self._motion_loader.dt * np.arange(0, self.cfg.num_amp_observations)
+        ).flatten()
+        # get motions
+        (
+            dof_positions,
+            dof_velocities,
+            body_positions,
+            body_rotations,
+            body_linear_velocities,
+            body_angular_velocities,
+        ) = self._motion_loader.sample(num_samples=num_samples, times=times)
+        # compute AMP observation
+        amp_observation = compute_obs(
+            dof_positions[:, self.motion_dof_indexes],
+            dof_velocities[:, self.motion_dof_indexes],
+            body_positions[:, self.motion_ref_body_index],
+            body_rotations[:, self.motion_ref_body_index],
+            body_linear_velocities[:, self.motion_ref_body_index],
+            body_angular_velocities[:, self.motion_ref_body_index],
+            body_positions[:, self.motion_key_body_indexes],
+        )
+        return amp_observation.view(-1, self.amp_observation_size)
+
 
 @torch.jit.script
-def compute_joystick_obs(
+def compute_obs(
     dof_positions: torch.Tensor,  # (N, num_dofs)
     dof_velocities: torch.Tensor,  # (N, num_dofs)
     root_positions: torch.Tensor,  # (N, 3)
@@ -91,7 +129,6 @@ def compute_joystick_obs(
     root_linear_velocities: torch.Tensor,  # (N, 3), world frame
     root_angular_velocities: torch.Tensor,  # (N, 3), world frame
     key_body_positions: torch.Tensor,  # (N, num_key_bodies, 3)
-    commands: torch.Tensor,  # (N, 3): [lin_vel_x, lat_vel_y, yaw_rate]
 ) -> torch.Tensor:
     num_envs = root_positions.shape[0]
 
@@ -114,7 +151,6 @@ def compute_joystick_obs(
             local_lin_vel,
             local_ang_vel,
             local_key_positions,
-            commands,
         ),
         dim=-1,
     )
@@ -125,8 +161,13 @@ def compute_command_tracking_reward(
     local_linear_velocity: torch.Tensor,  # (N, 3), base-frame linear velocity
     local_angular_velocity: torch.Tensor,  # (N, 3), base-frame angular velocity
     commands: torch.Tensor,  # (N, 3): [lin_vel_x, lat_vel_y, yaw_rate]
-    reward_scale: float,
+    lin_scale: float,
+    ang_scale: float,
 ) -> torch.Tensor:
     lin_vel_error = torch.sum((commands[:, :2] - local_linear_velocity[:, :2]) ** 2, dim=-1)  # (N,)
     ang_vel_error = (commands[:, 2] - local_angular_velocity[:, 2]) ** 2  # (N,)
-    return torch.exp(-reward_scale * (lin_vel_error + ang_vel_error))
+    reward = torch.exp(
+        -lin_scale * lin_vel_error
+        -ang_scale * ang_vel_error
+    )
+    return reward

@@ -193,10 +193,12 @@ class PPO(BaseAgent):
                 self.logger.add_info("Policy Grad Norm", self.actor.grad_norm)
                 self.logger.add_info("Value Grad Norm", self.critic.grad_norm)
 
-                torch.nn.utils.clip_grad_norm_(
-                    itertools.chain(self.actor.parameters(), self.critic.parameters()),
-                    max_norm=self.cfg.max_grad_norm,
-                )
+                if self.cfg.max_grad_norm:
+                    torch.nn.utils.clip_grad_norm_(
+                        itertools.chain(self.actor.parameters(), self.critic.parameters()),
+                        max_norm=self.cfg.max_grad_norm,
+                    )
+
                 self.optimizer.step()
 
 
