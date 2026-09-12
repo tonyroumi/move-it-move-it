@@ -1,9 +1,9 @@
 import torch
 import yaml
 
-from ..commands import COMMAND_DIM, CommandIndex
-from ..rewards import NUM_REWARDS, RewardIndex
-from ..terminations import NUM_TERMINATIONS, TerminationIndex
+from .commands import COMMAND_DIM, CommandIndex
+from .rewards import NUM_REWARDS, RewardIndex
+from .terminations import NUM_TERMINATIONS, TerminationIndex
 
 
 class MotionManager:

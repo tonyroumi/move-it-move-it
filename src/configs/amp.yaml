@@ -1,7 +1,7 @@
 seed: 42
 
 experiment:
-  directory: "humanoid_amp_walk"
+  directory: "original_quat_notation"
   experiment_name: ""
 
 logger:
@@ -90,8 +90,8 @@ agent:
   disc_num_updates: 4
   disc_batch_size: 4096
   
-  style_reward_lambda: 2.0
-  goal_reward_lambda: 0.0
+  style_reward_lambda: 4.0
+  goal_reward_lambda: 2.0
 
 
 runner:

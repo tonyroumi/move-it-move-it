@@ -98,7 +98,7 @@ def main():
 
         if resume_path:
             print(f"[INFO] Loading model checkpoint from: {resume_path}")
-            runner.agent.load_checkpoint(resume_path)
+            runner.agent.load_checkpoint(resume_path, env.unwrapped.device)
 
         try:
             runner.learn()

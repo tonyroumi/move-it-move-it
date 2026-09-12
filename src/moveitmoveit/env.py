@@ -4,29 +4,29 @@ import torch
 
 from isaaclab.envs import DirectRLEnv
 
-from .humanoid_env_cfg import HumanoidEnvCfg
+from .env_cfg import MotionLearningEnvCfg
 
 from moveitmoveit.utils import transforms
 
-from ..commands import COMMAND_DIM, CommandIndex
-from ..motions.motion_loader import MotionLoader
-from ..motions.motion_manager import MotionManager
-from ..rewards import (
+from .commands import COMMAND_DIM, CommandIndex
+from .motion_utils.motion_loader import MotionLoader
+from .motion_manager import MotionManager
+from .rewards import (
     lin_vel_tracking_reward,
     motion_tracking_reward,
     target_hit_reward,
     yaw_vel_tracking_reward,
 )
-from ..terminations import (
+from .terminations import (
     deviation_from_motion_termination,
     unhealthy_termination,
 )
 
 
-class HumanoidEnv(DirectRLEnv):
-    cfg: HumanoidEnvCfg
+class MotionLearningEnv(DirectRLEnv):
+    cfg: MotionLearningEnvCfg
 
-    def __init__(self, cfg: HumanoidEnvCfg, render_mode: str | None = None, **kwargs):
+    def __init__(self, cfg: MotionLearningEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
         self._motion_manager = MotionManager(cfg.motion_manifest, self.num_envs, self.device)
@@ -182,18 +182,31 @@ class HumanoidEnv(DirectRLEnv):
             device=self.device,
         )
 
-        if self.render_enabled:
-            self._camera_target_offset = torch.tensor([2.5, 0.0, 0.3], device=self.device)
-            self._camera_eye_offset = torch.tensor([4.0, 0.0, -0.4], device=self.device)
+        if self.render_enabled and self.cfg.camera_type != "none":
+            if self.cfg.camera_type == "facing":
+                # in front of the robot, looking back at it
+                self._camera_target_offset = torch.tensor([2.5, 0.0, 0.3], device=self.device)
+                self._camera_eye_offset = torch.tensor([4.0, 0.0, -0.4], device=self.device)
+            elif self.cfg.camera_type == "third-person":
+                # behind and above the robot, looking forward over it
+                self._camera_target_offset = torch.tensor([1.0, 0.0, 0.5], device=self.device)
+                self._camera_eye_offset = torch.tensor([-6.0, 0.0, 3.0], device=self.device)
 
     def _setup_scene(self):
         self.robot = self.scene["robot"]
 
     def _update_camera(self):
-        root_pos = self.robot.data.root_pos_w.torch[0]
+        if self.cfg.camera_type == "none":
+            return
 
-        target = root_pos + self._camera_target_offset
-        eye = target + self._camera_eye_offset
+        root_pos = self.robot.data.root_pos_w.torch[0]
+        root_quat = self.robot.data.body_quat_w.torch[0:1, self.ref_body_index]  # (1, 4)
+
+        target_offset = transforms.quat_apply_yaw(root_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
+        eye_offset = transforms.quat_apply_yaw(root_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
+
+        target = root_pos + target_offset
+        eye = target + eye_offset
 
         eye_t = tuple(eye.cpu().tolist())
         target_t = tuple(target.cpu().tolist())
@@ -227,6 +240,8 @@ class HumanoidEnv(DirectRLEnv):
 
         if self.render_enabled:
             self._update_camera()
+
+        self._resample_commands()
 
     def _get_observations(self) -> dict:
         obs = compute_proprioceptive_obs(*self.current_state, local_frame=self.cfg.random_reset)
@@ -312,6 +327,15 @@ class HumanoidEnv(DirectRLEnv):
 
         died = torch.any(enabled & terminations, dim=-1)
         return died, time_out
+
+    def _resample_commands(self):
+        """Resample commands for envs that have gone `command_resample_steps` steps since their
+        last command sample (either at reset, in `_reset_idx`, or from a previous call here)."""
+        resample_env_ids = (
+            (self.episode_length_buf % self.cfg.command_resample_steps == 0).nonzero(as_tuple=False).squeeze(-1)
+        )
+        if resample_env_ids.numel() > 0:
+            self.commands[resample_env_ids] = self._motion_manager.sample_commands(resample_env_ids)
 
     def _reset_idx(self, env_ids: torch.Tensor):
         super()._reset_idx(env_ids)
@@ -415,12 +439,12 @@ class HumanoidEnv(DirectRLEnv):
 
 @torch.jit.script
 def compute_proprioceptive_obs(
-    dof_positions: torch.Tensor,      
-    dof_velocities: torch.Tensor,       
-    root_positions: torch.Tensor,       
-    root_rotations: torch.Tensor,         
-    root_linear_velocities: torch.Tensor, 
-    root_angular_velocities: torch.Tensor, 
+    dof_positions: torch.Tensor,
+    dof_velocities: torch.Tensor,
+    root_positions: torch.Tensor,
+    root_rotations: torch.Tensor,
+    root_linear_velocities: torch.Tensor,
+    root_angular_velocities: torch.Tensor,
     key_body_positions: torch.Tensor,
     local_frame: bool,
 ) -> torch.Tensor:
