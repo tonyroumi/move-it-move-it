@@ -12,7 +12,7 @@ from isaaclab.envs import DirectRLEnv
 from skrl.resources.preprocessors.torch import RunningStandardScaler
 
 from moveitmoveit.models import MLP
-from moveitmoveit.storage import TensorCircularBuffer
+from moveitmoveit.storage import CircularBuffer
 from moveitmoveit.utils.logger import Logger
 
 from .amp_cfg import AMPCfg
@@ -27,18 +27,14 @@ class AMP(PPO):
         super().__init__(cfg=cfg, logger=logger)
 
     def init(self, env: DirectRLEnv, cfg: dict):
-        super().init(env, cfg)
+        self.collect_reference_motions: Callable = env.unwrapped.motion_loader.sample
 
-        self.collect_reference_motions: Callable = env.unwrapped.collect_reference_motions
-        self._sample_reference_clip_times: Callable = env.unwrapped.sample_reference_clip_times
-        self._motion_dt: float = env.unwrapped.motion_dt
+        super().init(env, cfg)
 
     def _initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         super()._initialize_models(env, model_cfg)
 
-        # single-frame AMP feature width (never includes joystick commands, since a reference
-        # motion clip has no notion of a commanded velocity)
-        self._amp_single_obs_dim = env.unwrapped.collect_reference_motions(1).shape[-1]
+        self._amp_single_obs_dim = self.collect_reference_motions(1).shape[-1]
         self.amp_obs_dim = self.cfg.num_amp_observations * self._amp_single_obs_dim
 
         self.discriminator = MLP(
@@ -68,24 +64,9 @@ class AMP(PPO):
         self.buf_capacity = storage_cfg.get("capacity", 2_000_000)
 
         self._amp_observations_buf = None
-        # rolling per-env window of the last `num_amp_observations` raw (single-frame, command-free)
-        # observations, newest first; lazily initialized on the first env step
-        self._live_amp_history = None
-
-    def _update_live_amp_history(self, next_observations: torch.Tensor, done_mask: torch.Tensor) -> torch.Tensor:
-        raw_frame = next_observations[..., : self._amp_single_obs_dim]
-
-        if self._live_amp_history is None:
-            # cold start: seed every env's window with its first observation, as if just reset
-            self._live_amp_history = raw_frame.unsqueeze(1).repeat(1, self.cfg.num_amp_observations, 1)
-        else:
-            self._live_amp_history = torch.roll(self._live_amp_history, shifts=1, dims=1)
-            self._live_amp_history[:, 0] = raw_frame
-            if done_mask.any():
-                # envs that reset this step start a new episode; don't mix in pre-reset history
-                self._live_amp_history[done_mask] = raw_frame[done_mask].unsqueeze(1)
-
-        return self._live_amp_history.view(next_observations.shape[0], -1)
+        self._amp_current_observations = torch.zeros(
+            (env.num_envs, self.cfg.num_amp_observations, self._amp_single_obs_dim), device=env.device
+        )
 
     def process_env_step(
         self,
@@ -97,17 +78,15 @@ class AMP(PPO):
     ) -> None:
         super().process_env_step(next_observations, rewards, terminated, truncated, infos)
 
-        amp_obs = self._update_live_amp_history(next_observations, terminated | truncated)
-
         # Lazy load motion buffers after first step
         if self._amp_observations_buf is None:
-            self._amp_observations_buf = TensorCircularBuffer(
+            self._amp_observations_buf = CircularBuffer(
                 capacity=self.buf_capacity,
-                sample_shape=(amp_obs.shape[-1],),
+                sample_shape=(self.amp_obs_dim,),
                 device=rewards.device,
             )
 
-        self._amp_observations_buf.append(amp_obs)
+        self._amp_observations_buf.append(infos["amp_obs"])
 
     def update(self) -> None:
         rewards = self.storage.rewards
@@ -135,22 +114,10 @@ class AMP(PPO):
         if self._update_step % self.cfg.discriminator_update_interval == 0:
             self._update_discriminator()
 
-    def _sample_reference_motion_window(self, num_samples: int) -> torch.Tensor:
-        """`num_amp_observations` consecutive reference-motion frames per sample, newest first,
-        concatenated to match the layout of the live rollout's stacked AMP observations."""
-        clip_indexes, times = self._sample_reference_clip_times(num_samples)
-        frames = [
-            self.collect_reference_motions(
-                num_samples, current_times=times - k * self._motion_dt, clip_indexes=clip_indexes
-            )
-            for k in range(self.cfg.num_amp_observations)
-        ]
-        return torch.cat(frames, dim=-1)
-
     def _update_discriminator(self) -> None:
         """Run one round of discriminator gradient updates."""
         for _ in range(self.cfg.disc_num_updates):
-            ref_motion = self._sample_reference_motion_window(self.cfg.disc_batch_size)
+            ref_motion = self.collect_reference_motions(self.cfg.disc_batch_size)
             agent_motion = self._amp_observations_buf.sample(self.cfg.disc_batch_size)
 
             ref_motion = self._disc_obs_preprocessor(ref_motion, train=True)

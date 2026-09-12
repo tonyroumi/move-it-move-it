@@ -1,7 +1,7 @@
 import torch
 
 
-class TensorCircularBuffer:
+class CircularBuffer:
     def __init__(
         self,
         capacity: int,
