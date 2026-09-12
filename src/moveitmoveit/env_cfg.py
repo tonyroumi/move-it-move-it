@@ -69,8 +69,6 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
 
     # environment flags
     random_reset: bool = True
-
-    # resample self.commands every this many env steps (in addition to on reset)
     command_resample_steps: int = 150
 
     # rendering
