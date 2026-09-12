@@ -6,13 +6,6 @@ a variety of motions/behaviors, where each motion's rewards, commands, and
 termination conditions are declared in a **motion manifest** (YAML) rather than
 hardcoded per-behavior.
 
-Current focus:
-- Implement PPO and AMP (Adversarial Motion Priors) from scratch
-- Train a single `MotionLearningEnv(DirectRLEnv)` across multiple reward schemes and motions
-- Drive per-motion behavior via declarative motion manifests, not env subclasses
-- Maintain explicit control over rollout storage, GAE, PPO updates,
-  discriminator training, and diagnostics
-
 # Architecture
 
 - `moveitmoveit/agents/`
@@ -20,7 +13,7 @@ Current focus:
 - `moveitmoveit/models/`
   - neural network architectures such as MLP and GaussianMLP
 - `moveitmoveit/storage/`
-  - rollout storage, `RolloutBuffer`/`CircularBuffer` for discriminator training
+  - rollout storage, `RolloutBuffer`/`CircularBuffer` 
 - `moveitmoveit/env.py` / `moveitmoveit/env_cfg.py`
   - the single `MotionLearningEnv(DirectRLEnv)` — no `envs/` package, since there is and will only
     ever be one environment (the same robot, driven by the motion manifest)
@@ -29,13 +22,6 @@ Current focus:
 - `moveitmoveit/motion/`
   - `motion_loader.py` — reference motion clip loading and state sampling
   - `motion_viewer.py` — standalone motion clip visualization
-- `scripts/train.py`
-  - CLI entry point: `--algo {ppo,amp}`, `--reward {tracking,joystick,joystick-shaped,manifest}`, `--motions <name(s)>`
-  - single registered gym task `MoveIt-Humanoid-v0` (no per-combination task IDs)
-
-IsaacLab environments use `DirectRLEnv`. Package uses src-layout
-(`src/moveitmoveit/`), installed via `pip install -e .`; imports always use the
-`moveitmoveit.env`/`moveitmoveit.motion.*` (etc.) namespace, never relative package-root imports.
 
 ## Motion Manifest
 
@@ -45,15 +31,10 @@ declares its reward composition and termination condition.
 
 - Python 3.12
 - PyTorch
-- Prefer explicit tensor shapes.
-- Include tensor shapes in comments when operations are non-obvious.
 - Avoid unnecessary abstractions.
 - Do not modify unrelated code.
 - Preserve existing type hints.
 - Prefer small focused classes/functions.
-- New per-motion behavior should be expressed as a manifest YAML + registered
-  reward terms, not a new `RewardScheme`/`CommandGenerator`/env subclass, unless
-  the behavior genuinely needs new mechanics the registry can't express.
 
 # Environment
 
@@ -91,7 +72,7 @@ If the requested change appears to require a broader modification than expected:
 
 Before making significant changes:
 
-1. Inspect the relevant implementation and its immediate dependencies.
+1. Inspect the relevant implementation and its dependencies.
 2. Determine the exact scope of the requested change.
 3. Identify important tensor shapes, data flow, and behavioral assumptions.
 4. Prefer modifying existing code over introducing new architecture.
@@ -114,6 +95,5 @@ Unless explicitly requested otherwise:
 When asked to implement a specific change:
 
 - Focus the response on that change.
-- Do not provide a rewritten version of an entire file when a localized patch is sufficient.
 - Do not propose multiple alternative architectures unless asked.
 - Clearly identify any assumptions you had to make.
