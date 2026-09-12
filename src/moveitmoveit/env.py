@@ -100,6 +100,11 @@ class MotionLearningEnv(DirectRLEnv):
         current_times: np.ndarray | None = None,
         env_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        if clip_indexes is None:
+            # resolve which clip each sample is drawn from up front, so the sampled clip can
+            # also be used below as that sample's discriminator task id
+            clip_indexes = self._motion_loader.sample_clip_indexes(num_samples)
+
         (
             dof_positions,
             dof_velocities,
@@ -145,6 +150,12 @@ class MotionLearningEnv(DirectRLEnv):
             body_positions[:, self.motion_key_body_indexes],
             local_frame=self.cfg.random_reset
         )
+
+        task_ids = self._motion_manager.task_ids_for(clip_indexes).repeat_interleave(
+            self.cfg.num_amp_observations, dim=0
+        )
+        amp_observation = torch.cat((amp_observation, task_ids), dim=-1)
+
         return amp_observation.view(-1, self.amp_observation_size)
 
     def _setup_env(self):
@@ -169,11 +180,14 @@ class MotionLearningEnv(DirectRLEnv):
         self.random_yaw_quat = torch.zeros(self.num_envs, 4, device=self.device)
         self.random_yaw_quat[:, -1] = 1.0
 
-        # reconfigure AMP observation space according to the number of observations and create the buffer
-        self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
+        # reconfigure AMP observation space according to the number of observations and create the buffer;
+        # each per-step observation is extended with a one-hot task id of the active motion
+        self.task_id_dim = self._motion_manager.num_motions
+        amp_observation_space = self.cfg.amp_observation_space + self.task_id_dim
+        self.amp_observation_size = self.cfg.num_amp_observations * amp_observation_space
         self.amp_observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.amp_observation_size,))
         self.amp_observation_buffer = torch.zeros(
-            (self.num_envs, self.cfg.num_amp_observations, self.cfg.amp_observation_space), device=self.device
+            (self.num_envs, self.cfg.num_amp_observations, amp_observation_space), device=self.device
         )
 
         self.commands = torch.zeros(
@@ -251,9 +265,12 @@ class MotionLearningEnv(DirectRLEnv):
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
             self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
         # build AMP observation
-        self.amp_observation_buffer[:, 0] = compute_proprioceptive_obs(
+        current_amp_obs = compute_proprioceptive_obs(
             *self.current_state,
             local_frame=self.cfg.random_reset
+        )
+        self.amp_observation_buffer[:, 0] = torch.cat(
+            (current_amp_obs, self._motion_manager.current_task_ids), dim=-1
         )
         self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
 
@@ -398,7 +415,7 @@ class MotionLearningEnv(DirectRLEnv):
             dim=-1,
         ).clone()
         root_state[:, 0:3] = body_positions[:, self.motion_ref_body_index] + self.scene.env_origins[env_ids]
-        root_state[:, 2] += 0.15  # lift the humanoid slightly to avoid collisions with the ground
+        root_state[:, 2] += 0.1  # lift the humanoid slightly to avoid collisions with the ground
         root_state[:, 3:7] = body_rotations[:, self.motion_ref_body_index]
         root_state[:, 7:10] = body_linear_velocities[:, self.motion_ref_body_index]
         root_state[:, 10:13] = body_angular_velocities[:, self.motion_ref_body_index]

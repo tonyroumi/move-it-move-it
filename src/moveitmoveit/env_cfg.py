@@ -72,4 +72,4 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     command_resample_steps: int = 150
 
     # rendering
-    camera_type: Literal["facing", "third-person", "none"] = "facing"
+    camera_type: Literal["facing", "third-person", "none"] = "none"
