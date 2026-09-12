@@ -9,7 +9,7 @@ from .env_cfg import MotionLearningEnvCfg
 from moveitmoveit.utils import transforms
 
 from .commands import COMMAND_DIM, CommandIndex
-from .motion_utils.motion_loader import MotionLoader
+from .motion.motion_loader import MotionLoader
 from .motion_manager import MotionManager
 from .rewards import (
     lin_vel_tracking_reward,

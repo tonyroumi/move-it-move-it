@@ -158,7 +158,7 @@ class MotionLoader:
         if q0.ndim >= 3:
             blend = blend.unsqueeze(-1)
 
-        qx, qy, qz, qw = 0, 1, 2, 3  # xyzw
+        qw, qx, qy, qz = 0, 1, 2, 3  # wyzx
         cos_half_theta = (
             q0[..., qw] * q1[..., qw]
             + q0[..., qx] * q1[..., qx]
