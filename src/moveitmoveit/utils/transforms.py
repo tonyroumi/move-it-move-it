@@ -7,6 +7,7 @@ from isaaclab.utils.math import (
     quat_apply_inverse,
     quat_conjugate,
     quat_mul,
+    random_yaw_orientation,
     scale_transform,
 )
 

@@ -1,4 +1,4 @@
-"""A faint on-screen keyboard overlay that highlights the keys bound by ``isaaclab.devices.Se2Keyboard``.
+"""A faint on-screen keyboard overlay that highlights the keys bound by ``moveitmoveit.utils.keyboard.Keyboard``.
 
 Subscribes to raw keyboard events independently of the control device, so it only
 visualizes which of the bound keys are currently held -- it does not drive the command
@@ -11,6 +11,7 @@ import carb
 import omni
 import omni.appwindow
 import omni.ui as ui
+
 
 # groups mirror isaaclab.devices.Se2Keyboard._create_key_bindings: each command axis is
 # driven by either its numpad or arrow-key binding, so both keys light up the same cell

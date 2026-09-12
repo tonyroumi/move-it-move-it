@@ -100,9 +100,10 @@ def main():
                     " `commands` buffer)."
                 )
 
-            from isaaclab.devices import Se2Keyboard, Se2KeyboardCfg
+            from moveitmoveit.utils.keyboard import Keyboard
+            from isaaclab.devices import Se2KeyboardCfg
 
-            keyboard = Se2Keyboard(
+            keyboard = Keyboard(
                 Se2KeyboardCfg(
                     sim_device=env.unwrapped.device,
                     v_x_sensitivity=env.unwrapped.cfg.command_lin_vel_range[1],
@@ -113,7 +114,7 @@ def main():
             print(keyboard)
 
             if args_cli.joystick_overlay:
-                from moveitmoveit.utils.keyboard_overlay import KeyboardOverlay
+                from moveitmoveit.utils.keyboard import KeyboardOverlay
 
                 keyboard_overlay = KeyboardOverlay()
 
