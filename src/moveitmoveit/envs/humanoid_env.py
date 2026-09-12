@@ -65,10 +65,10 @@ class HumanoidEnv(DirectRLEnv):
 
         # DOF and key body indexes
         key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
-        self.ref_body_index = self.robot.data.body_names.index(self.cfg.reference_body)
+        self.ref_body_index = self.robot.data.body_names.index("torso")
         self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
         self.motion_dof_indexes = self._motion_loader.get_dof_index(self.robot.data.joint_names)
-        self.motion_ref_body_index = self._motion_loader.get_body_index([self.cfg.reference_body])[0]
+        self.motion_ref_body_index = self._motion_loader.get_body_index(["torso"])[0]
         self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
 
         # reconfigure AMP observation space according to the number of observations and create the buffer
@@ -84,8 +84,29 @@ class HumanoidEnv(DirectRLEnv):
             device=self.device,
         )
 
+        if self.render_enabled:
+            self._camera_target_offset = torch.tensor([2.5, 0.0, 0.3], device=self.device)
+            self._camera_eye_offset = torch.tensor([4.0, 0.0, -0.4], device=self.device)
+
     def _setup_scene(self):
         self.robot = self.scene["robot"]
+
+    def _update_camera(self):
+        root_pos = self.robot.data.root_pos_w.torch[0]
+
+        target = root_pos + self._camera_target_offset
+        eye = target + self._camera_eye_offset
+
+        eye_t = tuple(eye.cpu().tolist())
+        target_t = tuple(target.cpu().tolist())
+
+        self.sim.set_camera_view(eye=eye_t, target=target_t)
+        try:
+            from isaaclab_physx.renderers.kit_viewport_utils import set_kit_renderer_camera_view
+
+            set_kit_renderer_camera_view(eye=eye_t, target=target_t)
+        except (ImportError, ModuleNotFoundError):
+            pass
 
     def _write_robot_state(
         self,
@@ -106,18 +127,21 @@ class HumanoidEnv(DirectRLEnv):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target_index(target=target)
 
+        if self.render_enabled:
+            self._update_camera()
+
     def _get_observations(self) -> dict:
         obs = compute_proprioceptive_obs(*self.current_state)
-        obs.update(self.commands)
+        obs = torch.concatenate((obs, self.commands), dim=-1)
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
             self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
         # build AMP observation
-        self.amp_observation_buffer[:, 0] = compute_amp_observations(*self.current_state)
+        self.amp_observation_buffer[:, 0] = compute_proprioceptive_obs(*self.current_state)
         self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
 
-        return {"policy": obs}
+        return obs
 
     def _get_rewards(self) -> torch.Tensor:
         return torch.ones((self.num_envs,), dtype=torch.float32, device=self.sim.device)
@@ -147,7 +171,7 @@ class HumanoidEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
 
         num_samples = env_ids.shape[0]
-        motion_id = self._motion_manager.sample_motion(num_samples)
+        motion_id = self._motion_manager.sample_motion(env_ids)
         times = self._motion_loader.sample_times(num_samples, motion_id)
         (
             dof_positions,
@@ -166,14 +190,6 @@ class HumanoidEnv(DirectRLEnv):
             body_linear_velocities,
             body_angular_velocities,
         )
-        amp_observations = self.collect_reference_motions(num_samples, clip_indexes=motion_id, times=times)
-        self.amp_observation_buffer[env_ids] = amp_observations.view(num_samples, self.cfg.num_amp_observations, -1)
-    
-        self.commands[env_ids] = (
-            self._motion_manager.sample_commands(
-                env_ids
-            )
-        )
 
         self._write_robot_state(
             env_ids,
@@ -181,6 +197,15 @@ class HumanoidEnv(DirectRLEnv):
             dof_pos,
             dof_vel,
         )
+
+        self.commands[env_ids] = (
+            self._motion_manager.sample_commands(
+                env_ids
+            )
+        )
+
+        amp_observations = self.collect_reference_motions(num_samples, clip_indexes=motion_id, current_times=times)
+        self.amp_observation_buffer[env_ids] = amp_observations.view(num_samples, self.cfg.num_amp_observations, -1)
 
     def _compute_robot_state(
         self,
@@ -214,11 +239,6 @@ class HumanoidEnv(DirectRLEnv):
         clip_indexes: np.ndarray | None = None,
         current_times: np.ndarray | None = None,
     ) -> torch.Tensor:
-        # sample which clip, and random motion times (or use the ones specified), per sample
-        if clip_indexes is None:
-            clip_indexes = self._motion_loader.sample_clip_indexes(num_samples)
-        if current_times is None:
-            current_times = self._motion_loader.sample_times(num_samples, clip_indexes)
         (
             dof_positions,
             dof_velocities,
@@ -226,8 +246,13 @@ class HumanoidEnv(DirectRLEnv):
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
-        ) = self._motion_loader.sample(num_samples=num_samples, clip_indexes=clip_indexes, times=current_times)
-        return compute_amp_observations(
+        ) = self._motion_loader.sample_history(
+            num_samples=num_samples,
+            clip_indexes=clip_indexes,
+            times=current_times,
+            num_steps=self.cfg.num_amp_observations,
+        )
+        amp_observation = compute_proprioceptive_obs(
             dof_positions[:, self.motion_dof_indexes],
             dof_velocities[:, self.motion_dof_indexes],
             body_positions[:, self.motion_ref_body_index],
@@ -236,3 +261,4 @@ class HumanoidEnv(DirectRLEnv):
             body_angular_velocities[:, self.motion_ref_body_index],
             body_positions[:, self.motion_key_body_indexes],
         )
+        return amp_observation.view(-1, self.amp_observation_size)

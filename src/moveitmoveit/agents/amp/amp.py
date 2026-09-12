@@ -27,16 +27,14 @@ class AMP(PPO):
         super().__init__(cfg=cfg, logger=logger)
 
     def init(self, env: DirectRLEnv, cfg: dict):
-        self.collect_reference_motions: Callable = env.unwrapped.motion_loader.sample
+        self.collect_reference_motions: Callable = env.unwrapped.collect_reference_motions
 
         super().init(env, cfg)
 
     def _initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         super()._initialize_models(env, model_cfg)
 
-        self._amp_single_obs_dim = self.collect_reference_motions(1).shape[-1]
-        self.amp_obs_dim = self.cfg.num_amp_observations * self._amp_single_obs_dim
-
+        self.amp_obs_dim = self.collect_reference_motions(1).shape[-1]
         self.discriminator = MLP(
             in_channels=self.amp_obs_dim,
             out_channels=1,
@@ -64,9 +62,6 @@ class AMP(PPO):
         self.buf_capacity = storage_cfg.get("capacity", 2_000_000)
 
         self._amp_observations_buf = None
-        self._amp_current_observations = torch.zeros(
-            (env.num_envs, self.cfg.num_amp_observations, self._amp_single_obs_dim), device=env.device
-        )
 
     def process_env_step(
         self,

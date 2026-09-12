@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 
 import gymnasium as gym
+import yaml
 
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.io import dump_yaml
@@ -70,7 +71,9 @@ def main():
         # dump the configuration into log-directory
         dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
         dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
-        dump_yaml(os.path.join(log_dir, "params", "manifest.yaml"),args_cli.manifest)
+        with open(args_cli.manifest, "r") as f:
+            manifest_cfg = yaml.safe_load(f)
+        dump_yaml(os.path.join(log_dir, "params", "manifest.yaml"), manifest_cfg)
 
         resume_path = retrieve_file_path(args_cli.checkpoint) if args_cli.checkpoint else None
         env_cfg.log_dir = log_dir
