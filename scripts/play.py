@@ -10,9 +10,11 @@ import gymnasium as gym
 import torch
 
 import moveitmoveit
-from moveitmoveit.utils.paths import resolve_checkpoint
+from moveitmoveit.utils.paths import resolve_checkpoint, resolve_checkpoint_from_run_dir
 from moveitmoveit.utils.logger import Logger
 
+from isaaclab.utils.dict import update_class_from_dict
+from isaaclab.utils.io import load_yaml
 from isaaclab.utils.seed import configure_seed
 
 from isaaclab_tasks.utils import (
@@ -32,12 +34,25 @@ parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent f
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint.")
 parser.add_argument(
+    "--log-dir",
+    type=str,
+    default=None,
+    help=(
+        "Path to a specific run's log directory, as written by train.py (contains params/ and "
+        "checkpoints/). When given, the env and agent configs are loaded from "
+        "<log-dir>/params/{env,agent}.yaml instead of being re-resolved from the task registry, "
+        "and the checkpoint defaults to <log-dir>/checkpoints/ rather than the most recently "
+        "written run. Ignored for config resolution if not provided (task registry is used instead)."
+    ),
+)
+parser.add_argument(
     "--step",
     type=int,
     default=None,
     help=(
-        "Timestep of the checkpoint to play (checkpoints/{step}.pt), taken from the most recently "
-        "written run directory. Ignored if --checkpoint is provided."
+        "Timestep of the checkpoint to play (checkpoints/{step}.pt). Taken from --log-dir if given, "
+        "otherwise from the most recently written run directory. Defaults to checkpoints/best_agent.pt. "
+        "Ignored if --checkpoint is provided."
     ),
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
@@ -73,23 +88,31 @@ def main():
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
     with launch_simulation(env_cfg, args_cli):
         # override configurations with non-hydra CLI arguments
+
+        if args_cli.log_dir:
+            resume_path = resolve_checkpoint_from_run_dir(log_dir, checkpoint=args_cli.checkpoint, step=args_cli.step)
+        else:
+            # specify directory for logging experiments
+            log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"])
+            log_root_path = os.path.abspath(log_root_path)
+
+            print(f"[INFO] Loading experiment from directory: {log_root_path}")
+
+            resume_path = resolve_checkpoint(log_root_path, checkpoint=args_cli.checkpoint, step=args_cli.step)
+            log_dir = os.path.dirname(os.path.dirname(resume_path))
+
+        # load the env/agent configs as they were dumped by train.py
+        params_dir = os.path.join(log_dir, "params")
+
+        print(f"[INFO] Loading configs from run directory: {log_dir}")
+
+        update_class_from_dict(env_cfg, load_yaml(os.path.join(params_dir, "env.yaml")))
+        agent_cfg = load_yaml(os.path.join(params_dir, "agent.yaml"))
+
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
         args_cli.seed = agent_cfg["seed"]
-
-        # specify directory for logging experiments
-        log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"])
-        log_root_path = os.path.abspath(log_root_path)
-
-        print(f"[INFO] Loading experiment from directory: {log_root_path}")
-
-        resume_path = resolve_checkpoint(log_root_path, checkpoint=args_cli.checkpoint, step=args_cli.step)
-
-        log_dir = os.path.dirname(os.path.dirname(resume_path))
-
-        # set the log directory for the environment
-        env_cfg.log_dir = log_dir
 
         # create isaac environment
         env = gym.make(TASK_ID, cfg=env_cfg, render_mode="rgb_array" if args_cli.record else None)
@@ -113,9 +136,9 @@ def main():
             keyboard = Keyboard(
                 Se2KeyboardCfg(
                     sim_device=env.unwrapped.device,
-                    v_x_sensitivity=env.unwrapped.cfg.command_lin_vel_range[1],
-                    v_y_sensitivity=env.unwrapped.cfg.command_lat_vel_range[1],
-                    omega_z_sensitivity=env.unwrapped.cfg.command_ang_vel_range[1],
+                    v_x_sensitivity=1.5,
+                    v_y_sensitivity=1.0,
+                    omega_z_sensitivity=1.0,
                 )
             )
             print(keyboard)

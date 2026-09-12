@@ -1,7 +1,6 @@
 import torch
 import yaml
 
-
 from ..commands import COMMAND_DIM, CommandIndex
 from ..rewards import NUM_REWARDS, RewardIndex
 from ..terminations import NUM_TERMINATIONS, TerminationIndex
@@ -42,18 +41,28 @@ class MotionManager:
     def _build_command_tables(self, manifest):
         self.command_low = torch.zeros(self.num_motions, COMMAND_DIM, device=self.device)
         self.command_high = torch.zeros_like(self.command_low)
+        self.command_zero_prob = torch.zeros(self.num_motions, device=self.device)
+
+        command_keys = {
+            "lin_x": CommandIndex.LIN_X,
+            "lin_y": CommandIndex.LIN_Y,
+            "yaw": CommandIndex.YAW,
+            "binary_key_0": CommandIndex.BINARY_KEY_0,
+            "binary_key_1": CommandIndex.BINARY_KEY_1,
+        }
+
+        print("[MotionManager] Building command tables:")
 
         for motion_id, motion_name in enumerate(self.motion_names):
             cfg = manifest[motion_name]
             commands = cfg.get("commands", {})
+            zero_prob = cfg.get("zero_command_prob", 0.0)
 
-            for key, index in {
-                "lin_x": CommandIndex.LIN_X,
-                "lin_y": CommandIndex.LIN_Y,
-                "yaw": CommandIndex.YAW,
-                "shift": CommandIndex.SHIFT,
-                "punch": CommandIndex.PUNCH,
-            }.items():
+            self.command_zero_prob[motion_id] = zero_prob
+
+            motion_command_summary = {}
+
+            for key, index in command_keys.items():
 
                 value = commands.get(key, 0.0)
 
@@ -65,6 +74,10 @@ class MotionManager:
                 self.command_low[motion_id, index] = low
                 self.command_high[motion_id, index] = high
 
+                motion_command_summary[key] = (low, high)
+
+            print(f"  [{motion_id}] '{motion_name}': {motion_command_summary}, zero_command_prob={zero_prob}")
+
     def _build_reward_tables(self, manifest):
         self.reward_weights = torch.zeros(self.num_motions,NUM_REWARDS,device=self.device)
 
@@ -75,11 +88,19 @@ class MotionManager:
             "target_hit": RewardIndex.TARGET_HIT,
         }
 
+        print("[MotionManager] Building reward tables:")
+
         for motion_id, motion_name in enumerate(self.motion_names):
             rewards = manifest[motion_name].get("rewards", {})
 
+            if not rewards:
+                print(f"  [{motion_id}] '{motion_name}': no rewards specified (defaults to 0.0 for all)")
+                continue
+
             for name, weight in rewards.items():
                 self.reward_weights[motion_id,reward_map[name]] = weight
+
+            print(f"  [{motion_id}] '{motion_name}': {rewards}")
 
     def _build_termination_tables(self, manifest):
         self.termination_flags = torch.zeros(
@@ -94,11 +115,18 @@ class MotionManager:
             "unhealthy": TerminationIndex.UNHEALTHY,
         }
 
-        for motion_id, motion_name in enumerate(self.motion_names):
-            terminations = manifest[motion_name].get("terminations", {})
+        print("[MotionManager] Building termination tables:")
 
-            for name, func in termination_map.items():
-                self.termination_flags[motion_id, termination_map[name]] = func
+        for motion_id, motion_name in enumerate(self.motion_names):
+            terminations = manifest[motion_name].get("termination", "unhealthy")
+
+            if terminations not in termination_map:
+                print(f"  [{motion_id}] '{motion_name}': WARNING - unknown termination '{terminations}', no flags set")
+
+            for name, index in termination_map.items():
+                self.termination_flags[motion_id, index] = terminations == name
+
+            print(f"  [{motion_id}] '{motion_name}': termination='{terminations}'")
 
     def sample_motion(
         self,
@@ -122,7 +150,13 @@ class MotionManager:
         low = self.command_low[motion_ids]
         high = self.command_high[motion_ids]
 
-        return low + torch.rand_like(low) * (high - low)
+        commands = low + torch.rand_like(low) * (high - low)
+
+        zero_prob = self.command_zero_prob[motion_ids]
+        zero_mask = torch.rand(env_ids.shape[0], device=self.device) < zero_prob
+        commands[zero_mask] = 0.0
+
+        return commands
 
     @property
     def current_reward_weights(self):

@@ -58,6 +58,20 @@ def _find_most_recent_run_dir(log_root_path: str) -> str:
 
     return max(run_dirs, key=run_key)
 
+def _checkpoint_in_run_dir(run_dir: str, step: int = None) -> str:
+    """Resolve checkpoints/{step}.pt or checkpoints/best_agent.pt within a single run directory."""
+    if step is not None:
+        checkpoint_path = os.path.join(run_dir, "checkpoints", f"{step}.pt")
+        if not os.path.isfile(checkpoint_path):
+            raise FileNotFoundError(f"No checkpoint for step {step} found in run: {checkpoint_path}")
+        return os.path.abspath(checkpoint_path)
+
+    checkpoint_path = os.path.join(run_dir, "checkpoints", "best_agent.pt")
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(f"No best_agent.pt found in run: {checkpoint_path}")
+    return os.path.abspath(checkpoint_path)
+
+
 def resolve_checkpoint(log_root_path: str, checkpoint: str = None, step: int = None) -> str:
     """Resolve the checkpoint path to play.
 
@@ -71,18 +85,23 @@ def resolve_checkpoint(log_root_path: str, checkpoint: str = None, step: int = N
         return os.path.abspath(checkpoint)
 
     most_recent_run_dir = _find_most_recent_run_dir(log_root_path)
+    return _checkpoint_in_run_dir(most_recent_run_dir, step)
 
-    if step is not None:
-        checkpoint_path = os.path.join(most_recent_run_dir, "checkpoints", f"{step}.pt")
-        if not os.path.isfile(checkpoint_path):
-            raise FileNotFoundError(
-                f"No checkpoint for step {step} found in the most recent run: {checkpoint_path}"
-            )
-        return os.path.abspath(checkpoint_path)
 
-    checkpoint_path = os.path.join(most_recent_run_dir, "checkpoints", "best_agent.pt")
-    if not os.path.isfile(checkpoint_path):
-        raise FileNotFoundError(
-            f"No best_agent.pt found in the most recent run: {checkpoint_path}"
-        )
-    return os.path.abspath(checkpoint_path)
+def resolve_checkpoint_from_run_dir(run_dir: str, checkpoint: str = None, step: int = None) -> str:
+    """Resolve the checkpoint path to play from a single, specific run directory.
+
+    Unlike `resolve_checkpoint`, `run_dir` is used directly rather than being treated as an
+    experiment root to search for the most recently written-to run within.
+
+    - If `checkpoint` is given, it is used as-is.
+    - Otherwise:
+        - if `step` is given, `<run_dir>/checkpoints/{step}.pt` is used (error if missing)
+        - otherwise, `<run_dir>/checkpoints/best_agent.pt` is used
+    """
+    if checkpoint:
+        return os.path.abspath(checkpoint)
+
+    if not os.path.isdir(run_dir):
+        raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
+    return _checkpoint_in_run_dir(run_dir, step)

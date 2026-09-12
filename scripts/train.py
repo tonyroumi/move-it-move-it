@@ -51,6 +51,7 @@ def main():
 
     with launch_simulation(env_cfg, args_cli):
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+        env_cfg.motion_manifest = args_cli.manifest
 
         # specify directory for logging experiments
         log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"])

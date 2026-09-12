@@ -6,12 +6,21 @@ from isaaclab.envs import DirectRLEnv
 
 from .humanoid_env_cfg import HumanoidEnvCfg
 
-from .observations.amp_obs import compute_amp_observations
-from .observations.proprioception import compute_proprioceptive_obs
+from moveitmoveit.utils import transforms
 
-from ..commands import COMMAND_DIM
+from ..commands import COMMAND_DIM, CommandIndex
 from ..motions.motion_loader import MotionLoader
 from ..motions.motion_manager import MotionManager
+from ..rewards import (
+    lin_vel_tracking_reward,
+    motion_tracking_reward,
+    target_hit_reward,
+    yaw_vel_tracking_reward,
+)
+from ..terminations import (
+    deviation_from_motion_termination,
+    unhealthy_termination,
+)
 
 
 class HumanoidEnv(DirectRLEnv):
@@ -24,18 +33,6 @@ class HumanoidEnv(DirectRLEnv):
         self._motion_loader = MotionLoader(self._motion_manager.motion_files, self.device)
 
         self._setup_env()
-
-    @property
-    def default_state(self) -> tuple[torch.Tensor, ...]:
-        default_root_pose = self.robot.data.default_root_pose.torch.clone()
-        default_root_vel = self.robot.data.default_root_vel.torch.clone()
-        default_root_pose[:, :3] += self.scene.env_origins
-        return (
-            default_root_pose,
-            default_root_vel,
-            self.robot.data.default_joint_pos.torch,
-            self.robot.data.default_joint_vel.torch,
-        )
 
     @property
     def current_state(self) -> tuple[torch.Tensor, ...]:
@@ -56,6 +53,100 @@ class HumanoidEnv(DirectRLEnv):
             key_body_positions,
         )
 
+    def current_env_reference_motion(self) -> tuple[torch.Tensor, ...]:
+        """Sample the reference motion at each environment's current clip time."""
+        current_times = (
+            self.motion_start_times
+            + self.episode_length_buf.to(torch.float32) * self.step_dt
+        )
+
+        (
+            dof_positions,
+            dof_velocities,
+            body_positions,
+            body_rotations,
+            body_linear_velocities,
+            body_angular_velocities,
+        ) = self._motion_loader.sample(
+            num_samples=self.num_envs,
+            clip_indexes=self._motion_manager.motion_ids.cpu().numpy(),
+            times=current_times.cpu().numpy(),
+        )
+
+        if self.cfg.random_reset:
+            body_positions, body_rotations, body_linear_velocities, body_angular_velocities = (
+                self._apply_random_yaw_to_reference(
+                    self.random_yaw_quat,
+                    body_positions,
+                    body_rotations,
+                    body_linear_velocities,
+                    body_angular_velocities,
+                )
+            )
+
+        return (
+            dof_positions,
+            dof_velocities,
+            body_positions,
+            body_rotations,
+            body_linear_velocities,
+            body_angular_velocities,
+        )
+
+    def collect_reference_motions(
+        self,
+        num_samples: int,
+        clip_indexes: np.ndarray | None = None,
+        current_times: np.ndarray | None = None,
+        env_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        (
+            dof_positions,
+            dof_velocities,
+            body_positions,
+            body_rotations,
+            body_linear_velocities,
+            body_angular_velocities,
+        ) = self._motion_loader.sample_history(
+            num_samples=num_samples,
+            clip_indexes=clip_indexes,
+            times=current_times,
+            num_steps=self.cfg.num_amp_observations,
+        )
+
+        if self.cfg.random_reset:
+            if env_ids is not None:
+                # samples correspond to specific environments (e.g. the AMP observation history
+                # seeded on reset): reuse the yaw actually applied to that env's root.
+                quat = self.random_yaw_quat[env_ids]
+            else:
+                # samples are an arbitrary discriminator batch, unrelated to any environment:
+                # rotate by an independent random yaw per sample so the discriminator also sees
+                # real motion at randomized headings, not just each clip's original heading.
+                quat = transforms.random_yaw_orientation(num_samples, self.device)
+            quat = quat.repeat_interleave(self.cfg.num_amp_observations, dim=0)
+            body_positions, body_rotations, body_linear_velocities, body_angular_velocities = (
+                self._apply_random_yaw_to_reference(
+                    quat,
+                    body_positions,
+                    body_rotations,
+                    body_linear_velocities,
+                    body_angular_velocities,
+                )
+            )
+
+        amp_observation = compute_proprioceptive_obs(
+            dof_positions[:, self.motion_dof_indexes],
+            dof_velocities[:, self.motion_dof_indexes],
+            body_positions[:, self.motion_ref_body_index],
+            body_rotations[:, self.motion_ref_body_index],
+            body_linear_velocities[:, self.motion_ref_body_index],
+            body_angular_velocities[:, self.motion_ref_body_index],
+            body_positions[:, self.motion_key_body_indexes],
+            local_frame=self.cfg.random_reset
+        )
+        return amp_observation.view(-1, self.amp_observation_size)
+
     def _setup_env(self):
         soft_joint_pos_limits = self.robot.data.soft_joint_pos_limits.torch
         dof_lower_limits = soft_joint_pos_limits[0, :, 0]
@@ -70,6 +161,13 @@ class HumanoidEnv(DirectRLEnv):
         self.motion_dof_indexes = self._motion_loader.get_dof_index(self.robot.data.joint_names)
         self.motion_ref_body_index = self._motion_loader.get_body_index(["torso"])[0]
         self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
+
+        self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
+
+        # per-env random yaw applied at reset (identity until the env's first reset); reused to
+        # rotate later reference-motion samples to match (see `_compute_robot_state`).
+        self.random_yaw_quat = torch.zeros(self.num_envs, 4, device=self.device)
+        self.random_yaw_quat[:, -1] = 1.0
 
         # reconfigure AMP observation space according to the number of observations and create the buffer
         self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
@@ -131,40 +229,88 @@ class HumanoidEnv(DirectRLEnv):
             self._update_camera()
 
     def _get_observations(self) -> dict:
-        obs = compute_proprioceptive_obs(*self.current_state)
+        obs = compute_proprioceptive_obs(*self.current_state, local_frame=self.cfg.random_reset)
         obs = torch.concatenate((obs, self.commands), dim=-1)
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
             self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
         # build AMP observation
-        self.amp_observation_buffer[:, 0] = compute_proprioceptive_obs(*self.current_state)
+        self.amp_observation_buffer[:, 0] = compute_proprioceptive_obs(
+            *self.current_state,
+            local_frame=self.cfg.random_reset
+        )
         self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
 
         return obs
 
     def _get_rewards(self) -> torch.Tensor:
-        return torch.ones((self.num_envs,), dtype=torch.float32, device=self.sim.device)
-        # weights = (self._motion_manager.current_reward_weights)
-        # rewards = torch.stack(
-        #     [
-        #         self._motion_tracking_reward(),
-        #         self._lin_vel_tracking_reward(),
-        #         self._yaw_vel_tracking_reward(),
-        #         self._target_hit_reward(),
-        #     ],
-        #     dim=-1,
-        # )
+        weights = self._motion_manager.current_reward_weights  # (N, NUM_REWARDS)
 
-        # return torch.sum(
-        #     weights * rewards,
-        #     dim=-1,
-        # )
+        (
+            ref_dof_positions,
+            _,
+            ref_body_positions,
+            _,
+            _,
+            _,
+        ) = self.current_env_reference_motion()
+
+        rewards = torch.stack(
+            [
+                motion_tracking_reward(
+                    self.robot.data.joint_pos.torch,
+                    ref_dof_positions[:, self.motion_dof_indexes],
+                    self.robot.data.body_pos_w.torch[:, self.key_body_indexes],
+                    self.robot.data.body_pos_w.torch[:, self.ref_body_index],
+                    ref_body_positions[:, self.motion_key_body_indexes],
+                    ref_body_positions[:, self.motion_ref_body_index],
+                ),
+                lin_vel_tracking_reward(
+                    self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
+                    self.robot.data.body_quat_w.torch[:, self.ref_body_index],
+                    self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
+                ),
+                yaw_vel_tracking_reward(
+                    self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index],
+                    self.robot.data.body_quat_w.torch[:, self.ref_body_index],
+                    self.commands[:, CommandIndex.YAW],
+                ),
+                target_hit_reward(self.num_envs, self.device),
+            ],
+            dim=-1,
+        )
+
+        return torch.sum(weights * rewards, dim=-1)
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        died = self.robot.data.body_pos_w.torch[:, self.ref_body_index, 2] < 0.65
-        # died = self._motion_manager.termination_flags[self._motion_manager.motion_ids]
+
+        enabled = self._motion_manager.current_termination_flags
+
+        current_times = self.motion_start_times + self.episode_length_buf.to(torch.float32) * self.step_dt
+        # only DOF positions are used below, which are joint-local and unaffected by the per-env
+        # random yaw applied at reset (see `_compute_robot_state`), so no rotation is needed here.
+        ref_dof_positions, *_ = self._motion_loader.sample(
+            num_samples=self.num_envs,
+            clip_indexes=self._motion_manager.motion_ids.cpu().numpy(),
+            times=current_times.cpu().numpy(),
+        )
+
+        terminations = torch.stack(
+            [
+                deviation_from_motion_termination(
+                    self.robot.data.joint_pos.torch,
+                    ref_dof_positions[:, self.motion_dof_indexes],
+                ),
+                unhealthy_termination(
+                    self.robot.data.body_pos_w.torch[:, self.ref_body_index, 2],
+                ),
+            ],
+            dim=-1,
+        )
+
+        died = torch.any(enabled & terminations, dim=-1)
         return died, time_out
 
     def _reset_idx(self, env_ids: torch.Tensor):
@@ -173,6 +319,7 @@ class HumanoidEnv(DirectRLEnv):
         num_samples = env_ids.shape[0]
         motion_id = self._motion_manager.sample_motion(env_ids)
         times = self._motion_loader.sample_times(num_samples, motion_id)
+        self.motion_start_times[env_ids] = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         (
             dof_positions,
             dof_velocities,
@@ -204,7 +351,9 @@ class HumanoidEnv(DirectRLEnv):
             )
         )
 
-        amp_observations = self.collect_reference_motions(num_samples, clip_indexes=motion_id, current_times=times)
+        amp_observations = self.collect_reference_motions(
+            num_samples, clip_indexes=motion_id, current_times=times, env_ids=env_ids
+        )
         self.amp_observation_buffer[env_ids] = amp_observations.view(num_samples, self.cfg.num_amp_observations, -1)
 
     def _compute_robot_state(
@@ -229,36 +378,77 @@ class HumanoidEnv(DirectRLEnv):
         root_state[:, 3:7] = body_rotations[:, self.motion_ref_body_index]
         root_state[:, 7:10] = body_linear_velocities[:, self.motion_ref_body_index]
         root_state[:, 10:13] = body_angular_velocities[:, self.motion_ref_body_index]
+        if self.cfg.random_reset:
+            random_yaw = transforms.random_yaw_orientation(env_ids.shape[0], self.device)
+            self.random_yaw_quat[env_ids] = random_yaw
+            root_state[:, 3:7] = transforms.quat_mul(random_yaw, root_state[:, 3:7])
+            root_state[:, 7:10] = transforms.quat_apply(random_yaw, root_state[:, 7:10])
+            root_state[:, 10:13] = transforms.quat_apply(random_yaw, root_state[:, 10:13])
         dof_pos = dof_positions[:, self.motion_dof_indexes]
         dof_vel = dof_velocities[:, self.motion_dof_indexes]
         return root_state, dof_pos, dof_vel
 
-    def collect_reference_motions(
+    def _apply_random_yaw_to_reference(
         self,
-        num_samples: int,
-        clip_indexes: np.ndarray | None = None,
-        current_times: np.ndarray | None = None,
-    ) -> torch.Tensor:
+        quat: torch.Tensor,
+        body_positions: torch.Tensor,
+        body_rotations: torch.Tensor,
+        body_linear_velocities: torch.Tensor,
+        body_angular_velocities: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Rotate a sampled reference-motion body state about its root position by `quat`, so it
+        matches the per-env random yaw orientation applied to the robot's root at reset
+        """
+        num_bodies = body_positions.shape[1]
+        quat = quat.unsqueeze(1).expand(-1, num_bodies, 4)
+
+        root_positions = body_positions[:, self.motion_ref_body_index : self.motion_ref_body_index + 1]
+        offsets = body_positions - root_positions
+
+        body_positions = root_positions + transforms.quat_apply(quat, offsets)
+        body_rotations = transforms.quat_mul(quat, body_rotations)
+        body_linear_velocities = transforms.quat_apply(quat, body_linear_velocities)
+        body_angular_velocities = transforms.quat_apply(quat, body_angular_velocities)
+
+        return body_positions, body_rotations, body_linear_velocities, body_angular_velocities
+
+
+@torch.jit.script
+def compute_proprioceptive_obs(
+    dof_positions: torch.Tensor,      
+    dof_velocities: torch.Tensor,       
+    root_positions: torch.Tensor,       
+    root_rotations: torch.Tensor,         
+    root_linear_velocities: torch.Tensor, 
+    root_angular_velocities: torch.Tensor, 
+    key_body_positions: torch.Tensor,
+    local_frame: bool,
+) -> torch.Tensor:
+    num_envs = root_positions.shape[0]
+
+    key_offsets = key_body_positions - root_positions.unsqueeze(1)
+
+    if local_frame:
+        lin_vel = transforms.quat_apply_inverse(root_rotations, root_linear_velocities)
+        ang_vel = transforms.quat_apply_inverse(root_rotations, root_angular_velocities)
+
+        num_key_bodies = key_offsets.shape[1]
+        key_rotations = root_rotations.unsqueeze(1).expand(num_envs, num_key_bodies, 4)
+        key_positions_flat = transforms.quat_apply_inverse(key_rotations, key_offsets).reshape(num_envs, -1)
+    else:
+        lin_vel = root_linear_velocities
+        ang_vel = root_angular_velocities
+        key_positions_flat = key_offsets.reshape(num_envs, -1)
+
+    return torch.cat(
         (
             dof_positions,
             dof_velocities,
-            body_positions,
-            body_rotations,
-            body_linear_velocities,
-            body_angular_velocities,
-        ) = self._motion_loader.sample_history(
-            num_samples=num_samples,
-            clip_indexes=clip_indexes,
-            times=current_times,
-            num_steps=self.cfg.num_amp_observations,
-        )
-        amp_observation = compute_proprioceptive_obs(
-            dof_positions[:, self.motion_dof_indexes],
-            dof_velocities[:, self.motion_dof_indexes],
-            body_positions[:, self.motion_ref_body_index],
-            body_rotations[:, self.motion_ref_body_index],
-            body_linear_velocities[:, self.motion_ref_body_index],
-            body_angular_velocities[:, self.motion_ref_body_index],
-            body_positions[:, self.motion_key_body_indexes],
-        )
-        return amp_observation.view(-1, self.amp_observation_size)
+            root_positions[:, 2:3],
+            transforms.quaternion_to_tangent_and_normal(root_rotations),
+            lin_vel,
+            ang_vel,
+            key_positions_flat,
+        ),
+        dim=-1,
+    )
