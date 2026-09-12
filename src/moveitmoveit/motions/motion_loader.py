@@ -302,6 +302,38 @@ class MotionLoader:
             ),
         )
 
+    def sample_history(
+        self,
+        num_samples: int,
+        clip_indexes: np.ndarray | None = None,
+        times: np.ndarray | None = None,
+        num_steps: int = 1,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample a history of motion states, ``num_steps`` apart in time, ending at each sample's time.
+
+        Args:
+            num_samples: Number of samples to generate.
+            clip_indexes: Which clip each sample is drawn from. If not defined, clips are
+                sampled uniformly at random (see :meth:`sample_clip_indexes`).
+            times: Motion time used for sampling, per sample (the most recent time in each
+                sample's history). If not defined, motion data will be random sampled uniformly
+                in time.
+            num_steps: Number of historical steps to sample per sample, spaced ``dt`` apart,
+                going backwards in time from ``times``.
+
+        Returns:
+            A tuple containing sampled motion data (see :meth:`sample`), flattened over samples
+            and steps, i.e. with shape (num_samples * num_steps, ...).
+        """
+        if clip_indexes is None:
+            clip_indexes = self.sample_clip_indexes(num_samples)
+        if times is None:
+            times = self.sample_times(num_samples, clip_indexes)
+        # step back num_steps times, dt apart, from each sample's time -> (num_samples * num_steps,)
+        history_times = (np.expand_dims(times, axis=-1) - self.dt * np.arange(0, num_steps)).flatten()
+        history_clip_indexes = np.repeat(clip_indexes, num_steps)
+        return self.sample(num_samples=num_samples * num_steps, clip_indexes=history_clip_indexes, times=history_times)
+
     def get_dof_index(self, dof_names: list[str]) -> list[int]:
         """Get skeleton DOFs indexes by DOFs names.
 

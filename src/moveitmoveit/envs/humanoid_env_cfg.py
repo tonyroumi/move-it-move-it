@@ -62,7 +62,7 @@ class HumanoidEnvCfg(DirectRLEnvCfg):
     observation_space: int = 81 + COMMAND_DIM
     state_space: int = 0
     num_amp_observations = 2
-    amp_observation_space = 81
+    amp_observation_space = 81    
 
     motion_manifest: str = MISSING
 

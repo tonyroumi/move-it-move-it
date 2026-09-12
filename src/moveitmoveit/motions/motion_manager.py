@@ -103,14 +103,13 @@ class MotionManager:
     def sample_motion(
         self,
         env_ids: torch.Tensor,
-    ) -> torch.Tensor:
+    ):
         sampled_motions = torch.randint(
             low=0,
             high=self.num_motions,
             size=(env_ids.shape[0],),
-            device=self.device,
         )
-        self.motion_ids[env_ids] = sampled_motions
+        self.motion_ids[env_ids] = sampled_motions.to(self.device)
         return sampled_motions
     
     def sample_commands(

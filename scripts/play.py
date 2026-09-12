@@ -11,6 +11,7 @@ import torch
 
 import moveitmoveit
 from moveitmoveit.utils.paths import resolve_checkpoint
+from moveitmoveit.utils.logger import Logger
 
 from isaaclab.utils.seed import configure_seed
 
@@ -25,10 +26,10 @@ from isaaclab_tasks.utils import (
 with contextlib.suppress(ImportError):
     import isaaclab_tasks_experimental  # noqa: F401
 
-# -- argparse ----------------------------------------------------------------
+TASK_ID = "MoveIt-Humanoid-v0"
+
 parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from skrl.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint.")
 parser.add_argument(
     "--step",
@@ -55,19 +56,25 @@ parser.add_argument(
     default=False,
     help="With --joystick, overlay a faint keyboard on the renderer highlighting the currently held keys.",
 )
+parser.add_argument("--record", action="store_true", default=False, help="Record a video of the rollout.")
+parser.add_argument(
+    "--record-length", type=int, default=200, help="Length of the recorded video (in steps)."
+)
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
 sys.argv = [sys.argv[0]] + hydra_args
 
+if args_cli.record:
+    args_cli.enable_cameras = True
+
 
 def main():
     """Play with skrl agent."""
-    env_cfg, agent_cfg = resolve_task_config(args_cli.task, "agent_cfg_entry_point")
+    env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
     with launch_simulation(env_cfg, args_cli):
         # override configurations with non-hydra CLI arguments
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
-
 
         args_cli.seed = agent_cfg["seed"]
 
@@ -85,7 +92,7 @@ def main():
         env_cfg.log_dir = log_dir
 
         # create isaac environment
-        env = gym.make(args_cli.task, cfg=env_cfg)
+        env = gym.make(TASK_ID, cfg=env_cfg, render_mode="rgb_array" if args_cli.record else None)
 
         keyboard = None
         keyboard_overlay = None
@@ -124,8 +131,18 @@ def main():
         except AttributeError:
             dt = env.unwrapped.step_dt
 
+        # wrap for video recording
+        if args_cli.record:
+            video_kwargs = {
+                "video_folder": os.path.join(log_dir, "videos", "play"),
+                "step_trigger": lambda step: step == 0,
+                "video_length": args_cli.record_length,
+                "disable_logger": True,
+            }
+            print("[INFO] Recording videos during training.")
+            env = gym.wrappers.RecordVideo(env, **video_kwargs)
+
         from moveitmoveit.runners import OnPolicyRunner
-        from moveitmoveit.utils.logger import Logger
 
         logger = Logger(backend="none", log_dir=log_dir)
         runner = OnPolicyRunner(
@@ -140,6 +157,7 @@ def main():
         runner.agent.load_checkpoint(resume_path, device=env.unwrapped.device)
 
         obs, _ = env.reset()
+        timestep = 0
         try:
             while True:
                 start_time = time.time()
@@ -153,6 +171,11 @@ def main():
                 with torch.inference_mode():
                     actions = runner.agent.act(obs, deterministic=True)
                     obs, _, _, _, _ = env.step(actions)
+
+                if args_cli.record:
+                    timestep += 1
+                    if timestep >= args_cli.record_length:
+                        break
 
                 sleep_time = dt - (time.time() - start_time)
                 if args_cli.real_time and sleep_time > 0:
