@@ -71,6 +71,17 @@ parser.add_argument(
     default=False,
     help="With --joystick, overlay a faint keyboard on the renderer highlighting the currently held keys.",
 )
+parser.add_argument(
+    "--camera_type",
+    type=str,
+    default=None,
+    choices=["facing", "third-person", "none"],
+    help=(
+        "Scripted camera mode: 'facing' follows in front of the robot looking back at it,"
+        " 'third-person' follows behind and above it, 'none' disables scripted camera updates."
+        " Defaults to the task's configured camera_type."
+    ),
+)
 parser.add_argument("--record", action="store_true", default=False, help="Record a video of the rollout.")
 parser.add_argument(
     "--record-length", type=int, default=200, help="Length of the recorded video (in steps)."
@@ -111,6 +122,7 @@ def main():
 
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
+        env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
 
         args_cli.seed = agent_cfg["seed"]
 

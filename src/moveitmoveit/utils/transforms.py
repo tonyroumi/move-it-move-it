@@ -5,6 +5,7 @@ from isaaclab.utils.math import (
     normalize,
     quat_apply,
     quat_apply_inverse,
+    quat_apply_yaw,
     quat_conjugate,
     quat_mul,
     random_yaw_orientation,

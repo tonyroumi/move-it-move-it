@@ -1,4 +1,5 @@
 from dataclasses import MISSING
+from typing import Literal
 
 import isaaclab.sim as sim_utils
 
@@ -19,7 +20,7 @@ class HumanoidSceneCfg(InteractiveSceneCfg):
     """Scene layout — ground, lighting, the one humanoid. No per-task variants."""
 
     robot: ArticulationCfg = HUMANOID_28_CFG.replace(prim_path="/World/envs/env_.*/Robot")
-    
+
     # ground
     ground = AssetBaseCfg(
         prim_path="/World/ground",
@@ -37,7 +38,7 @@ class HumanoidSceneCfg(InteractiveSceneCfg):
 
 
 @configclass
-class HumanoidEnvCfg(DirectRLEnvCfg):
+class MotionLearningEnvCfg(DirectRLEnvCfg):
     # sim / scene
     decimation: int = 2
     episode_length_s: float = 10.0
@@ -62,9 +63,15 @@ class HumanoidEnvCfg(DirectRLEnvCfg):
     observation_space: int = 81 + COMMAND_DIM
     state_space: int = 0
     num_amp_observations = 2
-    amp_observation_space = 81    
+    amp_observation_space = 81
 
     motion_manifest: str = ""
 
     # environment flags
     random_reset: bool = True
+
+    # resample self.commands every this many env steps (in addition to on reset)
+    command_resample_steps: int = 150
+
+    # rendering
+    camera_type: Literal["facing", "third-person", "none"] = "facing"
