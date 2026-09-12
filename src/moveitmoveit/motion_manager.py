@@ -34,9 +34,14 @@ class MotionManager:
             device=device,
         )
 
+        # one-hot task id per motion, used to condition the AMP discriminator on which motion
+        # is currently active
+        self.task_id_table = torch.eye(self.num_motions, device=device)
+
         self._build_command_tables(manifest)
         self._build_reward_tables(manifest)
         self._build_termination_tables(manifest)
+        self._build_sample_prob_table(manifest)
 
     def _build_command_tables(self, manifest):
         self.command_low = torch.zeros(self.num_motions, COMMAND_DIM, device=self.device)
@@ -128,15 +133,28 @@ class MotionManager:
 
             print(f"  [{motion_id}] '{motion_name}': termination='{terminations}'")
 
+    def _build_sample_prob_table(self, manifest):
+        weights = torch.zeros(self.num_motions, device=self.device)
+
+        for motion_id, motion_name in enumerate(self.motion_names):
+            weights[motion_id] = manifest[motion_name].get("sample_prob", 1.0)
+
+        self.motion_sample_prob = weights / weights.sum()
+
+        print("[MotionManager] Building motion sampling probabilities:")
+
+        for motion_id, motion_name in enumerate(self.motion_names):
+            print(f"  [{motion_id}] '{motion_name}': sample_prob={self.motion_sample_prob[motion_id].item():.4f}")
+
     def sample_motion(
         self,
         env_ids: torch.Tensor,
     ):
-        sampled_motions = torch.randint(
-            low=0,
-            high=self.num_motions,
-            size=(env_ids.shape[0],),
-        )
+        sampled_motions = torch.multinomial(
+            self.motion_sample_prob,
+            num_samples=env_ids.shape[0],
+            replacement=True,
+        ).cpu()
         self.motion_ids[env_ids] = sampled_motions.to(self.device)
         return sampled_motions
     
@@ -169,3 +187,13 @@ class MotionManager:
         return self.termination_flags[
             self.motion_ids
         ]
+
+    @property
+    def current_task_ids(self) -> torch.Tensor:
+        """One-hot task id of each env's currently active motion. Shape is (num_envs, num_motions)."""
+        return self.task_id_table[self.motion_ids]
+
+    def task_ids_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
+        """One-hot task ids for arbitrary motion ids. Shape is (len(motion_ids), num_motions)."""
+        motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
+        return self.task_id_table[motion_ids]
