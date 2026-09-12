@@ -64,10 +64,7 @@ class HumanoidEnvCfg(DirectRLEnvCfg):
     num_amp_observations = 2
     amp_observation_space = 81    
 
-    motion_manifest: str = MISSING
+    motion_manifest: str = ""
 
-@configclass 
-class LocomotionEnvCfg(HumanoidEnvCfg):
-    motion_manifest: str = (
-        "/home/anthony/Dev/move-it-move-it/src/data/locomotion_manifest.yaml"
-    )
+    # environment flags
+    random_reset: bool = True

@@ -204,7 +204,6 @@ class Logger:
             assoc_grad_num = self._step_tracker[name]
             step = self._metric_step[assoc_grad_num]
             self.track_data(f"Train/{name}", value, step)
-            self.track_data(f"Debug /{name}", value, self.timestep)
 
             if name in self._CORE_TRAIN_KEYS:
                 core[name] = value
