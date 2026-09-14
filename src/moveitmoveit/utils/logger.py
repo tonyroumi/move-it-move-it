@@ -59,23 +59,7 @@ class Logger:
         self._tracking_data = collections.defaultdict(float)
         self._tracking_step = collections.defaultdict(int)
 
-        # Episode reward/length tracking.
-        self._track_rewards = collections.deque(maxlen=100)
-        self._track_timesteps = collections.deque(maxlen=100)
-        self._cumulative_rewards = None
-        self._cumulative_timesteps = None
-        self.mean_episode_reward: Optional[float] = None
         self._best_mean_episode_reward = float("-inf")
-
-        # Per-episode reward term tracking (mirrors the episode reward tracking above,
-        # keyed by term name), staged from `info["reward_terms"]`.
-        self._track_reward_terms: Dict[str, collections.deque] = collections.defaultdict(
-            lambda: collections.deque(maxlen=100)
-        )
-        self._cumulative_reward_terms: Dict[str, torch.Tensor] = {}
-
-        # Per-step env info staged by `add_env_info`, consumed by `env_step`.
-        self._env_info: Dict[str, Any] = {}
 
         # Per-update training diagnostics staged by `add_info`/`add_info`,
         # averaged and flushed by `log`.
@@ -86,7 +70,7 @@ class Logger:
         self._start_time = time.time()
         self._diagnostics: Dict[str, float] = {}
 
-        # Curated values shown by `log`, refreshed by `env_step` / `log`.
+        # Curated values shown by `log`, refreshed by `set_core_performance`/`set_core_rewards` / `log`.
         self._core_performance: Dict[str, float] = {}
         self._core_train: Dict[str, float] = {}
         self._core_rewards: Dict[str, float] = {}
@@ -115,79 +99,15 @@ class Logger:
         self._tracking_data[tag] = value
         self._tracking_step[tag] = step
 
-    def add_env_info(self, infos: dict) -> None:
-        """Stage the current step's reward/done/info payload for `env_step` to consume."""
-        self._env_info = infos
+    def set_core_performance(self, data: Dict[str, float]) -> None:
+        """Set the curated episode reward/length stats shown by `log`. Owned by the
+        agent, which tracks episode reward/length (see `BaseAgent._track_episode_stats`)."""
+        self._core_performance = data
 
-    def env_step(self) -> None:
-        """Accumulate per-env reward/length and log episode-completion statistics."""
-        info = self._env_info
-        rewards = info["rewards"]
-        dones = info["dones"]
-        step_dt = info.get("step_dt")
-        timestep = self.timestep
-
-        if self._cumulative_rewards is None:
-            self._cumulative_rewards = torch.zeros_like(rewards, dtype=torch.float32)
-            self._cumulative_timesteps = torch.zeros_like(rewards, dtype=torch.int32)
-
-        self._cumulative_rewards.add_(rewards)
-        self._cumulative_timesteps.add_(1)
-
-        if dones.any():
-            self._track_rewards.extend(self._cumulative_rewards[dones].tolist())
-            self._track_timesteps.extend(self._cumulative_timesteps[dones].tolist())
-
-            # reset the cumulative rewards and timesteps
-            self._cumulative_rewards[dones] = 0
-            self._cumulative_timesteps[dones] = 0
-
-        if len(self._track_rewards):
-            track_rewards = np.array(self._track_rewards)
-            track_timesteps = np.array(self._track_timesteps)
-
-            self.mean_episode_reward = float(np.mean(track_rewards))
-
-            self.track_data("Performance/Episode Reward (max)", np.max(track_rewards), timestep)
-            self.track_data("Performance/Episode Reward (min)", np.min(track_rewards), timestep)
-            self.track_data("Performance/Episode Reward (mean)", self.mean_episode_reward, timestep)
-
-            self.track_data("Performance/Episode Length (max)", np.max(track_timesteps), timestep)
-            self.track_data("Performance/Episode Length (min)", np.min(track_timesteps), timestep)
-            self.track_data("Performance/Episode Length (mean)", np.mean(track_timesteps), timestep)
-
-            self._core_performance = {
-                "Episode Reward (mean)": self.mean_episode_reward,
-                "Episode Reward (max)": float(np.max(track_rewards)),
-                "Episode Reward (min)": float(np.min(track_rewards)),
-                "Episode Length (mean)": float(np.mean(track_timesteps)),
-            }
-
-            if step_dt is not None:
-                mean_episode_time = float(np.mean(track_timesteps) * step_dt)
-                self.track_data("Performance/Episode Time (mean) [s]", mean_episode_time, timestep)
-                self._core_performance["Episode Time (mean) [s]"] = mean_episode_time
-
-        for k, v in info.get("log", {}).items():
-            self.track_data(tag=k, value=v, step=timestep)
-
-        core_rewards = {}
-        for name, values in info.get("reward_terms", {}).items():
-            if name not in self._cumulative_reward_terms:
-                self._cumulative_reward_terms[name] = torch.zeros_like(values, dtype=torch.float32)
-            self._cumulative_reward_terms[name].add_(values)
-
-            if dones.any():
-                self._track_reward_terms[name].extend(self._cumulative_reward_terms[name][dones].tolist())
-                self._cumulative_reward_terms[name][dones] = 0
-
-            if len(self._track_reward_terms[name]):
-                mean_value = float(np.mean(self._track_reward_terms[name]))
-                self.track_data(f"Reward/{name} (mean)", mean_value, timestep)
-                core_rewards[f"{name} (mean)"] = mean_value
-
-        if core_rewards:
-            self._core_rewards = core_rewards
+    def set_core_rewards(self, data: Dict[str, float]) -> None:
+        """Set the curated per-reward-term stats shown by `log`. Owned by the agent,
+        which tracks episode reward terms (see `BaseAgent._track_episode_stats`)."""
+        self._core_rewards = data
 
     def add_info(self, name: str, value, grad_num: int = 0) -> None:
         """Record a diagnostic."""
@@ -211,8 +131,17 @@ class Logger:
         self._core_train = core
         self._update_diagnostics = collections.defaultdict(list)
 
-    def log(self, write_checkpoint: Optional[Callable[..., None]] = None) -> None:
-        """Flush diagnostics, checkpoint if warranted, and print the core summary to stdout."""
+    def log(
+        self,
+        write_checkpoint: Optional[Callable[..., None]] = None,
+        mean_episode_reward: Optional[float] = None,
+    ) -> None:
+        """Flush diagnostics, checkpoint if warranted, and print the core summary to stdout.
+
+        `mean_episode_reward` is owned/tracked by the agent (see
+        `BaseAgent._track_episode_stats`); pass its current value in to drive the
+        best-checkpoint decision below.
+        """
         self._flush_update_diagnostics()
         self._iteration += 1
 
@@ -223,9 +152,9 @@ class Logger:
             if write_checkpoint is not None:
                 write_checkpoint(self.timestep)
 
-        if write_checkpoint is not None and self.mean_episode_reward is not None:
-            if self.mean_episode_reward > self._best_mean_episode_reward:
-                self._best_mean_episode_reward = self.mean_episode_reward
+        if write_checkpoint is not None and mean_episode_reward is not None:
+            if mean_episode_reward > self._best_mean_episode_reward:
+                self._best_mean_episode_reward = mean_episode_reward
                 write_checkpoint(self.timestep, filename="best_agent.pt")
 
         width = 60

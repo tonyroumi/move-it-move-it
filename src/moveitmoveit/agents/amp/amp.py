@@ -9,9 +9,8 @@ import torch.nn as nn
 
 from isaaclab.envs import DirectRLEnv
 
-from skrl.resources.preprocessors.torch import RunningStandardScaler
-
 from moveitmoveit.models import MLP
+from moveitmoveit.resources import RunningStandardScaler
 from moveitmoveit.storage import CircularBuffer
 from moveitmoveit.utils.logger import Logger
 
@@ -41,7 +40,18 @@ class AMP(PPO):
             **model_cfg["discriminator"]
         ).to(env.unwrapped.device)
 
-        self._disc_obs_preprocessor = RunningStandardScaler(size=self.amp_obs_dim).to(env.unwrapped.device)
+        self.task_id_dim = env.unwrapped.task_id_dim
+        self.disc_obs_step_dim = env.unwrapped.cfg.amp_observation_space + self.task_id_dim
+        self._disc_obs_preprocessor = RunningStandardScaler(
+            size=self.disc_obs_step_dim, unscaled_dims=self.task_id_dim
+        ).to(env.unwrapped.device)
+
+    def _scale_disc_obs(self, x: torch.Tensor, train: bool = False) -> torch.Tensor:
+        """Normalize a flattened AMP observation history per-timestep, so each
+        timestep's task id is excluded from the running statistics."""
+        num_envs = x.shape[0]
+        stepwise = self._disc_obs_preprocessor(x.view(num_envs, -1, self.disc_obs_step_dim), train=train)
+        return stepwise.reshape(num_envs, self.amp_obs_dim)
 
     def _initialize_optimizer(self) -> None:
         super()._initialize_optimizer()
@@ -52,16 +62,13 @@ class AMP(PPO):
             lr=self.cfg.disc_lr,
         )
 
-    def _initialize_storage(
-        self,
-        env: DirectRLEnv,
-        storage_cfg: dict,
-    ) -> None:
-        super()._initialize_storage(env, storage_cfg)
-
-        self.buf_capacity = storage_cfg.get("capacity", 2_000_000)
-
-        self._amp_observations_buf = None
+    def _initialize_storage(self, env: DirectRLEnv) -> None:
+        super()._initialize_storage(env)
+        self._amp_observations_buf = CircularBuffer(
+            capacity=self.cfg.discriminator_buffer_capacity,
+            sample_shape=(self.amp_obs_dim,),
+            device=env.unwrapped.device,
+        )
 
     def process_env_step(
         self,
@@ -71,39 +78,25 @@ class AMP(PPO):
         truncated: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
-        super().process_env_step(next_observations, rewards, terminated, truncated, infos)
-
-        # Lazy load motion buffers after first step
-        if self._amp_observations_buf is None:
-            self._amp_observations_buf = CircularBuffer(
-                capacity=self.buf_capacity,
-                sample_shape=(self.amp_obs_dim,),
-                device=rewards.device,
-            )
-
-        self._amp_observations_buf.append(infos["amp_obs"])
-
-    def update(self) -> None:
-        rewards = self.storage.rewards
-        amp_observations = self._amp_observations_buf.get_since_last()
-
         with torch.no_grad():
             disc_logits = self.discriminator(
-                self._disc_obs_preprocessor(amp_observations)
+                self._scale_disc_obs(infos["amp_obs"])
             )
             style_reward = -torch.log(
                 torch.maximum(1 - 1 / (1 + torch.exp(-disc_logits)), torch.tensor(0.0001, device=rewards.device))
             ).view(rewards.shape)
 
-        scaled_style_reward = self.cfg.style_reward_lambda * style_reward
-        combined_rewards = self.cfg.goal_reward_lambda * rewards + scaled_style_reward
-        rewards.copy_(combined_rewards)
+        self._amp_observations_buf.append(infos["amp_obs"])
 
-        # Style reward is logged against policy update nums
-        self.logger.add_info("Style Reward", scaled_style_reward.mean().item())
-        # Discriminator prediction logits is against discriminator updates
-        self.logger.add_info("Disc Prediction Logits", disc_logits.mean().item(), 2)
+        style_reward *= self.cfg.style_reward_lambda
+        rewards = self.cfg.goal_reward_lambda * rewards + style_reward
 
+        infos.update({"style_reward": style_reward})
+        infos.setdefault("reward_terms", {})["style"] = style_reward
+
+        super().process_env_step(next_observations, rewards, terminated, truncated, infos)
+
+    def update(self) -> None:
         super().update()
 
         if self._update_step % self.cfg.discriminator_update_interval == 0:
@@ -115,8 +108,8 @@ class AMP(PPO):
             ref_motion = self.collect_reference_motions(self.cfg.disc_batch_size)
             agent_motion = self._amp_observations_buf.sample(self.cfg.disc_batch_size)
 
-            ref_motion = self._disc_obs_preprocessor(ref_motion, train=True)
-            agent_motion = self._disc_obs_preprocessor(agent_motion, train=True)
+            ref_motion = self._scale_disc_obs(ref_motion, train=True)
+            agent_motion = self._scale_disc_obs(agent_motion, train=True)
 
             ref_motion.requires_grad_(True)
             agent_logits = self.discriminator(agent_motion)

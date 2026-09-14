@@ -103,13 +103,6 @@ class CircularBuffer:
         Return samples appended since the last call to `get_since_last`,
         in chronological order (oldest -> newest), then advance the
         internal marker so the next call only returns newer samples.
-
-        Intended for the rollout -> update pattern: append every env
-        step, then call this once after rollout collection to pull out
-        exactly that rollout's observations. If more samples were
-        appended than `capacity` since the last call, older ones have
-        already been overwritten, so this is clamped to `capacity`
-        (equivalent to a full `get()`).
         """
         num_new = min(
             self._total_appended - self._last_window_total,

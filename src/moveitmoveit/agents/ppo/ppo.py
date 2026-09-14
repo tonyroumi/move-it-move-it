@@ -8,10 +8,10 @@ import torch.nn.functional as F
 
 from isaaclab.envs import DirectRLEnv
 
-from skrl.resources.preprocessors.torch import RunningStandardScaler
-
+from moveitmoveit.commands import COMMAND_DIM
 from moveitmoveit.models import GaussianMLP, MLP
 from moveitmoveit.storage import RolloutStorage
+from moveitmoveit.resources import RunningStandardScaler
 from moveitmoveit.utils.logger import Logger
 from moveitmoveit.utils.utils import explained_variance, fraction_outside_bounds
 
@@ -65,14 +65,34 @@ class PPO(BaseAgent):
             **model_cfg["critic"]
         ).to(env.unwrapped.device)
 
-        self._obs_preprocessor = RunningStandardScaler(size=obs_size).to(env.unwrapped.device)
         self._value_preprocessor = RunningStandardScaler(size=1).to(env.unwrapped.device)
+        self._command_preprocessor = self._build_command_preprocessor(env)
 
-    def _initialize_storage(
-        self,
-        env: DirectRLEnv,
-        storage_cfg: dict,
-    ) -> None:
+    def _build_command_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
+        """Maps raw commands to [-1, 1]. Seeded once from the widest low/high any motion
+        uses for each command in the manifest, and never updated with `train=True`, so
+        commands are scaled to a fixed, known range rather than normalized empirically."""
+        command_low = env.unwrapped._motion_manager.command_low
+        command_high = env.unwrapped._motion_manager.command_high
+
+        low = command_low.min(dim=0).values
+        high = command_high.max(dim=0).values
+
+        return RunningStandardScaler(
+            size=COMMAND_DIM,
+            mean=0.5 * (low + high),
+            variance=(0.5 * (high - low)) ** 2,
+        ).to(env.unwrapped.device)
+
+    def _preprocess_observations(self, observations: torch.Tensor, train: bool = False) -> torch.Tensor:
+        """Normalizes the proprioceptive prefix against running statistics and the
+        trailing raw command block against the fixed command range, then reassembles
+        them into the input the actor/critic expect."""
+        normed = self._obs_preprocessor(observations, train=train)
+        proprioceptive, commands = normed[..., :-COMMAND_DIM], normed[..., -COMMAND_DIM:]
+        return torch.cat((proprioceptive, self._command_preprocessor(commands)), dim=-1)
+
+    def _initialize_storage(self, env: DirectRLEnv) -> None:
         self.storage = RolloutStorage(
             num_envs=env.unwrapped.num_envs,
             num_transitions_per_env=self.cfg.num_transitions_per_env,
@@ -92,17 +112,19 @@ class PPO(BaseAgent):
 
     def act(self, observations: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         with torch.no_grad():
-            normed_obs = self._obs_preprocessor(observations)
+            normed_obs = self._preprocess_observations(observations)
             
             actions = self.actor(normed_obs, deterministic=deterministic)
             values = self.critic(normed_obs)
 
             self.transition.observations = observations
-            self.transition.actions = actions # sampled action
+            self.transition.actions = actions # raw sampled action
             self.transition.actions_log_prob = self.actor.get_actions_log_prob(actions) #log_prob
             self.transition.values = self._value_preprocessor(values, inverse=True)
 
-        return actions
+            scaled_actions = self._action_preprocessor(actions, inverse=True)
+
+        return scaled_actions
 
     def process_env_step(
         self,
@@ -126,7 +148,7 @@ class PPO(BaseAgent):
         super().update()
 
         with torch.no_grad():
-            last_observations = self._obs_preprocessor(self._next_observations)
+            last_observations = self._preprocess_observations(self._next_observations)
             last_values = self.critic(last_observations)
             last_values = self._value_preprocessor(last_values, inverse=True)
 
@@ -156,8 +178,8 @@ class PPO(BaseAgent):
                 else:
                     advantage = batch.advantages
 
-                # update normalizer with samples that we update the policy from once. 
-                observations = self._obs_preprocessor(batch.observations, train=(not epoch))
+                # update normalizer with samples that we update the policy from once.
+                observations = self._preprocess_observations(batch.observations, train=(not epoch))
 
                 # update policy distribution
                 self.actor(observations)
@@ -200,7 +222,6 @@ class PPO(BaseAgent):
 
                 self.optimizer.step()
 
-
                 # Diagnostics
                 ev = explained_variance(values.detach(), batch.returns)
                 clip_fraction = fraction_outside_bounds(
@@ -214,9 +235,6 @@ class PPO(BaseAgent):
                 self.logger.add_info("Value Loss", value_loss.item())
                 self.logger.add_info("KL Divergence", kl_divergence.item())
                 self.logger.add_info("Clip Fraction", clip_fraction.item())
-                self.logger.add_info("Clip Ratio (std)", ratio.std().item())
-                self.logger.add_info("Clip Ratio (min)", ratio.min().item())
-                self.logger.add_info("Clip Ratio (max)", ratio.max().item())
                 self.logger.add_info("Explained Variance", ev.mean().item())
                 self.logger.step_metric(0)
 

@@ -30,11 +30,6 @@ class MotionLoader:
         Args:
             motion_files: Motion file paths to load.
             device: The device to which to load the data.
-
-        Raises:
-            AssertionError: If ``motion_files`` is empty, if any specified motion file doesn't
-                exist, or if the loaded clips don't share the same DOF names, body names, or
-                frame rate.
         """
         assert len(motion_files) > 0, "MotionLoader requires at least one motion file."
         for motion_file in motion_files:
@@ -142,7 +137,7 @@ class MotionLoader:
         from the clip tensor.
 
         Args:
-            data: Motion data tensor (wxyz quaternions). Shape is (num_clips, max_frames, 4) or
+            data: Motion data tensor (xyzw quaternions). Shape is (num_clips, max_frames, 4) or
                 (num_clips, max_frames, M, 4).
             clip_indexes: Clip index per sample. Shape is (N,).
             index_0: First frame index per sample (within its clip). Shape is (N,).
@@ -159,7 +154,7 @@ class MotionLoader:
         if q0.ndim >= 3:
             blend = blend.unsqueeze(-1)
 
-        qw, qx, qy, qz = 0, 1, 2, 3  # wyzx
+        qx, qy, qz, qw = 0, 1, 2, 3  # xyzw
         cos_half_theta = (
             q0[..., qw] * q1[..., qw]
             + q0[..., qx] * q1[..., qx]
@@ -184,7 +179,7 @@ class MotionLoader:
         new_q_z = ratio_a * q0[..., qz : qz + 1] + ratio_b * q1[..., qz : qz + 1]
         new_q_w = ratio_a * q0[..., qw : qw + 1] + ratio_b * q1[..., qw : qw + 1]
 
-        new_q = torch.cat([new_q_w, new_q_x, new_q_y, new_q_z], dim=len(new_q_w.shape) - 1)
+        new_q = torch.cat([new_q_x, new_q_y, new_q_z, new_q_w], dim=len(new_q_w.shape) - 1)
         new_q = torch.where(torch.abs(sin_half_theta) < 0.001, 0.5 * q0 + 0.5 * q1, new_q)
         new_q = torch.where(torch.abs(cos_half_theta) >= 1, q0, new_q)
         return new_q
@@ -277,7 +272,7 @@ class MotionLoader:
                 - DOF positions (with shape (N, num_dofs))
                 - DOF velocities (with shape (N, num_dofs))
                 - Body positions (with shape (N, num_bodies, 3))
-                - Body rotations (with shape (N, num_bodies, 4), as wxyz quaternion)
+                - Body rotations (with shape (N, num_bodies, 4), as xyzw quaternion)
                 - Body linear velocities (with shape (N, num_bodies, 3))
                 - Body angular velocities (with shape (N, num_bodies, 3))
         """

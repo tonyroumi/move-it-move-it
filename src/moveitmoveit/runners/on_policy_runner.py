@@ -36,10 +36,6 @@ class OnPolicyRunner:
         self.env = env
         self.logger = logger
 
-        # Agent
-        self._initialize_agent(cfg)
-
-    def _initialize_agent(self, cfg: dict):
         agent_cls, cfg_cls = resolve_agent(cfg["agent"]["class_type"])
 
         self.agent = agent_cls(
@@ -81,4 +77,4 @@ class OnPolicyRunner:
                 with self.logger.timing("Learning Time"):
                     self.agent.update()
 
-                self.logger.log(self.agent.write_checkpoint)
+                self.logger.log(self.agent.write_checkpoint, mean_episode_reward=self.agent.mean_episode_reward)

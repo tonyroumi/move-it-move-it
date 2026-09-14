@@ -48,6 +48,45 @@ def compute_heading_and_up(
 
     return torso_quat, up_proj, heading_proj, up_vec, heading_vec
 
+def apply_random_yaw(
+    quat: torch.Tensor,
+    ref_body_index: int,
+    body_positions: torch.Tensor,
+    body_rotations: torch.Tensor,
+    body_linear_velocities: torch.Tensor,
+    body_angular_velocities: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Apply a yaw rotation to a sampled reference motion about its root."""
+    num_bodies = body_positions.shape[1]
+
+    # Root position is the pivot of the rotation.
+    root_position = body_positions[:, ref_body_index]
+
+    # Express body positions as world-frame offsets from the root.
+    body_offsets = body_positions - root_position.unsqueeze(1)
+
+    # Expand yaw rotation across all bodies.
+    quat = quat.unsqueeze(1).expand(-1, num_bodies, 4)
+
+    # Rotate the offsets, then translate back to the root.
+    # The resulting positions are still world-frame positions.
+    body_positions = (
+        root_position.unsqueeze(1)
+        + quat_apply(quat, body_offsets)
+    )
+
+    # Rotate world-frame orientations and velocities.
+    body_rotations = quat_mul(quat, body_rotations)
+    body_linear_velocities = quat_apply(quat, body_linear_velocities)
+    body_angular_velocities = quat_apply(quat, body_angular_velocities)
+
+    return (
+        body_positions,
+        body_rotations,
+        body_linear_velocities,
+        body_angular_velocities,
+    )
+
 @torch.jit.script
 def compute_rot(
     torso_quat: torch.Tensor,

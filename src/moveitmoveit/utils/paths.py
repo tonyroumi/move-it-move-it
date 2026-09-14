@@ -15,12 +15,7 @@ MOTIONS_DIR = MOVEITMOVEIT_DATA_DIR / "motions"
 
 
 def _dir_mtime(path: str) -> float:
-    """Best-effort 'last written to' time for a directory.
-
-    Prefers the mtime of the directory itself (which updates when entries are
-    added/removed directly inside it), falling back to the newest mtime among
-    its immediate files if that's more informative.
-    """
+    """'last written to' time for a directory. """
     try:
         latest = os.path.getmtime(path)
     except OSError:
@@ -34,13 +29,7 @@ def _dir_mtime(path: str) -> float:
     return latest
 
 def _find_most_recent_run_dir(log_root_path: str) -> str:
-    """Return the run directory under `log_root_path` most recently written to.
-
-    Layout is logs/<experiment>/<algorithm>/<run>/checkpoints/*.pt, so this
-    looks one level down from `log_root_path` for run directories and ranks
-    them by the mtime of their `checkpoints/` subdir (falling back to the run
-    directory itself).
-    """
+    """Return the run directory under `log_root_path` most recently written to."""
     if not os.path.isdir(log_root_path):
         raise FileNotFoundError(f"Log directory does not exist: {log_root_path}")
 
@@ -71,7 +60,6 @@ def _checkpoint_in_run_dir(run_dir: str, step: int = None) -> str:
         raise FileNotFoundError(f"No best_agent.pt found in run: {checkpoint_path}")
     return os.path.abspath(checkpoint_path)
 
-
 def resolve_checkpoint(log_root_path: str, checkpoint: str = None, step: int = None) -> str:
     """Resolve the checkpoint path to play.
 
@@ -86,7 +74,6 @@ def resolve_checkpoint(log_root_path: str, checkpoint: str = None, step: int = N
 
     most_recent_run_dir = _find_most_recent_run_dir(log_root_path)
     return _checkpoint_in_run_dir(most_recent_run_dir, step)
-
 
 def resolve_checkpoint_from_run_dir(run_dir: str, checkpoint: str = None, step: int = None) -> str:
     """Resolve the checkpoint path to play from a single, specific run directory.

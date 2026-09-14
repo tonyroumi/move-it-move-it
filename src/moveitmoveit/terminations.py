@@ -13,12 +13,12 @@ NUM_TERMINATIONS = len(TerminationIndex)
 
 @torch.jit.script
 def deviation_from_motion_termination(
-    dof_positions: torch.Tensor,  # (N, num_dofs)
-    ref_dof_positions: torch.Tensor,  # (N, num_dofs)
-    threshold: float = 1.0,
+    dof_positions: torch.Tensor,
+    ref_dof_positions: torch.Tensor,
+    threshold: float = 1.5,
 ) -> torch.Tensor:
     """Terminates when the tracked pose deviates too far (summed squared DOF error) from the reference motion."""
-    deviation = torch.sum((dof_positions - ref_dof_positions) ** 2, dim=-1)  # (N,)
+    deviation = torch.sum((dof_positions - ref_dof_positions) ** 2, dim=-1)
     return deviation > threshold
 
 

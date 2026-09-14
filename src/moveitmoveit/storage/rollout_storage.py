@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import torch
+import torch.nn as nn
 from collections.abc import Generator
 
 
-class RolloutStorage:
+class RolloutStorage(nn.Module):
     """Storage for the data collected during a rollout.
 
     The rollout storage is populated by adding transitions during the rollout phase. It then returns a generator for

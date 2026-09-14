@@ -7,9 +7,7 @@ from isaaclab.devices import Se2Keyboard, Se2KeyboardCfg
 
 from moveitmoveit.commands import CommandIndex
 
-# CommandIndex entries handled by the base Se2Keyboard controller (v_x, v_y,
-# omega_z), and therefore excluded from the dynamically derived extra/binary
-# command set below.
+
 _SE2_COMMANDS = (CommandIndex.LIN_X, CommandIndex.LIN_Y, CommandIndex.YAW)
 
 
@@ -17,12 +15,6 @@ class Keyboard(Se2Keyboard):
     """
     Extends Isaac Lab's SE(2) keyboard controller with additional binary
     command inputs.
-
-    The set and order of extra binary commands is derived from
-    `CommandIndex`: any entry not handled by the base Se2Keyboard (v_x, v_y,
-    omega_z) becomes an extra binary command, ordered by its `CommandIndex`
-    value. Adding/removing a `CommandIndex` entry requires adding/removing
-    its corresponding key binding in `EXTRA_KEY_MAPPING`.
 
     Output:
         [v_x, v_y, omega_z, *extra_commands]
@@ -41,10 +33,6 @@ class Keyboard(Se2Keyboard):
         0.0 when released
         1.0 while held
     """
-
-    # ---------------------------------------------------------------------
-    # Explicit custom key mappings
-    # ---------------------------------------------------------------------
 
     EXTRA_KEY_MAPPING = {
         "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
@@ -83,6 +71,15 @@ class Keyboard(Se2Keyboard):
         for command_name in self._extra_commands:
             self._extra_commands[command_name] = 0.0
 
+    def __str__(self) -> str:
+        msg = super().__str__()
+        msg += "\n\t----------------------------------------------\n"
+        msg += "\n".join(
+            f"\t{command_name.name}: {key}"
+            for key, command_name in self.EXTRA_KEY_MAPPING.items()
+        )
+        return msg
+
     def advance(self) -> torch.Tensor:
         """
         Return the complete keyboard command.
@@ -111,10 +108,12 @@ class Keyboard(Se2Keyboard):
         Handle standard SE(2) commands and additional binary commands.
         """
 
+        # Read the key before delegating to super(): its processing (e.g. for the
+        # SE(2)-bound Z/X yaw keys) leaves event.input no longer safely re-readable.
+        key = event.input.name
+
         # Preserve all normal Se2Keyboard behavior.
         super()._on_keyboard_event(event, *args, **kwargs)
-
-        key = event.input.name
 
         # Ignore keys that are not custom controls.
         if key not in self.EXTRA_KEY_MAPPING:
