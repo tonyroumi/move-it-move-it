@@ -121,8 +121,6 @@ class MotionLearningEnv(DirectRLEnv):
 
         if self.cfg.random_reset:
             if env_ids is not None:
-                # samples correspond to specific environments (e.g. the AMP observation history
-                # seeded on reset): reuse the yaw actually applied to that env's root.
                 quat = self.random_yaw_quat[env_ids]
             else:
                 # samples are an arbitrary discriminator batch, unrelated to any environment:
@@ -175,8 +173,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
 
-        # per-env random yaw applied at reset (identity until the env's first reset); reused to
-        # rotate later reference-motion samples to match (see `_compute_robot_state`).
+        # per-env random yaw applied at reset 
         self.random_yaw_quat = torch.zeros(self.num_envs, 4, device=self.device)
         self.random_yaw_quat[:, -1] = 1.0
 
@@ -198,11 +195,9 @@ class MotionLearningEnv(DirectRLEnv):
 
         if self.render_enabled and self.cfg.camera_type != "none":
             if self.cfg.camera_type == "facing":
-                # in front of the robot, looking back at it
                 self._camera_target_offset = torch.tensor([2.5, 0.0, 0.3], device=self.device)
                 self._camera_eye_offset = torch.tensor([4.0, 0.0, -0.4], device=self.device)
             elif self.cfg.camera_type == "third-person":
-                # behind and above the robot, looking forward over it
                 self._camera_target_offset = torch.tensor([1.0, 0.0, 0.5], device=self.device)
                 self._camera_eye_offset = torch.tensor([-6.0, 0.0, 3.0], device=self.device)
 
@@ -277,7 +272,7 @@ class MotionLearningEnv(DirectRLEnv):
         return obs
 
     def _get_rewards(self) -> torch.Tensor:
-        weights = self._motion_manager.current_reward_weights  # (N, NUM_REWARDS)
+        weights = self._motion_manager.current_reward_weights
 
         (
             ref_dof_positions,
@@ -321,8 +316,6 @@ class MotionLearningEnv(DirectRLEnv):
         enabled = self._motion_manager.current_termination_flags
 
         current_times = self.motion_start_times + self.episode_length_buf.to(torch.float32) * self.step_dt
-        # only DOF positions are used below, which are joint-local and unaffected by the per-env
-        # random yaw applied at reset (see `_compute_robot_state`), so no rotation is needed here.
         ref_dof_positions, *_ = self._motion_loader.sample(
             num_samples=self.num_envs,
             clip_indexes=self._motion_manager.motion_ids.cpu().numpy(),
