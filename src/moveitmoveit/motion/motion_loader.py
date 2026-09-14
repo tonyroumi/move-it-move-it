@@ -45,22 +45,22 @@ class MotionLoader:
 
         self._dof_names = clips[0]["dof_names"].tolist()
         self._body_names = clips[0]["body_names"].tolist()
-        self.dt = 1.0 / clips[0]["fps"]
+        self.dt = float(1.0 / clips[0]["fps"])
         for clip in clips[1:]:
             assert clip["dof_names"].tolist() == self._dof_names, "All motion clips must share the same DOF names."
             assert clip["body_names"].tolist() == self._body_names, "All motion clips must share the same body names."
             assert 1.0 / clip["fps"] == self.dt, "All motion clips must share the same frame rate (dt)."
 
         # number of frames per clip (N,), and the padded (max) frame count across clips
-        self.num_frames = np.array([clip["dof_positions"].shape[0] for clip in clips])
-        max_frames = int(self.num_frames.max())
+        num_frames = np.array([clip["dof_positions"].shape[0] for clip in clips])
+        max_frames = int(num_frames.max())
 
         def stack(key: str) -> torch.Tensor:
             # pad each clip to max_frames along the frame dimension, then stack over clips
             sample_shape = clips[0][key].shape[1:]
             padded = np.zeros((len(clips), max_frames, *sample_shape), dtype=np.float32)
             for i, clip in enumerate(clips):
-                padded[i, : self.num_frames[i]] = clip[key]
+                padded[i, : num_frames[i]] = clip[key]
             return torch.tensor(padded, dtype=torch.float32, device=self.device)
 
         self.dof_positions = stack("dof_positions")
@@ -70,9 +70,10 @@ class MotionLoader:
         self.body_linear_velocities = stack("body_linear_velocities")
         self.body_angular_velocities = stack("body_angular_velocities")
 
-        self.duration = self.dt * (self.num_frames - 1)
-        for motion_file, num_frames, duration in zip(motion_files, self.num_frames, self.duration):
-            print(f"Motion loaded ({motion_file}): duration: {duration} sec, frames: {num_frames}")
+        self.num_frames = torch.tensor(num_frames, dtype=torch.long, device=self.device)
+        self.duration = (self.num_frames - 1).to(torch.float32) * self.dt
+        for motion_file, nf, dur in zip(motion_files, self.num_frames.tolist(), self.duration.tolist()):
+            print(f"Motion loaded ({motion_file}): duration: {dur} sec, frames: {nf}")
 
     @property
     def num_clips(self) -> int:
@@ -189,8 +190,8 @@ class MotionLoader:
         return new_q
 
     def _compute_frame_blend(
-        self, times: np.ndarray, clip_indexes: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        self, times: torch.Tensor, clip_indexes: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute the indexes of the first and second values, as well as the blending time
         to interpolate between them and the given times.
 
@@ -204,13 +205,13 @@ class MotionLoader:
         """
         duration = self.duration[clip_indexes]
         num_frames = self.num_frames[clip_indexes]
-        phase = np.clip(times / duration, 0.0, 1.0)
-        index_0 = (phase * (num_frames - 1)).round(decimals=0).astype(int)
-        index_1 = np.minimum(index_0 + 1, num_frames - 1)
-        blend = ((times - index_0 * self.dt) / self.dt).round(decimals=5)
+        phase = torch.clamp(times / duration, 0.0, 1.0)
+        index_0 = torch.round(phase * (num_frames - 1).to(times.dtype)).long()
+        index_1 = torch.minimum(index_0 + 1, num_frames - 1)
+        blend = torch.round((times - index_0 * self.dt) / self.dt, decimals=5)
         return index_0, index_1, blend
 
-    def sample_clip_indexes(self, num_samples: int) -> np.ndarray:
+    def sample_clip_indexes(self, num_samples: int) -> torch.Tensor:
         """Randomly sample, per sample, which clip to draw from.
 
         Args:
@@ -219,11 +220,11 @@ class MotionLoader:
         Returns:
             Clip indexes, uniformly sampled over ``[0, num_clips)``.
         """
-        return np.random.randint(0, self.num_clips, size=num_samples)
+        return torch.randint(0, self.num_clips, (num_samples,), device=self.device)
 
     def sample_times(
-        self, num_samples: int, clip_indexes: np.ndarray | None = None, duration: float | None = None
-    ) -> np.ndarray:
+        self, num_samples: int, clip_indexes: torch.Tensor | None = None, duration: float | None = None
+    ) -> torch.Tensor:
         """Sample random motion times uniformly within each sample's clip duration.
 
         Args:
@@ -241,19 +242,21 @@ class MotionLoader:
         """
         if clip_indexes is None:
             clip_indexes = self.sample_clip_indexes(num_samples)
+        else:
+            clip_indexes = torch.as_tensor(clip_indexes, dtype=torch.long, device=self.device)
         clip_durations = self.duration[clip_indexes]
         if duration is not None:
-            assert np.all(duration <= clip_durations), (
+            assert torch.all(clip_durations >= duration), (
                 f"The specified duration ({duration}) is longer than a sampled clip's duration"
             )
-            clip_durations = np.full(num_samples, duration, dtype=np.float64)
-        return clip_durations * np.random.uniform(low=0.0, high=1.0, size=num_samples)
+            clip_durations = torch.full((num_samples,), duration, dtype=self.duration.dtype, device=self.device)
+        return clip_durations * torch.rand(num_samples, device=self.device)
 
     def sample(
         self,
         num_samples: int,
-        clip_indexes: np.ndarray | None = None,
-        times: np.ndarray | None = None,
+        clip_indexes: torch.Tensor | None = None,
+        times: torch.Tensor | None = None,
         duration: float | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample motion data, drawing each sample from its assigned clip.
@@ -280,14 +283,13 @@ class MotionLoader:
         """
         if clip_indexes is None:
             clip_indexes = self.sample_clip_indexes(num_samples)
+        else:
+            clip_indexes = torch.as_tensor(clip_indexes, dtype=torch.long, device=self.device)
         if times is None:
             times = self.sample_times(num_samples, clip_indexes=clip_indexes, duration=duration)
+        else:
+            times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         index_0, index_1, blend = self._compute_frame_blend(times, clip_indexes)
-
-        clip_indexes = torch.as_tensor(clip_indexes, dtype=torch.long, device=self.device)
-        index_0 = torch.as_tensor(index_0, dtype=torch.long, device=self.device)
-        index_1 = torch.as_tensor(index_1, dtype=torch.long, device=self.device)
-        blend = torch.tensor(blend, dtype=torch.float32, device=self.device)
 
         return (
             self._interpolate(self.dof_positions, clip_indexes=clip_indexes, index_0=index_0, index_1=index_1, blend=blend),
@@ -305,8 +307,8 @@ class MotionLoader:
     def sample_history(
         self,
         num_samples: int,
-        clip_indexes: np.ndarray | None = None,
-        times: np.ndarray | None = None,
+        clip_indexes: torch.Tensor | None = None,
+        times: torch.Tensor | None = None,
         num_steps: int = 1,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample a history of motion states, ``num_steps`` apart in time, ending at each sample's time.
@@ -327,11 +329,16 @@ class MotionLoader:
         """
         if clip_indexes is None:
             clip_indexes = self.sample_clip_indexes(num_samples)
+        else:
+            clip_indexes = torch.as_tensor(clip_indexes, dtype=torch.long, device=self.device)
         if times is None:
             times = self.sample_times(num_samples, clip_indexes)
+        else:
+            times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         # step back num_steps times, dt apart, from each sample's time -> (num_samples * num_steps,)
-        history_times = (np.expand_dims(times, axis=-1) - self.dt * np.arange(0, num_steps)).flatten()
-        history_clip_indexes = np.repeat(clip_indexes, num_steps)
+        steps = torch.arange(num_steps, device=self.device)
+        history_times = (times.unsqueeze(-1) - self.dt * steps).flatten()
+        history_clip_indexes = clip_indexes.repeat_interleave(num_steps)
         return self.sample(num_samples=num_samples * num_steps, clip_indexes=history_clip_indexes, times=history_times)
 
     def get_dof_index(self, dof_names: list[str]) -> list[int]:

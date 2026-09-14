@@ -10,11 +10,9 @@ class MotionManager:
     def __init__(
         self,
         manifest_path: str,
-        num_envs: int,
         device: torch.device | str,
     ):
         self.device = device
-        self.num_envs = num_envs
 
         with open(manifest_path, "r") as f:
             manifest = yaml.safe_load(f)["motions"]
@@ -27,12 +25,6 @@ class MotionManager:
             name: i
             for i, name in enumerate(self.motion_names)
         }
-
-        self.motion_ids = torch.zeros(
-            num_envs,
-            dtype=torch.long,
-            device=device,
-        )
 
         # one-hot task id per motion, used to condition the AMP discriminator on which motion
         # is currently active
@@ -148,22 +140,19 @@ class MotionManager:
 
     def sample_motion(
         self,
-        env_ids: torch.Tensor,
-    ):
+        num_samples: int,
+    ) -> torch.Tensor:
         sampled_motions = torch.multinomial(
             self.motion_sample_prob,
-            num_samples=env_ids.shape[0],
+            num_samples=num_samples,
             replacement=True,
-        ).cpu()
-        self.motion_ids[env_ids] = sampled_motions.to(self.device)
+        )
         return sampled_motions
-    
+
     def sample_commands(
         self,
-        env_ids: torch.Tensor,
+        motion_ids: torch.Tensor,
     ) -> torch.Tensor:
-
-        motion_ids = self.motion_ids[env_ids]
 
         low = self.command_low[motion_ids]
         high = self.command_high[motion_ids]
@@ -171,27 +160,16 @@ class MotionManager:
         commands = low + torch.rand_like(low) * (high - low)
 
         zero_prob = self.command_zero_prob[motion_ids]
-        zero_mask = torch.rand(env_ids.shape[0], device=self.device) < zero_prob
+        zero_mask = torch.rand(motion_ids.shape[0], device=self.device) < zero_prob
         commands[zero_mask] = 0.0
 
         return commands
 
-    @property
-    def current_reward_weights(self):
-        return self.reward_weights[
-            self.motion_ids
-        ]
+    def reward_weights_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
+        return self.reward_weights[motion_ids]
 
-    @property
-    def current_termination_flags(self):
-        return self.termination_flags[
-            self.motion_ids
-        ]
-
-    @property
-    def current_task_ids(self) -> torch.Tensor:
-        """One-hot task id of each env's currently active motion. Shape is (num_envs, num_motions)."""
-        return self.task_id_table[self.motion_ids]
+    def termination_flags_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
+        return self.termination_flags[motion_ids]
 
     def task_ids_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
         """One-hot task ids for arbitrary motion ids. Shape is (len(motion_ids), num_motions)."""

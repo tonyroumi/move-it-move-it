@@ -29,7 +29,7 @@ class MotionLearningEnv(DirectRLEnv):
     def __init__(self, cfg: MotionLearningEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self._motion_manager = MotionManager(cfg.motion_manifest, self.num_envs, self.device)
+        self._motion_manager = MotionManager(cfg.motion_manifest, self.device)
         self._motion_loader = MotionLoader(self._motion_manager.motion_files, self.device)
 
         self._setup_env()
@@ -69,8 +69,8 @@ class MotionLearningEnv(DirectRLEnv):
             body_angular_velocities,
         ) = self._motion_loader.sample(
             num_samples=self.num_envs,
-            clip_indexes=self._motion_manager.motion_ids.cpu().numpy(),
-            times=current_times.cpu().numpy(),
+            clip_indexes=self.motion_ids,
+            times=current_times,
         )
 
         if self.cfg.random_reset:
@@ -96,8 +96,8 @@ class MotionLearningEnv(DirectRLEnv):
     def collect_reference_motions(
         self,
         num_samples: int,
-        clip_indexes: np.ndarray | None = None,
-        current_times: np.ndarray | None = None,
+        clip_indexes: torch.Tensor | None = None,
+        current_times: torch.Tensor | None = None,
         env_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if clip_indexes is None:
@@ -172,6 +172,7 @@ class MotionLearningEnv(DirectRLEnv):
         self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
 
         self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
+        self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         # per-env random yaw applied at reset 
         self.random_yaw_quat = torch.zeros(self.num_envs, 4, device=self.device)
@@ -265,14 +266,14 @@ class MotionLearningEnv(DirectRLEnv):
             local_frame=self.cfg.random_reset
         )
         self.amp_observation_buffer[:, 0] = torch.cat(
-            (current_amp_obs, self._motion_manager.current_task_ids), dim=-1
+            (current_amp_obs, self._motion_manager.task_ids_for(self.motion_ids)), dim=-1
         )
         self.extras = {"amp_obs": self.amp_observation_buffer.view(-1, self.amp_observation_size)}
 
         return obs
 
     def _get_rewards(self) -> torch.Tensor:
-        weights = self._motion_manager.current_reward_weights
+        weights = self._motion_manager.reward_weights_for(self.motion_ids)
 
         (
             ref_dof_positions,
@@ -313,13 +314,13 @@ class MotionLearningEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
-        enabled = self._motion_manager.current_termination_flags
+        enabled = self._motion_manager.termination_flags_for(self.motion_ids)
 
         current_times = self.motion_start_times + self.episode_length_buf.to(torch.float32) * self.step_dt
         ref_dof_positions, *_ = self._motion_loader.sample(
             num_samples=self.num_envs,
-            clip_indexes=self._motion_manager.motion_ids.cpu().numpy(),
-            times=current_times.cpu().numpy(),
+            clip_indexes=self.motion_ids,
+            times=current_times,
         )
 
         terminations = torch.stack(
@@ -345,14 +346,16 @@ class MotionLearningEnv(DirectRLEnv):
             (self.episode_length_buf % self.cfg.command_resample_steps == 0).nonzero(as_tuple=False).squeeze(-1)
         )
         if resample_env_ids.numel() > 0:
-            self.commands[resample_env_ids] = self._motion_manager.sample_commands(resample_env_ids)
+            self.commands[resample_env_ids] = self._motion_manager.sample_commands(
+                self.motion_ids[resample_env_ids]
+            )
 
     def _reset_idx(self, env_ids: torch.Tensor):
         super()._reset_idx(env_ids)
 
         num_samples = env_ids.shape[0]
-        motion_id = self._motion_manager.sample_motion(env_ids)
-        times = self._motion_loader.sample_times(num_samples, motion_id)
+        self.motion_ids[env_ids] = self._motion_manager.sample_motion(num_samples)
+        times = self._motion_loader.sample_times(num_samples, self.motion_ids[env_ids])
         self.motion_start_times[env_ids] = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         (
             dof_positions,
@@ -361,7 +364,7 @@ class MotionLearningEnv(DirectRLEnv):
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
-        ) = self._motion_loader.sample(num_samples=num_samples, clip_indexes=motion_id, times=times)
+        ) = self._motion_loader.sample(num_samples=num_samples, clip_indexes=self.motion_ids[env_ids], times=times)
         root_state, dof_pos, dof_vel = self._compute_robot_state(
             env_ids,
             dof_positions,
@@ -381,12 +384,12 @@ class MotionLearningEnv(DirectRLEnv):
 
         self.commands[env_ids] = (
             self._motion_manager.sample_commands(
-                env_ids
+                self.motion_ids[env_ids]
             )
         )
 
         amp_observations = self.collect_reference_motions(
-            num_samples, clip_indexes=motion_id, current_times=times, env_ids=env_ids
+            num_samples, clip_indexes=self.motion_ids[env_ids], current_times=times, env_ids=env_ids
         )
         self.amp_observation_buffer[env_ids] = amp_observations.view(num_samples, self.cfg.num_amp_observations, -1)
 
