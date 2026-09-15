@@ -1,0 +1,54 @@
+motions:
+  standing_still:
+    file: /home/anthony/Dev/move-it-move-it/src/data/motions/standing_still.npz
+    sample_prob: 0.2
+
+    commands:
+      lin_x: [0.0,0.0]
+      lin_y: [0.0,0.0]
+      yaw: [0.0,0.0]
+      binary_key_0: 0.0
+
+    zero_command_prob: 1.0
+
+    rewards:
+      lin_vel_tracking: 1.0
+      yaw_vel_tracking: 1.0
+    
+    termination: deviation_from_motion
+
+  walk:
+    file: /home/anthony/Dev/move-it-move-it/src/data/motions/walk.npz
+    sample_prob: 1.0
+
+    commands:
+      lin_x: [-1.5, 1.5]
+      lin_y: [-1.0, 1.0]
+      yaw: [-2.0, 2.0]
+      binary_key_0: 0.0
+
+    zero_command_prob: 0.0
+
+    rewards:
+      lin_vel_tracking: 3.0
+      yaw_vel_tracking: 1.0
+    
+    termination: unhealthy
+
+  # run:
+  #   file: /home/anthony/Dev/move-it-move-it/src/data/motions/run.npz
+  #   sample_prob: 1.0
+
+  #   commands:
+  #     lin_x: [-1.8, 3.0]
+  #     lin_y: [-1.0, 1.0]
+  #     yaw: [-3.0, 3.0]
+  #     binary_key_0: 1.0
+
+  #   zero_command_prob: 0.0
+
+  #   rewards:
+  #     lin_vel_tracking: 3.0
+  #     yaw_vel_tracking: 1.0
+
+  #   termination: unhealthy

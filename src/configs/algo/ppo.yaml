@@ -38,9 +38,6 @@ models:
         enabled: false
         zero_bias: true
 
-storage:
-  # None
-
 agent:
   class_type: PPO
 

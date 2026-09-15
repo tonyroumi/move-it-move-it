@@ -1,7 +1,7 @@
 seed: 42
 
 experiment:
-  directory: "original_quat_notation"
+  directory: "locomotion"
   experiment_name: ""
 
 logger:
@@ -52,9 +52,6 @@ models:
     #     gain: 1.0
     #     zero_bias: true
 
-storage:
-  capacity: 2000000
-
 agent:
   class_type: AMP
 
@@ -79,6 +76,7 @@ agent:
   normalize_advantage_per_mini_batch: False
 
   # AMP params
+  discriminator_buffer_capacity: 2000000
   discriminator_update_interval: 1
 
   disc_lr: 0.00005
@@ -90,8 +88,8 @@ agent:
   disc_num_updates: 4
   disc_batch_size: 4096
   
-  style_reward_lambda: 4.0
-  goal_reward_lambda: 2.0
+  style_reward_lambda: 3.0
+  goal_reward_lambda: 1.0
 
 
 runner:
