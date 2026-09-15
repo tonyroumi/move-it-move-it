@@ -198,24 +198,20 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _get_observations(self) -> dict:
         obs = compute_proprioceptive_obs(*self.current_state, local_frame=self.cfg.random_reset)
-        obs = torch.concatenate((obs, self.commands), dim=-1)
+        cmd_obs = torch.concatenate((obs, self.commands), dim=-1)
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
             self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
-        # build AMP observation
-        current_amp_obs = compute_proprioceptive_obs(
-            *self.current_state,
-            local_frame=self.cfg.random_reset
-        )
+
         self.amp_observation_buffer[:, 0] = torch.cat(
-            (current_amp_obs, self._motion_manager.task_ids_for(self.motion_ids)), dim=-1
+            (obs.clone(), self._motion_manager.task_ids_for(self.motion_ids)), dim=-1
         )
         self.extras["amp_obs"] = self.amp_observation_buffer.view(-1, self.amp_observation_size)
 
         self._resample_commands()
 
-        return obs
+        return cmd_obs
 
     def _get_rewards(self) -> torch.Tensor:
         weights = self._motion_manager.reward_weights_for(self.motion_ids)
@@ -333,7 +329,7 @@ class MotionLearningEnv(DirectRLEnv):
         env_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if clip_indexes is None:
-            clip_indexes = self._motion_loader.sample_clip_indexes(num_samples)
+            clip_indexes = self._motion_manager.sample_motion(num_samples)
 
         (
             dof_positions,
@@ -427,6 +423,8 @@ class MotionLearningEnv(DirectRLEnv):
             self.random_yaw_quat[env_ids] = random_yaw
             root_state[:, 0:3] =  transforms.quat_apply(random_yaw, root_state[:, 0:3])
             root_state[:, 3:7] = transforms.quat_mul(random_yaw, root_state[:, 3:7])
+            root_state[:, 7:10] = transforms.quat_apply(random_yaw, root_state[:, 7:10])
+            root_state[:, 10:13] = transforms.quat_apply(random_yaw, root_state[:, 10:13])
         return root_state, dof_pos, dof_vel
 
 

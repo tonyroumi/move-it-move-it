@@ -83,7 +83,7 @@ def main():
 
         start_time = time.time()
 
-        run_logger = Logger(
+        logger = Logger(
             log_dir=log_dir,
             **agent_cfg["logger"],
             total_timesteps=agent_cfg["runner"]["timesteps"],
@@ -91,7 +91,7 @@ def main():
 
         from moveitmoveit.runners import OnPolicyRunner
 
-        runner = OnPolicyRunner(cfg=agent_cfg, env=env, logger=run_logger)
+        runner = OnPolicyRunner(cfg=agent_cfg, env=env, logger=logger)
 
         if args_cli.deterministic:
             configure_seed(env_cfg.seed, True)

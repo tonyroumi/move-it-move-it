@@ -79,7 +79,7 @@ class PPO(BaseAgent):
         high = command_high.max(dim=0).values
 
         return RunningStandardScaler(
-            size=COMMAND_DIM,
+            size=env.unwrapped.command_dim,
             mean=0.5 * (low + high),
             variance=(0.5 * (high - low)) ** 2,
         ).to(env.unwrapped.device)
