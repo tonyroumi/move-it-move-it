@@ -34,6 +34,13 @@ parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent f
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint.")
 parser.add_argument(
+    "--algo",
+    type=str,
+    default=None,
+    choices=["PPO", "AMP"],
+    help="RL algorithm whose runs to search under, as written by train.py. Ignored if --log-dir is given.",
+)
+parser.add_argument(
     "--log-dir",
     type=str,
     default=None,
@@ -103,8 +110,16 @@ def main():
         if args_cli.log_dir:
             resume_path = resolve_checkpoint_from_run_dir(log_dir, checkpoint=args_cli.checkpoint, step=args_cli.step)
         else:
-            # specify directory for logging experiments
-            log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"])
+            if args_cli.algo is None:
+                raise ValueError("--algo is required to locate runs when --log-dir is not given.")
+
+            # specify directory for logging experiments: directory/experiment_name/algorithm/run
+            log_root_path = os.path.join(
+                "logs",
+                agent_cfg["experiment"]["directory"],
+                agent_cfg["experiment"]["experiment_name"],
+                args_cli.algo,
+            )
             log_root_path = os.path.abspath(log_root_path)
 
             print(f"[INFO] Loading experiment from directory: {log_root_path}")

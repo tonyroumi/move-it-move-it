@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import logging
 import os
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -24,6 +25,7 @@ from isaaclab_tasks.utils import (
 
 import moveitmoveit
 from moveitmoveit.utils.logger import Logger
+from moveitmoveit.utils.paths import CONFIGS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -53,21 +55,21 @@ def main():
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.motion_manifest = args_cli.manifest
 
-        # specify directory for logging experiments
-        log_root_path = os.path.join("logs", agent_cfg["experiment"]["directory"])
+        # specify directory for logging experiments: directory/experiment_name/algorithm/run
+        log_root_path = os.path.join(
+            "logs",
+            agent_cfg["experiment"]["directory"],
+            agent_cfg["experiment"]["experiment_name"],
+            args_cli.algo,
+        )
         log_root_path = os.path.abspath(log_root_path)
 
         print(f"[INFO] Logging experiment in directory: {log_root_path}")
-        log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        # algo/reward folded into the run name since --task no longer encodes it
-        log_dir += f"_{args_cli.algo}_{os.path.basename(args_cli.manifest).split('.')[0]}"
-        print(f"Exact experiment name: {log_dir}")
+        run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        print(f"Exact experiment name: {run_name}")
 
-        if agent_cfg["experiment"]["experiment_name"]:
-            log_dir += f"_{agent_cfg['experiment']['experiment_name']}"
         agent_cfg["experiment"]["directory"] = log_root_path
-        agent_cfg["experiment"]["experiment_name"] = log_dir
-        log_dir = os.path.join(log_root_path, log_dir)
+        log_dir = os.path.join(log_root_path, run_name)
 
         # dump the configuration into log-directory
         dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
@@ -75,6 +77,7 @@ def main():
         with open(args_cli.manifest, "r") as f:
             manifest_cfg = yaml.safe_load(f)
         dump_yaml(os.path.join(log_dir, "params", "manifest.yaml"), manifest_cfg)
+        shutil.copy(os.path.join(CONFIGS_DIR, "description.txt"), os.path.join(log_dir, "description.txt"))
 
         resume_path = retrieve_file_path(args_cli.checkpoint) if args_cli.checkpoint else None
         env_cfg.log_dir = log_dir
