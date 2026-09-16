@@ -8,7 +8,6 @@ import torch.nn.functional as F
 
 from isaaclab.envs import DirectRLEnv
 
-from moveitmoveit.commands import COMMAND_DIM
 from moveitmoveit.models import GaussianMLP, MLP
 from moveitmoveit.storage import RolloutStorage
 from moveitmoveit.resources import RunningStandardScaler
@@ -79,7 +78,7 @@ class PPO(BaseAgent):
         high = command_high.max(dim=0).values
 
         return RunningStandardScaler(
-            size=env.unwrapped.command_dim,
+            size=self._cmd_dim,
             mean=0.5 * (low + high),
             variance=(0.5 * (high - low)) ** 2,
         ).to(env.unwrapped.device)
@@ -89,7 +88,7 @@ class PPO(BaseAgent):
         trailing raw command block against the fixed command range, then reassembles
         them into the input the actor/critic expect."""
         normed = self._obs_preprocessor(observations, train=train)
-        proprioceptive, commands = normed[..., :-COMMAND_DIM], normed[..., -COMMAND_DIM:]
+        proprioceptive, commands = normed[..., :-self._cmd_dim], normed[..., -self._cmd_dim:]
         return torch.cat((proprioceptive, self._command_preprocessor(commands)), dim=-1)
 
     def _initialize_storage(self, env: DirectRLEnv) -> None:

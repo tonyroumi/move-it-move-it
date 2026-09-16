@@ -44,7 +44,7 @@ def lin_vel_tracking_reward(
     root_linear_velocities: torch.Tensor,
     root_rotations: torch.Tensor,
     commanded_lin_vel: torch.Tensor,
-    scale: float = 4.0,
+    scale: float = 2.0,
 ) -> torch.Tensor:
     """Reward for matching the commanded body-frame forward/lateral linear velocity."""
     local_lin_vel = transforms.quat_apply_inverse(root_rotations, root_linear_velocities)[:, :2]
@@ -57,7 +57,7 @@ def yaw_vel_tracking_reward(
     root_angular_velocities: torch.Tensor,
     root_rotations: torch.Tensor,
     commanded_yaw_vel: torch.Tensor,
-    scale: float = 4.0,
+    scale: float = 2.0,
 ) -> torch.Tensor:
     """Reward for matching the commanded body-frame yaw angular velocity."""
     local_ang_vel = transforms.quat_apply_inverse(root_rotations, root_angular_velocities)  # (N, 3)

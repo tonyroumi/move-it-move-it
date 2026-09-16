@@ -46,11 +46,12 @@ class BaseAgent(ABC):
 
     def init(self, env: DirectRLEnv, cfg: dict) -> None:
         """Initialize the agent with the environment and configuration."""
-        self._obs_preprocessor = self._build_observations_preprocessor(env)
-        self._action_preprocessor = self._build_action_preprocessor(env)
-
         self._step_dt = env.unwrapped.step_dt # policy frequency
         self._motion_names = env.unwrapped._motion_manager.motion_names
+        self._cmd_dim = env.unwrapped.command_dim
+
+        self._obs_preprocessor = self._build_observations_preprocessor(env)
+        self._action_preprocessor = self._build_action_preprocessor(env)
 
         self._initialize_models(env, cfg["models"])
         self._initialize_optimizer()
@@ -60,7 +61,7 @@ class BaseAgent(ABC):
         """Normalizes the environment's raw observation via running statistics."""
         obs_size = env.observation_space.shape[-1]
         return RunningStandardScaler(
-            size=obs_size, unscaled_dims=env.unwrapped.command_dim
+            size=obs_size, unscaled_dims=self._cmd_dim
         ).to(env.unwrapped.device)
 
     def _build_action_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
