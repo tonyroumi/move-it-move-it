@@ -83,6 +83,10 @@ class MotionManager:
             "lin_vel_tracking": RewardIndex.LIN_VEL_TRACKING,
             "yaw_vel_tracking": RewardIndex.YAW_VEL_TRACKING,
             "target_hit": RewardIndex.TARGET_HIT,
+            "line_following": RewardIndex.LINE_FOLLOWING,
+            "action_rate_l2": RewardIndex.ACTION_RATE_L2,
+            "joint_acc": RewardIndex.JOINT_ACC,
+            "joint_vel": RewardIndex.JOINT_VEL,
         }
 
         print("[MotionManager] Building reward tables:")

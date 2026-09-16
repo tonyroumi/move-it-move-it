@@ -10,6 +10,10 @@ class RewardIndex(IntEnum):
     LIN_VEL_TRACKING = 1
     YAW_VEL_TRACKING = 2
     TARGET_HIT = 3
+    LINE_FOLLOWING = 4
+    ACTION_RATE_L2 = 5
+    JOINT_ACC = 6
+    JOINT_VEL = 7
 
 
 NUM_REWARDS = len(RewardIndex)
@@ -68,3 +72,61 @@ def yaw_vel_tracking_reward(
 def target_hit_reward(num_envs: int, device: torch.device) -> torch.Tensor:
     """Placeholder: no target-position state exists yet for the binary key commands, so this is always zero."""
     return torch.zeros(num_envs, device=device)
+
+
+@torch.jit.script
+def line_following_reward(
+    root_rotations: torch.Tensor,
+    root_linear_velocities: torch.Tensor,
+    commanded_lin_vel: torch.Tensor,
+    scale: float = 2.0,
+) -> torch.Tensor:
+    """Reward for moving along the line running through the torso in the world-frame direction implied
+    by the commanded body-frame linear velocity."""
+    commanded_dir_local = torch.cat(
+        (commanded_lin_vel, torch.zeros_like(commanded_lin_vel[:, :1])), dim=-1
+    )
+    commanded_dir_world = transforms.quat_apply(root_rotations, commanded_dir_local)
+
+    commanded_dir_xy = commanded_dir_world[:, :2]
+    actual_vel_xy = root_linear_velocities[:, :2]
+
+    commanded_norm = torch.norm(commanded_dir_xy, dim=-1).clamp_min(1e-6)
+    actual_norm = torch.norm(actual_vel_xy, dim=-1).clamp_min(1e-6)
+
+    # cosine similarity
+    alignment = torch.sum(commanded_dir_xy * actual_vel_xy, dim=-1) / (commanded_norm * actual_norm)
+    error = 1.0 - alignment
+    return torch.exp(-scale * error)
+
+
+@torch.jit.script
+def action_rate_l2_reward(
+    actions: torch.Tensor,
+    previous_actions: torch.Tensor,
+    scale: float = 1.0,
+) -> torch.Tensor:
+    """Penalize large frame-to-frame changes in action, for smooth/continuous motion."""
+    error = torch.sum((actions - previous_actions) ** 2, dim=-1)
+    return torch.exp(-scale * error)
+
+
+@torch.jit.script
+def joint_acc_reward(
+    joint_accelerations: torch.Tensor,
+    scale: float = 1.0e-4,
+) -> torch.Tensor:
+    """Penalize large joint accelerations, for smooth/natural motion."""
+    error = torch.sum(joint_accelerations ** 2, dim=-1)
+    return torch.exp(-scale * error)
+
+
+@torch.jit.script
+def joint_vel_reward(
+    joint_velocities: torch.Tensor,
+    scale: float = 1.0e-2,
+) -> torch.Tensor:
+    """Penalize large joint velocities, for smooth/natural motion."""
+    error = torch.sum(joint_velocities ** 2, dim=-1)
+    return torch.exp(-scale * error)
+    

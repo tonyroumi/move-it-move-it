@@ -12,7 +12,11 @@ from .commands import COMMAND_DIM, CommandIndex
 from .motion.motion_loader import MotionLoader
 from .motion_manager import MotionManager
 from .rewards import (
+    action_rate_l2_reward,
+    joint_acc_reward,
+    joint_vel_reward,
     lin_vel_tracking_reward,
+    line_following_reward,
     motion_tracking_reward,
     target_hit_reward,
     yaw_vel_tracking_reward,
@@ -98,6 +102,10 @@ class MotionLearningEnv(DirectRLEnv):
             device=self.device,
         )
 
+        # current/previous action, tracked for the action-rate smoothness penalty
+        self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
+        self.previous_actions = torch.zeros_like(self.actions)
+
         if self.render_enabled and self.cfg.camera_type != "none":
             if self.cfg.camera_type == "facing":
                 self._camera_target_offset = torch.tensor([2.5, 0.0, 0.3], device=self.device)
@@ -146,6 +154,7 @@ class MotionLearningEnv(DirectRLEnv):
         self.robot.write_joint_velocity_to_sim_index(velocity=dof_velocities, env_ids=env_ids)
 
     def _pre_physics_step(self, actions: torch.Tensor):
+        self.previous_actions = self.actions
         self.actions = actions.clone()
 
     def _apply_action(self):
@@ -157,6 +166,11 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _reset_idx(self, env_ids: torch.Tensor):
         super()._reset_idx(env_ids)
+
+        # avoid penalizing a spurious "jump" between the last action of the previous episode
+        # and the first action of the new one
+        self.actions[env_ids] = 0.0
+        self.previous_actions[env_ids] = 0.0
 
         num_samples = env_ids.shape[0]
         self.motion_ids[env_ids] = self._motion_manager.sample_motion(num_samples)
@@ -215,7 +229,7 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
         weights = self._motion_manager.reward_weights_for(self.motion_ids)
-
+        
         (
             ref_dof_positions,
             _,
@@ -246,6 +260,21 @@ class MotionLearningEnv(DirectRLEnv):
                     self.commands[:, CommandIndex.YAW],
                 ),
                 target_hit_reward(self.num_envs, self.device),
+                line_following_reward(
+                    self.robot.data.body_quat_w.torch[:, self.ref_body_index],
+                    self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
+                    self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
+                ),
+                action_rate_l2_reward(
+                    self.actions,
+                    self.previous_actions,
+                ),
+                joint_acc_reward(
+                    self.robot.data.joint_acc.torch,
+                ),
+                joint_vel_reward(
+                    self.robot.data.joint_vel.torch,
+                ),
             ],
             dim=-1,
         )
