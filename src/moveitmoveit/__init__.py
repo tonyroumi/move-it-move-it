@@ -9,6 +9,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.env_cfg:MotionLearningEnvCfg",
-        "agent_cfg_entry_point": f"{CONFIGS_DIR}/algo/amp.yaml",
+        "agent_cfg_entry_point": f"{CONFIGS_DIR}/agents/amp.yaml",
     },
 )

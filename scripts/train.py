@@ -4,7 +4,6 @@ import argparse
 import contextlib
 import logging
 import os
-import shutil
 import sys
 import time
 from datetime import datetime
@@ -34,7 +33,7 @@ with contextlib.suppress(ImportError):
 
 TASK_ID = "MoveIt-Humanoid-v0"
 
-parser = argparse.ArgumentParser(description="Train an agent to MOVE with IsaacLab")
+parser = argparse.ArgumentParser(description="Train an agent to MOVE in IsaacLab")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint to resume training.")
 parser.add_argument("--algo", type=str, required=True, choices=["PPO", "AMP"], help="RL algorithm.")
@@ -50,6 +49,14 @@ def main():
     # env_cfg is still resolved through the hydra/task machinery so `env.scene.*`
     # style CLI overrides keep working, even though there's only one task now
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
+
+    # seed/experiment/logger/description are shared across algorithms, so they live in their
+    # own config rather than being duplicated in each agents/<algo>.yaml
+    with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
+        experiment_cfg = yaml.safe_load(f)
+    agent_cfg["seed"] = experiment_cfg["seed"]
+    agent_cfg["experiment"] = experiment_cfg["experiment"]
+    agent_cfg["logger"] = experiment_cfg["logger"]
 
     with launch_simulation(env_cfg, args_cli):
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
@@ -77,7 +84,8 @@ def main():
         with open(args_cli.manifest, "r") as f:
             manifest_cfg = yaml.safe_load(f)
         dump_yaml(os.path.join(log_dir, "params", "manifest.yaml"), manifest_cfg)
-        shutil.copy(os.path.join(CONFIGS_DIR, "description.txt"), os.path.join(log_dir, "description.txt"))
+        with open(os.path.join(log_dir, "description.txt"), "w") as f:
+            f.write(experiment_cfg["description"])
 
         resume_path = retrieve_file_path(args_cli.checkpoint) if args_cli.checkpoint else None
         env_cfg.log_dir = log_dir

@@ -19,6 +19,17 @@ class RewardIndex(IntEnum):
 NUM_REWARDS = len(RewardIndex)
 
 
+REWARD_KWARG_DEFAULTS: dict[str, dict[str, float]] = {
+    "motion_tracking": {"dof_scale": 2.0, "key_body_scale": 5.0},
+    "lin_vel_tracking": {"scale": 2.0},
+    "yaw_vel_tracking": {"scale": 2.0},
+    "line_following": {"scale": 2.0},
+    "action_rate_l2": {"scale": 1.0},
+    "joint_acc": {"scale": 1.0e-4},
+    "joint_vel": {"scale": 1.0e-2},
+}
+
+
 @torch.jit.script
 def motion_tracking_reward(
     dof_positions: torch.Tensor,
@@ -27,8 +38,8 @@ def motion_tracking_reward(
     root_positions: torch.Tensor,
     ref_key_body_positions: torch.Tensor,
     ref_root_positions: torch.Tensor,
-    dof_scale: float = 2.0,
-    key_body_scale: float = 5.0,
+    dof_scale: torch.Tensor,
+    key_body_scale: torch.Tensor,
 ) -> torch.Tensor:
     """Pose-tracking reward: DOF positions and root-relative key-body offsets vs. the reference motion."""
     dof_error = torch.sum((dof_positions - ref_dof_positions) ** 2, dim=-1)
@@ -48,7 +59,7 @@ def lin_vel_tracking_reward(
     root_linear_velocities: torch.Tensor,
     root_rotations: torch.Tensor,
     commanded_lin_vel: torch.Tensor,
-    scale: float = 2.0,
+    scale: torch.Tensor,
 ) -> torch.Tensor:
     """Reward for matching the commanded body-frame forward/lateral linear velocity."""
     local_lin_vel = transforms.quat_apply_inverse(root_rotations, root_linear_velocities)[:, :2]
@@ -61,7 +72,7 @@ def yaw_vel_tracking_reward(
     root_angular_velocities: torch.Tensor,
     root_rotations: torch.Tensor,
     commanded_yaw_vel: torch.Tensor,
-    scale: float = 2.0,
+    scale: torch.Tensor,
 ) -> torch.Tensor:
     """Reward for matching the commanded body-frame yaw angular velocity."""
     local_ang_vel = transforms.quat_apply_inverse(root_rotations, root_angular_velocities)  # (N, 3)
@@ -79,7 +90,7 @@ def line_following_reward(
     root_rotations: torch.Tensor,
     root_linear_velocities: torch.Tensor,
     commanded_lin_vel: torch.Tensor,
-    scale: float = 2.0,
+    scale: torch.Tensor,
 ) -> torch.Tensor:
     """Reward for moving along the line running through the torso in the world-frame direction implied
     by the commanded body-frame linear velocity."""
@@ -104,7 +115,7 @@ def line_following_reward(
 def action_rate_l2_reward(
     actions: torch.Tensor,
     previous_actions: torch.Tensor,
-    scale: float = 1.0,
+    scale: torch.Tensor,
 ) -> torch.Tensor:
     """Penalize large frame-to-frame changes in action, for smooth/continuous motion."""
     error = torch.sum((actions - previous_actions) ** 2, dim=-1)
@@ -114,7 +125,7 @@ def action_rate_l2_reward(
 @torch.jit.script
 def joint_acc_reward(
     joint_accelerations: torch.Tensor,
-    scale: float = 1.0e-4,
+    scale: torch.Tensor,
 ) -> torch.Tensor:
     """Penalize large joint accelerations, for smooth/natural motion."""
     error = torch.sum(joint_accelerations ** 2, dim=-1)
@@ -124,7 +135,7 @@ def joint_acc_reward(
 @torch.jit.script
 def joint_vel_reward(
     joint_velocities: torch.Tensor,
-    scale: float = 1.0e-2,
+    scale: torch.Tensor,
 ) -> torch.Tensor:
     """Penalize large joint velocities, for smooth/natural motion."""
     error = torch.sum(joint_velocities ** 2, dim=-1)

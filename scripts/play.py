@@ -10,7 +10,7 @@ import gymnasium as gym
 import torch
 
 import moveitmoveit
-from moveitmoveit.utils.paths import resolve_checkpoint, resolve_checkpoint_from_run_dir
+from moveitmoveit.utils.paths import CONFIGS_DIR, resolve_checkpoint, resolve_checkpoint_from_run_dir
 from moveitmoveit.utils.logger import Logger
 
 from isaaclab.utils.dict import update_class_from_dict
@@ -30,7 +30,7 @@ with contextlib.suppress(ImportError):
 
 TASK_ID = "MoveIt-Humanoid-v0"
 
-parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from skrl.")
+parser = argparse.ArgumentParser(description="Play a checkpoint of an agent.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint.")
 parser.add_argument(
@@ -104,6 +104,14 @@ if args_cli.record:
 def main():
     """Play with skrl agent."""
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
+
+    # seed/experiment/logger are shared across algorithms, so they live in their own config
+    # rather than being duplicated in each agents/<algo>.yaml
+    experiment_cfg = load_yaml(os.path.join(CONFIGS_DIR, "experiment.yaml"))
+    agent_cfg["seed"] = experiment_cfg["seed"]
+    agent_cfg["experiment"] = experiment_cfg["experiment"]
+    agent_cfg["logger"] = experiment_cfg["logger"]
+
     with launch_simulation(env_cfg, args_cli):
         # override configurations with non-hydra CLI arguments
 

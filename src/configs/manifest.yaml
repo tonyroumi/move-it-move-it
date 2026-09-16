@@ -12,10 +12,26 @@ motions:
     zero_command_prob: 1.0
 
     rewards:
-      lin_vel_tracking: 1.0
-      yaw_vel_tracking: 1.0
-    
-    termination: deviation_from_motion
+      lin_vel_tracking:
+        weight: 0.0
+        scale: 2.0
+      yaw_vel_tracking:
+        weight: 0.0
+        scale: 2.0
+      line_following:
+        weight: 0.0
+        scale: 2.0
+      action_rate_l2:
+        weight: 0.5
+        scale: 2.0
+      joint_acc:
+        weight: 0.5
+        scale: 1.0e-4
+      joint_vel:
+        weight: 0.5
+        scale: 1.0e-2
+
+    termination: unhealthy
 
   walk:
     file: /home/anthony/Dev/move-it-move-it/src/data/motions/walk.npz
@@ -23,16 +39,32 @@ motions:
 
     commands:
       lin_x: [-1.5, 1.5]
-      lin_y: [-1.0, 1.0]
+      lin_y: [-1.5, 1.5]
       yaw: [-2.0, 2.0]
       binary_key_0: 0.0
 
-    zero_command_prob: 0.0
+    zero_command_prob: 0.15
 
     rewards:
-      lin_vel_tracking: 3.0
-      yaw_vel_tracking: 1.0
-    
+      lin_vel_tracking:
+        weight: 3.0
+        scale: 2.0
+      yaw_vel_tracking:
+        weight: 1.0
+        scale: 2.0
+      line_following:
+        weight: 1.0
+        scale: 2.0
+      action_rate_l2:
+        weight: 0.5
+        scale: 2.0
+      joint_acc:
+        weight: 0.5
+        scale: 1.0e-4
+      joint_vel:
+        weight: 0.3
+        scale: 1.0e-2
+
     termination: unhealthy
 
   # run:

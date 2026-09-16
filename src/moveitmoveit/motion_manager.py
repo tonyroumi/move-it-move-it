@@ -2,7 +2,7 @@ import torch
 import yaml
 
 from .commands import COMMAND_DIM, CommandIndex
-from .rewards import NUM_REWARDS, RewardIndex
+from .rewards import NUM_REWARDS, REWARD_KWARG_DEFAULTS, RewardIndex
 from .terminations import NUM_TERMINATIONS, TerminationIndex
 
 
@@ -48,16 +48,12 @@ class MotionManager:
             "binary_key_1": CommandIndex.BINARY_KEY_1,
         }
 
-        print("[MotionManager] Building command tables:")
-
         for motion_id, motion_name in enumerate(self.motion_names):
             cfg = manifest[motion_name]
             commands = cfg.get("commands", {})
             zero_prob = cfg.get("zero_command_prob", 0.0)
 
             self.command_zero_prob[motion_id] = zero_prob
-
-            motion_command_summary = {}
 
             for key, index in command_keys.items():
 
@@ -70,10 +66,6 @@ class MotionManager:
 
                 self.command_low[motion_id, index] = low
                 self.command_high[motion_id, index] = high
-
-                motion_command_summary[key] = (low, high)
-
-            print(f"  [{motion_id}] '{motion_name}': {motion_command_summary}, zero_command_prob={zero_prob}")
 
     def _build_reward_tables(self, manifest):
         self.reward_weights = torch.zeros(self.num_motions,NUM_REWARDS,device=self.device)
@@ -89,19 +81,33 @@ class MotionManager:
             "joint_vel": RewardIndex.JOINT_VEL,
         }
 
-        print("[MotionManager] Building reward tables:")
+        # per-motion kwarg tensors for rewards
+        self.reward_kwargs = {
+            name: {
+                kwarg_name: torch.full((self.num_motions,), default, device=self.device)
+                for kwarg_name, default in defaults.items()
+            }
+            for name, defaults in REWARD_KWARG_DEFAULTS.items()
+        }
 
         for motion_id, motion_name in enumerate(self.motion_names):
             rewards = manifest[motion_name].get("rewards", {})
 
             if not rewards:
-                print(f"  [{motion_id}] '{motion_name}': no rewards specified (defaults to 0.0 for all)")
                 continue
 
-            for name, weight in rewards.items():
+            for name, spec in rewards.items():
+                if isinstance(spec, dict):
+                    weight = spec.get("weight", 1.0)
+                    kwargs = {k: v for k, v in spec.items() if k != "weight"}
+                else:
+                    weight = spec
+                    kwargs = {}
+
                 self.reward_weights[motion_id,reward_map[name]] = weight
 
-            print(f"  [{motion_id}] '{motion_name}': {rewards}")
+                for kwarg_name, value in kwargs.items():
+                    self.reward_kwargs[name][kwarg_name][motion_id] = value
 
     def _build_termination_tables(self, manifest):
         self.termination_flags = torch.zeros(
@@ -116,18 +122,11 @@ class MotionManager:
             "unhealthy": TerminationIndex.UNHEALTHY,
         }
 
-        print("[MotionManager] Building termination tables:")
-
         for motion_id, motion_name in enumerate(self.motion_names):
             terminations = manifest[motion_name].get("termination", "unhealthy")
 
-            if terminations not in termination_map:
-                print(f"  [{motion_id}] '{motion_name}': WARNING - unknown termination '{terminations}', no flags set")
-
             for name, index in termination_map.items():
                 self.termination_flags[motion_id, index] = terminations == name
-
-            print(f"  [{motion_id}] '{motion_name}': termination='{terminations}'")
 
     def _build_sample_prob_table(self, manifest):
         weights = torch.zeros(self.num_motions, device=self.device)
@@ -136,11 +135,6 @@ class MotionManager:
             weights[motion_id] = manifest[motion_name].get("sample_prob", 1.0)
 
         self.motion_sample_prob = weights / weights.sum()
-
-        print("[MotionManager] Building motion sampling probabilities:")
-
-        for motion_id, motion_name in enumerate(self.motion_names):
-            print(f"  [{motion_id}] '{motion_name}': sample_prob={self.motion_sample_prob[motion_id].item():.4f}")
 
     def sample_motion(
         self,
@@ -171,6 +165,13 @@ class MotionManager:
 
     def reward_weights_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
         return self.reward_weights[motion_ids]
+
+    def reward_kwargs_for(self, reward_name: str, motion_ids: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Per-env kwargs (e.g. `scale=...`) for the given reward, ready to pass as `**kwargs`."""
+        return {
+            kwarg_name: values[motion_ids]
+            for kwarg_name, values in self.reward_kwargs.get(reward_name, {}).items()
+        }
 
     def termination_flags_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
         return self.termination_flags[motion_ids]
