@@ -11,7 +11,7 @@ MOVEITMOVEIT_DATA_DIR = Path(os.environ.get(
 CONFIGS_DIR = _REPO_ROOT / "configs"
 
 MODEL_DESCRIPTIONS_DIR = MOVEITMOVEIT_DATA_DIR / "model_descriptions"
-MOTIONS_DIR = MOVEITMOVEIT_DATA_DIR / "motions"
+MOTIONS_DIR = MOVEITMOVEIT_DATA_DIR
 
 
 def _dir_mtime(path: str) -> float:
