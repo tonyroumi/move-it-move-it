@@ -2,11 +2,15 @@ seed: 42
 
 experiment:
   directory: "locomotion"
-  experiment_name: "walking_standing_still"
+  experiment_name: "walking_512_512_512_ac"
 
 logger:
   backend: tensorboard
   write_interval: 1
-  checkpoint_interval: 50
+  checkpoint_interval: 200
 
-description: "Describe your run here."
+description: "Reduce the depth and capacity of the model from 4 layers to 3 layers * 512. 
+              The discriminator will have 512, 512, as learning the style between the two
+              motions does not require much capacity. Will learn better. Increased sampling of
+              standing still motion to .4 and 0 command sample to .3. No linear y velocity commands.
+              always 0."

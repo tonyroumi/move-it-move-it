@@ -10,6 +10,7 @@ import gymnasium as gym
 import torch
 
 import moveitmoveit
+from moveitmoveit.commands import CommandIndex
 from moveitmoveit.utils.paths import CONFIGS_DIR, resolve_checkpoint, resolve_checkpoint_from_run_dir
 from moveitmoveit.utils.logger import Logger
 
@@ -77,6 +78,17 @@ parser.add_argument(
     action="store_true",
     default=False,
     help="With --joystick, overlay a faint keyboard on the renderer highlighting the currently held keys.",
+)
+parser.add_argument(
+    "--joystick-mode",
+    type=str,
+    default="velocity",
+    choices=["velocity", "point_goal"],
+    help=(
+        "With --joystick, which command the keyboard drives: 'velocity' for the SE(2) lin/yaw"
+        " command (original behavior), or 'point_goal' for the 2D goal point, moved with the same"
+        " up/down/left/right keys."
+    ),
 )
 parser.add_argument(
     "--camera_type",
@@ -153,6 +165,7 @@ def main():
 
         keyboard = None
         keyboard_overlay = None
+        goal_marker = None
         if args_cli.joystick_overlay and not args_cli.joystick:
             raise ValueError("--joystick-overlay requires --joystick.")
         if args_cli.joystick:
@@ -164,17 +177,38 @@ def main():
                     " `commands` buffer)."
                 )
 
-            from moveitmoveit.utils.keyboard import Keyboard
             from isaaclab.devices import Se2KeyboardCfg
 
-            keyboard = Keyboard(
-                Se2KeyboardCfg(
-                    sim_device=env.unwrapped.device,
-                    v_x_sensitivity=1.5,
-                    v_y_sensitivity=1.0,
-                    omega_z_sensitivity=1.0,
-                )
+            se2_keyboard_cfg = Se2KeyboardCfg(
+                sim_device=env.unwrapped.device,
+                v_x_sensitivity=1.5,
+                v_y_sensitivity=1.0,
+                omega_z_sensitivity=1.0,
             )
+
+            if args_cli.joystick_mode == "point_goal":
+                from moveitmoveit.utils.keyboard import PointGoalKeyboard
+
+                keyboard = PointGoalKeyboard(se2_keyboard_cfg)
+
+                import isaaclab.sim as sim_utils
+                from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+
+                goal_marker = VisualizationMarkers(
+                    VisualizationMarkersCfg(
+                        prim_path="/Visuals/PointGoal",
+                        markers={
+                            "goal": sim_utils.SphereCfg(
+                                radius=0.1,
+                                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
+                            ),
+                        },
+                    )
+                )
+            else:
+                from moveitmoveit.utils.keyboard import Keyboard
+
+                keyboard = Keyboard(se2_keyboard_cfg)
             print(keyboard)
 
             if args_cli.joystick_overlay:
@@ -221,7 +255,19 @@ def main():
 
                 if keyboard is not None:
                     command = keyboard.advance().to(env.unwrapped.device)
-                    env.unwrapped.commands[:] = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1)
+                    command = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1).clone()
+                    if args_cli.joystick_mode == "point_goal":
+                        root_positions_xy = env.unwrapped.robot.data.body_pos_w.torch[
+                            :, env.unwrapped.ref_body_index, :2
+                        ]
+                        command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy
+
+                        goal_positions_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
+                        goal_height = torch.full(
+                            (goal_positions_xy.shape[0], 1), 0.1, device=goal_positions_xy.device
+                        )
+                        goal_marker.visualize(translations=torch.cat((goal_positions_xy, goal_height), dim=-1))
+                    env.unwrapped.commands[:] = command
                 if keyboard_overlay is not None:
                     keyboard_overlay.update()
 

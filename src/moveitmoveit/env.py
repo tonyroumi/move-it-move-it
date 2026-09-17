@@ -165,7 +165,6 @@ class MotionLearningEnv(DirectRLEnv):
         self.actions = actions.clone()
 
     def _apply_action(self):
-        # actions arrive already scaled to physical joint targets by the agent
         self.robot.set_joint_position_target_index(target=self.actions)
 
         # _apply_action is invoked once per physics substep; only update the camera on the
@@ -270,7 +269,11 @@ class MotionLearningEnv(DirectRLEnv):
                 self.commands[:, CommandIndex.YAW],
                 **self._motion_manager.reward_kwargs_for("yaw_vel_tracking", self.motion_ids),
             ),
-            "target_hit": target_hit_reward(self.num_envs, self.device),
+            "target_hit": target_hit_reward(
+                self.robot.data.body_pos_w.torch[:, self.ref_body_index, :2],
+                self.commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1],
+                **self._motion_manager.reward_kwargs_for("target_hit", self.motion_ids),
+            ),
             "line_following": line_following_reward(
                 self.robot.data.body_quat_w.torch[:, self.ref_body_index],
                 self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
@@ -436,9 +439,14 @@ class MotionLearningEnv(DirectRLEnv):
 
         resample_env_ids = resample.nonzero(as_tuple=False).squeeze(-1)
         if resample_env_ids.numel() > 0:
-            self.commands[resample_env_ids] = self._motion_manager.sample_commands(
-                self.motion_ids[resample_env_ids]
-            )
+            sampled_commands = self._motion_manager.sample_commands(self.motion_ids[resample_env_ids])
+
+            # goal_x/goal_y are sampled as an offset from the current position, turning them into
+            # a fixed point in space that persists until the next resample.
+            root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
+            sampled_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy
+
+            self.commands[resample_env_ids] = sampled_commands
 
     def _compute_robot_state(
         self,

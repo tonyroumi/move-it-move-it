@@ -23,6 +23,7 @@ REWARD_KWARG_DEFAULTS: dict[str, dict[str, float]] = {
     "motion_tracking": {"dof_scale": 2.0, "key_body_scale": 5.0},
     "lin_vel_tracking": {"scale": 2.0},
     "yaw_vel_tracking": {"scale": 2.0},
+    "target_hit": {"scale": 0.5},
     "line_following": {"scale": 2.0},
     "action_rate_l2": {"scale": 1.0},
     "joint_acc": {"scale": 1.0e-4},
@@ -80,9 +81,15 @@ def yaw_vel_tracking_reward(
     return torch.exp(-scale * error)
 
 
-def target_hit_reward(num_envs: int, device: torch.device) -> torch.Tensor:
-    """Placeholder: no target-position state exists yet for the binary key commands, so this is always zero."""
-    return torch.zeros(num_envs, device=device)
+@torch.jit.script
+def target_hit_reward(
+    root_positions: torch.Tensor,
+    commanded_goal_positions: torch.Tensor,
+    scale: torch.Tensor,
+) -> torch.Tensor:
+    """Reward for closing the 2D distance to the commanded point-goal position."""
+    error = torch.sum((root_positions - commanded_goal_positions) ** 2, dim=-1)
+    return torch.exp(-scale * error)
 
 
 @torch.jit.script

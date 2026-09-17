@@ -1,86 +1,42 @@
 motions:
   standing_still:
-    file: /home/anthony/Dev/move-it-move-it/src/data/motions/standing_still.npz
-    sample_prob: 0.2
+    file: /home/anthony/Dev/move-it-move-it/src/data/standing_still.npz
+    sample_prob: 0.4
 
     commands:
-      lin_x: [0.0,0.0]
-      lin_y: [0.0,0.0]
-      yaw: [0.0,0.0]
+      goal_x: [0.0, 0.0]
+      goal_y: [0.0, 0.0]
       binary_key_0: 0.0
 
     zero_command_prob: 1.0
 
     rewards:
-      lin_vel_tracking:
-        weight: 0.0
-        scale: 2.0
-      yaw_vel_tracking:
-        weight: 0.0
-        scale: 2.0
-      line_following:
-        weight: 0.0
-        scale: 2.0
-      action_rate_l2:
-        weight: 0.5
-        scale: 2.0
-      joint_acc:
-        weight: 0.5
-        scale: 1.0e-4
-      joint_vel:
-        weight: 0.5
-        scale: 1.0e-2
+      target_hit:
+        weight: 1.0
+        scale: 3.0
 
     termination: unhealthy
 
   walk:
-    file: /home/anthony/Dev/move-it-move-it/src/data/motions/walk.npz
+    file: /home/anthony/Dev/move-it-move-it/src/data/walk.npz
     sample_prob: 1.0
 
     commands:
-      lin_x: [-1.5, 1.5]
-      lin_y: [-1.5, 1.5]
-      yaw: [-2.0, 2.0]
+      goal_x: [-5.0, 5.0]
+      goal_y: [-5.0, 5.0]
       binary_key_0: 0.0
 
     zero_command_prob: 0.15
 
     rewards:
-      lin_vel_tracking:
+      action_rate_l2:
+        weight: 1.0
+        scale: 1.0
+      joint_acc:
+        weight: 1.0
+        scale: 1.0e-4
+      target_hit:
         weight: 3.0
         scale: 2.0
-      yaw_vel_tracking:
-        weight: 1.0
-        scale: 2.0
-      line_following:
-        weight: 1.0
-        scale: 2.0
-      action_rate_l2:
-        weight: 0.5
-        scale: 2.0
-      joint_acc:
-        weight: 0.5
-        scale: 1.0e-4
-      joint_vel:
-        weight: 0.3
-        scale: 1.0e-2
 
     termination: unhealthy
-
-  # run:
-  #   file: /home/anthony/Dev/move-it-move-it/src/data/motions/run.npz
-  #   sample_prob: 1.0
-
-  #   commands:
-  #     lin_x: [-1.8, 3.0]
-  #     lin_y: [-1.0, 1.0]
-  #     yaw: [-3.0, 3.0]
-  #     binary_key_0: 1.0
-
-  #   zero_command_prob: 0.0
-
-  #   rewards:
-  #     lin_vel_tracking: 3.0
-  #     yaw_vel_tracking: 1.0
-
-  #   termination: unhealthy

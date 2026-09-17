@@ -42,6 +42,8 @@ class MotionManager:
             "yaw": CommandIndex.YAW,
             "binary_key_0": CommandIndex.BINARY_KEY_0,
             "binary_key_1": CommandIndex.BINARY_KEY_1,
+            "goal_x": CommandIndex.GOAL_X,
+            "goal_y": CommandIndex.GOAL_Y,
         }
 
         for motion_id, motion_name in enumerate(self.motion_names):

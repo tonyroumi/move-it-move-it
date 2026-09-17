@@ -1,6 +1,6 @@
 models:
   actor:
-    hidden_layers: [1024, 512]
+    hidden_layers: [512, 512, 512]
     activation: relu
     noise_std_type: fixed
     init_noise_std: 0.055
@@ -15,7 +15,7 @@ models:
     #     zero_bias: true
 
   critic:
-    hidden_layers: [1024, 512]
+    hidden_layers: [512, 512, 512]
     activation: relu
     # weight_init:
     #   type: uniform
@@ -28,7 +28,7 @@ models:
     #     zero_bias: true
 
   discriminator:
-    hidden_layers: [1024, 512]
+    hidden_layers: [512, 512, 512]
     activation: relu
     # weight_init:
     #   type: uniform
@@ -82,4 +82,4 @@ agent:
 
 
 runner:
-  timesteps: 200000000
+  timesteps: 250000000

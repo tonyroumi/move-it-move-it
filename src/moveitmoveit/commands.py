@@ -7,6 +7,8 @@ class CommandIndex(IntEnum):
     YAW = 2
     BINARY_KEY_0 = 3
     BINARY_KEY_1 = 4
+    GOAL_X = 5
+    GOAL_Y = 6
 
 
 COMMAND_DIM = len(CommandIndex)
