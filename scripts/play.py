@@ -146,7 +146,6 @@ def main():
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
         env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
-
         args_cli.seed = agent_cfg["seed"]
 
         # create isaac environment
@@ -179,7 +178,7 @@ def main():
             print(keyboard)
 
             if args_cli.joystick_overlay:
-                from moveitmoveit.utils.keyboard import KeyboardOverlay
+                from moveitmoveit.utils.keyboard_overlay import KeyboardOverlay
 
                 keyboard_overlay = KeyboardOverlay()
 

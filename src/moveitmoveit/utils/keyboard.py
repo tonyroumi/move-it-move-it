@@ -108,15 +108,14 @@ class Keyboard(Se2Keyboard):
         Handle standard SE(2) commands and additional binary commands.
         """
 
-        # Read the key before delegating to super(): its processing (e.g. for the
-        # SE(2)-bound Z/X yaw keys) leaves event.input no longer safely re-readable.
-        key = event.input.name
+        raw_input = event.input
+        key = raw_input.name if hasattr(raw_input, "name") else None
 
         # Preserve all normal Se2Keyboard behavior.
         super()._on_keyboard_event(event, *args, **kwargs)
 
-        # Ignore keys that are not custom controls.
-        if key not in self.EXTRA_KEY_MAPPING:
+        # Ignore keys that are not custom controls (also covers CHAR events, where key is None).
+        if key is None or key not in self.EXTRA_KEY_MAPPING:
             return True
 
         command_name = self.EXTRA_KEY_MAPPING[key]

@@ -26,10 +26,6 @@ class MotionManager:
             for i, name in enumerate(self.motion_names)
         }
 
-        # one-hot task id per motion, used to condition the AMP discriminator on which motion
-        # is currently active
-        self.task_id_table = torch.eye(self.num_motions, device=device)
-
         self._build_command_tables(manifest)
         self._build_reward_tables(manifest)
         self._build_termination_tables(manifest)
@@ -175,8 +171,3 @@ class MotionManager:
 
     def termination_flags_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
         return self.termination_flags[motion_ids]
-
-    def task_ids_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        """One-hot task ids for arbitrary motion ids. Shape is (len(motion_ids), num_motions)."""
-        motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
-        return self.task_id_table[motion_ids]

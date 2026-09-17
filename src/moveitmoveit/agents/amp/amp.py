@@ -40,18 +40,10 @@ class AMP(PPO):
             **model_cfg["discriminator"]
         ).to(env.unwrapped.device)
 
-        self.task_id_dim = env.unwrapped.task_id_dim
-        self.disc_obs_step_dim = env.unwrapped.cfg.amp_observation_space + self.task_id_dim
+        self.disc_obs_step_dim = env.unwrapped.amp_observation_space.shape[-1]
         self._disc_obs_preprocessor = RunningStandardScaler(
-            size=self.disc_obs_step_dim, unscaled_dims=self.task_id_dim
+            size=self.disc_obs_step_dim
         ).to(env.unwrapped.device)
-
-    def _scale_disc_obs(self, x: torch.Tensor, train: bool = False) -> torch.Tensor:
-        """Normalize a flattened AMP observation history per-timestep, so each
-        timestep's task id is excluded from the running statistics."""
-        num_envs = x.shape[0]
-        stepwise = self._disc_obs_preprocessor(x.view(num_envs, -1, self.disc_obs_step_dim), train=train)
-        return stepwise.reshape(num_envs, self.amp_obs_dim)
 
     def _initialize_optimizer(self) -> None:
         super()._initialize_optimizer()
@@ -78,9 +70,10 @@ class AMP(PPO):
         truncated: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
+
         with torch.no_grad():
             disc_logits = self.discriminator(
-                self._scale_disc_obs(infos["amp_obs"])
+                self._disc_obs_preprocessor(infos["amp_obs"])
             )
             style_reward = -torch.log(
                 torch.maximum(1 - 1 / (1 + torch.exp(-disc_logits)), torch.tensor(0.0001, device=rewards.device))
@@ -88,11 +81,11 @@ class AMP(PPO):
 
         self._amp_observations_buf.append(infos["amp_obs"])
 
-        style_reward *= self.cfg.style_reward_lambda
-        rewards = self.cfg.goal_reward_lambda * rewards + style_reward
+        weighted_style_reward = style_reward * self.cfg.style_reward_lambda
+        rewards = self.cfg.goal_reward_lambda * rewards + weighted_style_reward
 
-        infos.update({"style_reward": style_reward})
-        infos.setdefault("reward_terms", {})["style"] = style_reward
+        infos["reward_terms_raw"]["style"] = style_reward
+        infos["reward_terms"]["style"] = weighted_style_reward
 
         super().process_env_step(next_observations, rewards, terminated, truncated, infos)
 
@@ -108,8 +101,8 @@ class AMP(PPO):
             ref_motion = self.collect_reference_motions(self.cfg.disc_batch_size)
             agent_motion = self._amp_observations_buf.sample(self.cfg.disc_batch_size)
 
-            ref_motion = self._scale_disc_obs(ref_motion, train=True)
-            agent_motion = self._scale_disc_obs(agent_motion, train=True)
+            ref_motion = self._disc_obs_preprocessor(ref_motion, train=True)
+            agent_motion = self._disc_obs_preprocessor(agent_motion, train=True)
 
             ref_motion.requires_grad_(True)
             agent_logits = self.discriminator(agent_motion)

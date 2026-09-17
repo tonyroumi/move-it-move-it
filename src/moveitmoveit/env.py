@@ -85,14 +85,10 @@ class MotionLearningEnv(DirectRLEnv):
         self.random_yaw_quat = torch.zeros(self.num_envs, 4, device=self.device)
         self.random_yaw_quat[:, -1] = 1.0
 
-        # reconfigure AMP observation space according to the number of observations and create the buffer;
-        # each per-step observation is extended with a one-hot task id of the active motion
-        self.task_id_dim = self._motion_manager.num_motions
-        amp_observation_space = self.cfg.amp_observation_space + self.task_id_dim
-        self.amp_observation_size = self.cfg.num_amp_observations * amp_observation_space
+        self.amp_observation_size = self.cfg.num_amp_observations * self.cfg.amp_observation_space
         self.amp_observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.amp_observation_size,))
         self.amp_observation_buffer = torch.zeros(
-            (self.num_envs, self.cfg.num_amp_observations, amp_observation_space), device=self.device
+            (self.num_envs, self.cfg.num_amp_observations, self.cfg.amp_observation_space), device=self.device
         )
 
         self.command_dim = COMMAND_DIM
@@ -109,10 +105,14 @@ class MotionLearningEnv(DirectRLEnv):
         if self.render_enabled and self.cfg.camera_type != "none":
             if self.cfg.camera_type == "facing":
                 self._camera_target_offset = torch.tensor([2.5, 0.0, 0.3], device=self.device)
-                self._camera_eye_offset = torch.tensor([4.0, 0.0, -0.4], device=self.device)
+                self._camera_eye_offset = torch.tensor([4.0, 0.0, -0.3], device=self.device)
             elif self.cfg.camera_type == "third-person":
                 self._camera_target_offset = torch.tensor([1.0, 0.0, 0.5], device=self.device)
                 self._camera_eye_offset = torch.tensor([-6.0, 0.0, 3.0], device=self.device)
+
+            self._camera_smoothing_alpha = 0.1
+            self._camera_eye_smooth: torch.Tensor | None = None
+            self._camera_target_smooth: torch.Tensor | None = None
 
     def _setup_scene(self):
         self.robot = self.scene["robot"]
@@ -122,16 +122,23 @@ class MotionLearningEnv(DirectRLEnv):
             return
 
         root_pos = self.robot.data.root_pos_w.torch[0]
-        root_quat = self.robot.data.body_quat_w.torch[0:1, self.ref_body_index]  # (1, 4)
 
-        target_offset = transforms.quat_apply_yaw(root_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
-        eye_offset = transforms.quat_apply_yaw(root_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
+        target_offset = transforms.quat_apply(self.random_yaw_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
+        eye_offset = transforms.quat_apply(self.random_yaw_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
 
         target = root_pos + target_offset
         eye = target + eye_offset
 
-        eye_t = tuple(eye.cpu().tolist())
-        target_t = tuple(target.cpu().tolist())
+        if self._camera_target_smooth is None:
+            self._camera_target_smooth = target.clone()
+            self._camera_eye_smooth = eye.clone()
+        else:
+            alpha = self._camera_smoothing_alpha
+            self._camera_target_smooth = alpha * target + (1.0 - alpha) * self._camera_target_smooth
+            self._camera_eye_smooth = alpha * eye + (1.0 - alpha) * self._camera_eye_smooth
+
+        eye_t = tuple(self._camera_eye_smooth.cpu().tolist())
+        target_t = tuple(self._camera_target_smooth.cpu().tolist())
 
         self.sim.set_camera_view(eye=eye_t, target=target_t)
         try:
@@ -161,14 +168,18 @@ class MotionLearningEnv(DirectRLEnv):
         # actions arrive already scaled to physical joint targets by the agent
         self.robot.set_joint_position_target_index(target=self.actions)
 
-        if self.render_enabled:
+        # _apply_action is invoked once per physics substep; only update the camera on the
+        # last substep of the decimation block so it runs exactly once per env step
+        if self.render_enabled and self._sim_step_counter % self.cfg.decimation == 0:
             self._update_camera()
 
     def _reset_idx(self, env_ids: torch.Tensor):
         super()._reset_idx(env_ids)
 
-        # avoid penalizing a spurious "jump" between the last action of the previous episode
-        # and the first action of the new one
+        if self.render_enabled and self.cfg.camera_type != "none" and 0 in env_ids:
+            self._camera_eye_smooth = None
+            self._camera_target_smooth = None
+
         self.actions[env_ids] = 0.0
         self.previous_actions[env_ids] = 0.0
 
@@ -201,9 +212,9 @@ class MotionLearningEnv(DirectRLEnv):
             dof_vel,
         )
 
-        dones = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        dones[env_ids] = True
-        self._resample_commands(dones=dones)
+        done_envs = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        done_envs[env_ids] = True
+        self._resample_commands(dones=done_envs)
 
         amp_observations = self.collect_reference_motions(
             num_samples, clip_indexes=self.motion_ids[env_ids], current_times=times, env_ids=env_ids
@@ -217,10 +228,8 @@ class MotionLearningEnv(DirectRLEnv):
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
             self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
+        self.amp_observation_buffer[:, 0] = obs.clone()
 
-        self.amp_observation_buffer[:, 0] = torch.cat(
-            (obs.clone(), self._motion_manager.task_ids_for(self.motion_ids)), dim=-1
-        )
         self.extras["amp_obs"] = self.amp_observation_buffer.view(-1, self.amp_observation_size)
 
         self._resample_commands()
@@ -229,7 +238,7 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
         weights = self._motion_manager.reward_weights_for(self.motion_ids)
-        
+
         (
             ref_dof_positions,
             _,
@@ -239,59 +248,64 @@ class MotionLearningEnv(DirectRLEnv):
             _,
         ) = self.current_env_reference_motion()
 
-        rewards = torch.stack(
-            [
-                motion_tracking_reward(
-                    self.robot.data.joint_pos.torch,
-                    ref_dof_positions[:, self.motion_dof_indexes],
-                    self.robot.data.body_pos_w.torch[:, self.key_body_indexes],
-                    self.robot.data.body_pos_w.torch[:, self.ref_body_index],
-                    ref_body_positions[:, self.motion_key_body_indexes],
-                    ref_body_positions[:, self.motion_ref_body_index],
-                    **self._motion_manager.reward_kwargs_for("motion_tracking", self.motion_ids),
-                ),
-                lin_vel_tracking_reward(
-                    self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
-                    self.robot.data.body_quat_w.torch[:, self.ref_body_index],
-                    self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
-                    **self._motion_manager.reward_kwargs_for("lin_vel_tracking", self.motion_ids),
-                ),
-                yaw_vel_tracking_reward(
-                    self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index],
-                    self.robot.data.body_quat_w.torch[:, self.ref_body_index],
-                    self.commands[:, CommandIndex.YAW],
-                    **self._motion_manager.reward_kwargs_for("yaw_vel_tracking", self.motion_ids),
-                ),
-                target_hit_reward(self.num_envs, self.device),
-                line_following_reward(
-                    self.robot.data.body_quat_w.torch[:, self.ref_body_index],
-                    self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
-                    self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
-                    **self._motion_manager.reward_kwargs_for("line_following", self.motion_ids),
-                ),
-                action_rate_l2_reward(
-                    self.actions,
-                    self.previous_actions,
-                    **self._motion_manager.reward_kwargs_for("action_rate_l2", self.motion_ids),
-                ),
-                joint_acc_reward(
-                    self.robot.data.joint_acc.torch,
-                    **self._motion_manager.reward_kwargs_for("joint_acc", self.motion_ids),
-                ),
-                joint_vel_reward(
-                    self.robot.data.joint_vel.torch,
-                    **self._motion_manager.reward_kwargs_for("joint_vel", self.motion_ids),
-                ),
-            ],
-            dim=-1,
-        )
+        reward_terms = {
+            "motion_tracking": motion_tracking_reward(
+                self.robot.data.joint_pos.torch,
+                ref_dof_positions[:, self.motion_dof_indexes],
+                self.robot.data.body_pos_w.torch[:, self.key_body_indexes],
+                self.robot.data.body_pos_w.torch[:, self.ref_body_index],
+                ref_body_positions[:, self.motion_key_body_indexes],
+                ref_body_positions[:, self.motion_ref_body_index],
+                **self._motion_manager.reward_kwargs_for("motion_tracking", self.motion_ids),
+            ),
+            "lin_vel_tracking": lin_vel_tracking_reward(
+                self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
+                self.robot.data.body_quat_w.torch[:, self.ref_body_index],
+                self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
+                **self._motion_manager.reward_kwargs_for("lin_vel_tracking", self.motion_ids),
+            ),
+            "yaw_vel_tracking": yaw_vel_tracking_reward(
+                self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index],
+                self.robot.data.body_quat_w.torch[:, self.ref_body_index],
+                self.commands[:, CommandIndex.YAW],
+                **self._motion_manager.reward_kwargs_for("yaw_vel_tracking", self.motion_ids),
+            ),
+            "target_hit": target_hit_reward(self.num_envs, self.device),
+            "line_following": line_following_reward(
+                self.robot.data.body_quat_w.torch[:, self.ref_body_index],
+                self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
+                self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
+                **self._motion_manager.reward_kwargs_for("line_following", self.motion_ids),
+            ),
+            "action_rate_l2": action_rate_l2_reward(
+                self.actions,
+                self.previous_actions,
+                **self._motion_manager.reward_kwargs_for("action_rate_l2", self.motion_ids),
+            ),
+            "joint_acc": joint_acc_reward(
+                self.robot.data.joint_acc.torch,
+                **self._motion_manager.reward_kwargs_for("joint_acc", self.motion_ids),
+            ),
+            "joint_vel": joint_vel_reward(
+                self.robot.data.joint_vel.torch,
+                **self._motion_manager.reward_kwargs_for("joint_vel", self.motion_ids),
+            ),
+        }
 
-        total_reward = torch.sum(weights * rewards, dim=-1)
+        rewards = torch.stack(list(reward_terms.values()), dim=-1)
+        weighted_rewards = weights * rewards
+        total_reward = weighted_rewards.sum(dim=-1)
 
-        # which clip each env is currently running, and the raw task reward term, for
-        # the agent to track episodic/per-clip reward statistics.
-        self.extras["motion_ids"] = self.motion_ids.clone()
-        self.extras["reward_terms"] = {"task": total_reward}
+        self.extras["reward_terms_raw"] = {
+            name: reward.detach()
+            for name, reward in reward_terms.items()
+        }
+
+        self.extras["reward_terms"] = {
+            name: weighted_rewards[:, i].detach()
+            for i, name in enumerate(reward_terms)
+        }
+        self.extras["reward_terms"]["task"] = total_reward.detach()
 
         return total_reward
 
@@ -401,7 +415,7 @@ class MotionLearningEnv(DirectRLEnv):
                 )
             )
 
-        amp_observation = compute_proprioceptive_obs(
+        return compute_proprioceptive_obs(
             dof_positions[:, self.motion_dof_indexes],
             dof_velocities[:, self.motion_dof_indexes],
             body_positions[:, self.motion_ref_body_index],
@@ -410,14 +424,7 @@ class MotionLearningEnv(DirectRLEnv):
             body_angular_velocities[:, self.motion_ref_body_index],
             body_positions[:, self.motion_key_body_indexes],
             local_frame=self.cfg.random_reset
-        )
-
-        task_ids = self._motion_manager.task_ids_for(clip_indexes).repeat_interleave(
-            self.cfg.num_amp_observations, dim=0
-        )
-        amp_observation = torch.cat((amp_observation, task_ids), dim=-1)
-
-        return amp_observation.view(-1, self.amp_observation_size)
+        ).view(-1, self.amp_observation_size)
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands for envs that have gone `command_resample_steps` steps since their
@@ -453,7 +460,6 @@ class MotionLearningEnv(DirectRLEnv):
         dof_pos = dof_positions[:, self.motion_dof_indexes]
         dof_vel = dof_velocities[:, self.motion_dof_indexes]
 
-        # Do not need to rotate dof pos or vel as they are already described root-relative
         if self.cfg.random_reset:
             random_yaw = transforms.random_yaw_orientation(env_ids.shape[0], self.device)
             self.random_yaw_quat[env_ids] = random_yaw

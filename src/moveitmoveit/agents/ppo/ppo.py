@@ -200,8 +200,9 @@ class PPO(BaseAgent):
                 values = self.critic(observations)
 
                 if self.cfg.use_clipped_value_loss:
-                    values = batch.values + torch.clip(
-                        values - batch.values, -self.cfg.value_loss_clip_param, self.cfg.value_loss_clip_param
+                    old_values = self._value_preprocessor(batch.values, train=False)
+                    values = old_values + torch.clip(
+                        values - old_values, -self.cfg.value_loss_clip_param, self.cfg.value_loss_clip_param
                     )
                 value_loss = self.cfg.value_loss_coef * F.mse_loss(values, batch.returns)
 

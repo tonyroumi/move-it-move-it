@@ -40,9 +40,15 @@ class BaseAgent(ABC):
         self._track_timesteps = collections.deque(maxlen=100)
         self.mean_episode_reward: float | None = None
 
-        # Reward term tracking
-        self._reward_term_sum: dict[str, float] = collections.defaultdict(float)
-        self._reward_term_count: dict[str, int] = collections.defaultdict(int)
+        self._cumulative_reward_terms = {}
+        self._cumulative_reward_terms_raw = {}
+
+        self._track_reward_terms = collections.defaultdict(
+            lambda: collections.deque(maxlen=self._track_rewards.maxlen)
+        )
+        self._track_reward_terms_raw = collections.defaultdict(
+            lambda: collections.deque(maxlen=self._track_rewards.maxlen)
+        )
 
     def init(self, env: DirectRLEnv, cfg: dict) -> None:
         """Initialize the agent with the environment and configuration."""
@@ -108,9 +114,13 @@ class BaseAgent(ABC):
         current transition into the rollout buffer. """
         self._track_episode_stats(rewards, terminated | truncated, infos or {})
 
-    def _track_episode_stats(self, rewards: torch.Tensor, dones: torch.Tensor, infos: dict) -> None:
-        """Accumulate per-env episode reward/length, flush completed episodes into the
-        rolling trackers, and push the resulting stats/tags to the logger."""
+    def _track_episode_stats(
+        self,
+        rewards: torch.Tensor,
+        dones: torch.Tensor,
+        infos: dict,
+    ) -> None:
+        """Accumulate per-env episode statistics and log completed episodes."""
         timestep = self.logger.timestep
 
         if self._cumulative_rewards is None:
@@ -120,9 +130,44 @@ class BaseAgent(ABC):
         self._cumulative_rewards.add_(rewards)
         self._cumulative_timesteps.add_(1)
 
+        reward_terms = infos.get("reward_terms", {})
+        reward_terms_raw = infos.get("reward_terms_raw", {})
+
+        for name, values in reward_terms.items():
+            if name not in self._cumulative_reward_terms:
+                self._cumulative_reward_terms[name] = torch.zeros_like(
+                    values, dtype=torch.float32
+                )
+
+            self._cumulative_reward_terms[name].add_(values)
+
+        for name, values in reward_terms_raw.items():
+            if name not in self._cumulative_reward_terms_raw:
+                self._cumulative_reward_terms_raw[name] = torch.zeros_like(
+                    values, dtype=torch.float32
+                )
+
+            self._cumulative_reward_terms_raw[name].add_(values)
+
         if dones.any():
-            self._track_rewards.extend(self._cumulative_rewards[dones].tolist())
-            self._track_timesteps.extend(self._cumulative_timesteps[dones].tolist())
+            self._track_rewards.extend(
+                self._cumulative_rewards[dones].tolist()
+            )
+            self._track_timesteps.extend(
+                self._cumulative_timesteps[dones].tolist()
+            )
+
+            for name, values in self._cumulative_reward_terms.items():
+                self._track_reward_terms[name].extend(
+                    values[dones].tolist()
+                )
+                values[dones] = 0
+
+            for name, values in self._cumulative_reward_terms_raw.items():
+                self._track_reward_terms_raw[name].extend(
+                    values[dones].tolist()
+                )
+                values[dones] = 0
 
             self._cumulative_rewards[dones] = 0
             self._cumulative_timesteps[dones] = 0
@@ -133,13 +178,55 @@ class BaseAgent(ABC):
 
             self.mean_episode_reward = float(np.mean(track_rewards))
 
-            self.logger.track_data("Performance/Episode Reward (max)", np.max(track_rewards), timestep)
-            self.logger.track_data("Performance/Episode Reward (min)", np.min(track_rewards), timestep)
-            self.logger.track_data("Performance/Episode Reward (mean)", self.mean_episode_reward, timestep)
+            self.logger.track_data(
+                "Performance/Episode Reward (max)",
+                np.max(track_rewards),
+                timestep,
+            )
+            self.logger.track_data(
+                "Performance/Episode Reward (min)",
+                np.min(track_rewards),
+                timestep,
+            )
+            self.logger.track_data(
+                "Performance/Episode Reward (mean)",
+                self.mean_episode_reward,
+                timestep,
+            )
 
-            self.logger.track_data("Performance/Episode Length (max)", np.max(track_timesteps), timestep)
-            self.logger.track_data("Performance/Episode Length (min)", np.min(track_timesteps), timestep)
-            self.logger.track_data("Performance/Episode Length (mean)", np.mean(track_timesteps), timestep)
+            self.logger.track_data(
+                "Performance/Episode Length (max)",
+                np.max(track_timesteps),
+                timestep,
+            )
+            self.logger.track_data(
+                "Performance/Episode Length (min)",
+                np.min(track_timesteps),
+                timestep,
+            )
+            self.logger.track_data(
+                "Performance/Episode Length (mean)",
+                np.mean(track_timesteps),
+                timestep,
+            )
+
+            # Weighted reward contributions
+            for name, values in self._track_reward_terms.items():
+                if len(values):
+                    self.logger.track_data(
+                        f"Reward Terms/{name}",
+                        np.mean(values),
+                        timestep,
+                    )
+
+            # Raw, unweighted reward values
+            for name, values in self._track_reward_terms_raw.items():
+                if len(values):
+                    self.logger.track_data(
+                        f"Reward Terms Raw/{name}",
+                        np.mean(values),
+                        timestep,
+                    )
 
             core_performance = {
                 "Episode Reward (mean)": self.mean_episode_reward,
@@ -148,50 +235,19 @@ class BaseAgent(ABC):
                 "Episode Length (mean)": float(np.mean(track_timesteps)),
             }
 
-            mean_episode_time = float(np.mean(track_timesteps) * self._step_dt)
-            self.logger.track_data("Performance/Episode Time (mean) [s]", mean_episode_time, timestep)
+            mean_episode_time = float(
+                np.mean(track_timesteps) * self._step_dt
+            )
+
+            self.logger.track_data(
+                "Performance/Episode Time (mean) [s]",
+                mean_episode_time,
+                timestep,
+            )
+
             core_performance["Episode Time (mean) [s]"] = mean_episode_time
 
             self.logger.set_core_performance(core_performance)
-
-        for k, v in infos.get("log", {}).items():
-            self.logger.track_data(tag=k, value=v, step=timestep)
-
-        motion_ids = infos.get("motion_ids")
-        for name, values in infos.get("reward_terms", {}).items():
-            self._accumulate_reward_term(name, values, motion_ids)
-
-        core_rewards = {}
-        for key, count in self._reward_term_count.items():
-            if count:
-                mean_value = self._reward_term_sum[key] / count
-                self.logger.track_data(f"Reward/{key} (mean)", mean_value, timestep)
-                core_rewards[f"{key} (mean)"] = mean_value
-
-        if core_rewards:
-            self.logger.set_core_rewards(core_rewards)
-
-    def _accumulate_reward_term(
-        self,
-        name: str,
-        values: torch.Tensor,
-        motion_ids: torch.Tensor | None = None,
-    ) -> None:
-        """Credit one step's per-env values for reward term `name` (e.g. "task",
-        "style") into its running mean over the whole training run. When `motion_ids`
-        is given, also credited into a per-clip running mean (e.g. "task/walk")."""
-        self._reward_term_sum[name] += values.sum().item()
-        self._reward_term_count[name] += values.numel()
-
-        if motion_ids is None:
-            return
-
-        for motion_id, motion_name in enumerate(self._motion_names):
-            mask = motion_ids == motion_id
-            if mask.any():
-                key = f"{name}/{motion_name}"
-                self._reward_term_sum[key] += values[mask].sum().item()
-                self._reward_term_count[key] += int(mask.sum().item())
 
     @abstractmethod
     def update(self) -> None:
