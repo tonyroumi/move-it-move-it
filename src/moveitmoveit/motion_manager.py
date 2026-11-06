@@ -77,6 +77,7 @@ class MotionManager:
             "action_rate_l2": RewardIndex.ACTION_RATE_L2,
             "joint_acc": RewardIndex.JOINT_ACC,
             "joint_vel": RewardIndex.JOINT_VEL,
+            "progress": RewardIndex.PROGRESS,
         }
 
         # per-motion kwarg tensors for rewards
@@ -122,9 +123,11 @@ class MotionManager:
 
         for motion_id, motion_name in enumerate(self.motion_names):
             terminations = manifest[motion_name].get("termination", "unhealthy")
+            if isinstance(terminations, str):
+                terminations = [terminations]
 
             for name, index in termination_map.items():
-                self.termination_flags[motion_id, index] = terminations == name
+                self.termination_flags[motion_id, index] = name in terminations
 
     def _build_sample_prob_table(self, manifest):
         weights = torch.zeros(self.num_motions, device=self.device)

@@ -2,7 +2,7 @@ seed: 42
 
 experiment:
   directory: "locomotion"
-  experiment_name: "walking_512_512_512_ac"
+  experiment_name: "walking_normal"
 
 logger:
   backend: tensorboard

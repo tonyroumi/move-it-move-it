@@ -150,10 +150,19 @@ class PointGoalKeyboard(Se2Keyboard):
         Reset:             L                                            -> back to `initial_offset`
 
     Yaw keys (Z / X, Numpad 7 / 9) have no effect in this mode.
+
+    Args:
+        cfg: SE(2) keyboard sensitivities; `v_x_sensitivity`/`v_y_sensitivity` are treated as
+            meters/second, matching their usual velocity-command meaning.
+        dt: Seconds of sim time per `advance()` call (the env's `step_dt`), used to convert the
+            per-call sensitivity into a per-call distance so the point moves at a fixed real-world
+            speed regardless of how fast `advance()` is polled.
+        initial_offset: Starting world-frame offset from the robot, in meters.
     """
 
-    def __init__(self, cfg: Se2KeyboardCfg, initial_offset: tuple[float, float] = (1.0, 0.0)):
+    def __init__(self, cfg: Se2KeyboardCfg, dt: float, initial_offset: tuple[float, float] = (1.0, 0.0)):
         super().__init__(cfg)
+        self._dt = dt
         self._initial_offset = torch.tensor(initial_offset, dtype=torch.float32, device=cfg.sim_device)
         self._goal_offset = self._initial_offset.clone()
 
@@ -174,8 +183,8 @@ class PointGoalKeyboard(Se2Keyboard):
         se2_command = super().advance()
 
         # Isaac Lab's Se2Keyboard maps left -> +v_y, right -> -v_y; negate to get left -> -y, right -> +y.
-        self._goal_offset[0] += se2_command[0]
-        self._goal_offset[1] -= se2_command[1]
+        self._goal_offset[0] += se2_command[0] * self._dt
+        self._goal_offset[1] -= se2_command[1] * self._dt
 
         command = torch.zeros(len(CommandIndex), dtype=se2_command.dtype, device=se2_command.device)
         command[CommandIndex.GOAL_X] = self._goal_offset[0]

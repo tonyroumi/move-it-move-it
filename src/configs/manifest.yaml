@@ -1,41 +1,21 @@
 motions:
-  standing_still:
-    file: /home/anthony/Dev/move-it-move-it/src/data/standing_still.npz
-    sample_prob: 0.4
-
-    commands:
-      goal_x: [0.0, 0.0]
-      goal_y: [0.0, 0.0]
-      binary_key_0: 0.0
-
-    zero_command_prob: 1.0
-
-    rewards:
-      target_hit:
-        weight: 1.0
-        scale: 3.0
-
-    termination: unhealthy
-
   walk:
     file: /home/anthony/Dev/move-it-move-it/src/data/walk.npz
     sample_prob: 1.0
 
     commands:
-      goal_x: [-5.0, 5.0]
-      goal_y: [-5.0, 5.0]
+      lin_x: [0.0, 1.0]
+      lin_y: [0.0, 0.8]
+      yaw: [-1.5, 1.5]
       binary_key_0: 0.0
 
-    zero_command_prob: 0.15
+    zero_command_prob: 0.5
 
     rewards:
-      action_rate_l2:
-        weight: 1.0
-        scale: 1.0
-      joint_acc:
-        weight: 1.0
-        scale: 1.0e-4
-      target_hit:
+      lin_vel_tracking:
+        weight: 3.0
+        scale: 2.0
+      yaw_vel_tracking:
         weight: 3.0
         scale: 2.0
 

@@ -87,9 +87,7 @@ class PPO(BaseAgent):
         """Normalizes the proprioceptive prefix against running statistics and the
         trailing raw command block against the fixed command range, then reassembles
         them into the input the actor/critic expect."""
-        normed = self._obs_preprocessor(observations, train=train)
-        proprioceptive, commands = normed[..., :-self._cmd_dim], normed[..., -self._cmd_dim:]
-        return torch.cat((proprioceptive, self._command_preprocessor(commands)), dim=-1)
+        return self._obs_preprocessor(observations, train=train)
 
     def _initialize_storage(self, env: DirectRLEnv) -> None:
         self.storage = RolloutStorage(

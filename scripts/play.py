@@ -158,6 +158,7 @@ def main():
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
         env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
+        env_cfg.random_reset = False
         args_cli.seed = agent_cfg["seed"]
 
         # create isaac environment
@@ -189,7 +190,7 @@ def main():
             if args_cli.joystick_mode == "point_goal":
                 from moveitmoveit.utils.keyboard import PointGoalKeyboard
 
-                keyboard = PointGoalKeyboard(se2_keyboard_cfg)
+                keyboard = PointGoalKeyboard(se2_keyboard_cfg, dt=env.unwrapped.step_dt)
 
                 import isaaclab.sim as sim_utils
                 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg

@@ -18,6 +18,7 @@ from .rewards import (
     lin_vel_tracking_reward,
     line_following_reward,
     motion_tracking_reward,
+    progress_reward,
     target_hit_reward,
     yaw_vel_tracking_reward,
 )
@@ -98,6 +99,9 @@ class MotionLearningEnv(DirectRLEnv):
             device=self.device,
         )
 
+        # distance to the commanded point-goal as of the last reward computation, for the progress reward
+        self.previous_goal_distance = torch.zeros(self.num_envs, device=self.device)
+
         # current/previous action, tracked for the action-rate smoothness penalty
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.previous_actions = torch.zeros_like(self.actions)
@@ -167,8 +171,6 @@ class MotionLearningEnv(DirectRLEnv):
     def _apply_action(self):
         self.robot.set_joint_position_target_index(target=self.actions)
 
-        # _apply_action is invoked once per physics substep; only update the camera on the
-        # last substep of the decimation block so it runs exactly once per env step
         if self.render_enabled and self._sim_step_counter % self.cfg.decimation == 0:
             self._update_camera()
 
@@ -213,7 +215,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         done_envs = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         done_envs[env_ids] = True
-        self._resample_commands(dones=done_envs)
+        # self._resample_commands(dones=done_envs)
 
         amp_observations = self.collect_reference_motions(
             num_samples, clip_indexes=self.motion_ids[env_ids], current_times=times, env_ids=env_ids
@@ -221,7 +223,9 @@ class MotionLearningEnv(DirectRLEnv):
         self.amp_observation_buffer[env_ids] = amp_observations.view(num_samples, self.cfg.num_amp_observations, -1)
 
     def _get_observations(self) -> dict:
-        obs = compute_proprioceptive_obs(*self.current_state, local_frame=self.cfg.random_reset)
+        self._resample_commands()
+
+        obs = compute_proprioceptive_obs(*self.current_state, local_frame=self.cfg.random_reset or self.render_enabled)
         cmd_obs = torch.concatenate((obs, self.commands), dim=-1)
 
         # update AMP observation history
@@ -230,8 +234,6 @@ class MotionLearningEnv(DirectRLEnv):
         self.amp_observation_buffer[:, 0] = obs.clone()
 
         self.extras["amp_obs"] = self.amp_observation_buffer.view(-1, self.amp_observation_size)
-
-        self._resample_commands()
 
         return cmd_obs
 
@@ -246,6 +248,10 @@ class MotionLearningEnv(DirectRLEnv):
             _,
             _,
         ) = self.current_env_reference_motion()
+
+        root_positions_xy = self.robot.data.body_pos_w.torch[:, self.ref_body_index, :2]
+        goal_positions = self.commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
+        goal_distance = torch.norm(goal_positions - root_positions_xy, dim=-1)
 
         reward_terms = {
             "motion_tracking": motion_tracking_reward(
@@ -270,8 +276,8 @@ class MotionLearningEnv(DirectRLEnv):
                 **self._motion_manager.reward_kwargs_for("yaw_vel_tracking", self.motion_ids),
             ),
             "target_hit": target_hit_reward(
-                self.robot.data.body_pos_w.torch[:, self.ref_body_index, :2],
-                self.commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1],
+                root_positions_xy,
+                goal_positions,
                 **self._motion_manager.reward_kwargs_for("target_hit", self.motion_ids),
             ),
             "line_following": line_following_reward(
@@ -293,7 +299,14 @@ class MotionLearningEnv(DirectRLEnv):
                 self.robot.data.joint_vel.torch,
                 **self._motion_manager.reward_kwargs_for("joint_vel", self.motion_ids),
             ),
+            "progress": progress_reward(
+                goal_distance,
+                self.previous_goal_distance,
+                **self._motion_manager.reward_kwargs_for("progress", self.motion_ids),
+            ),
         }
+
+        self.previous_goal_distance = goal_distance
 
         rewards = torch.stack(list(reward_terms.values()), dim=-1)
         weighted_rewards = weights * rewards
@@ -432,6 +445,7 @@ class MotionLearningEnv(DirectRLEnv):
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands for envs that have gone `command_resample_steps` steps since their
         last command sample or whose `dones` flag is set."""
+
         resample = self.episode_length_buf % (self.cfg.command_resample_steps + 1) == 0
 
         if dones is not None:
@@ -441,12 +455,13 @@ class MotionLearningEnv(DirectRLEnv):
         if resample_env_ids.numel() > 0:
             sampled_commands = self._motion_manager.sample_commands(self.motion_ids[resample_env_ids])
 
-            # goal_x/goal_y are sampled as an offset from the current position, turning them into
-            # a fixed point in space that persists until the next resample.
-            root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
-            sampled_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy
+            # goal_offset = sampled_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1].clone()
+            # root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
+            # sampled_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy
 
             self.commands[resample_env_ids] = sampled_commands
+
+            # self.previous_goal_distance[resample_env_ids] = torch.norm(goal_offset, dim=-1)
 
     def _compute_robot_state(
         self,
@@ -458,6 +473,7 @@ class MotionLearningEnv(DirectRLEnv):
         body_linear_velocities: torch.Tensor,
         body_angular_velocities: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        
         root_state = self.default_root_state[env_ids].clone()
         root_state[:, 0:3] = body_positions[:, self.motion_ref_body_index] + self.scene.env_origins[env_ids]
         root_state[:, 2] += 0.1  # lift the humanoid slightly to avoid collisions with the ground
@@ -487,7 +503,7 @@ def compute_proprioceptive_obs(
     root_linear_velocities: torch.Tensor,
     root_angular_velocities: torch.Tensor,
     body_positions: torch.Tensor,
-    local_frame: bool,
+    local_frame: bool = False,
 ) -> torch.Tensor:
     num_envs = root_positions.shape[0]
     num_bodies = body_positions.shape[1]

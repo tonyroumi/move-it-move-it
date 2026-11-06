@@ -14,6 +14,7 @@ class RewardIndex(IntEnum):
     ACTION_RATE_L2 = 5
     JOINT_ACC = 6
     JOINT_VEL = 7
+    PROGRESS = 8
 
 
 NUM_REWARDS = len(RewardIndex)
@@ -28,6 +29,7 @@ REWARD_KWARG_DEFAULTS: dict[str, dict[str, float]] = {
     "action_rate_l2": {"scale": 1.0},
     "joint_acc": {"scale": 1.0e-4},
     "joint_vel": {"scale": 1.0e-2},
+    "progress": {"scale": 1.0},
 }
 
 
@@ -90,6 +92,16 @@ def target_hit_reward(
     """Reward for closing the 2D distance to the commanded point-goal position."""
     error = torch.sum((root_positions - commanded_goal_positions) ** 2, dim=-1)
     return torch.exp(-scale * error)
+
+
+@torch.jit.script
+def progress_reward(
+    goal_distance: torch.Tensor,
+    previous_goal_distance: torch.Tensor,
+    scale: torch.Tensor,
+) -> torch.Tensor:
+    """Reward proportional to how much closer to the commanded goal position the last step made us."""
+    return scale * (previous_goal_distance - goal_distance)
 
 
 @torch.jit.script
