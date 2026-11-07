@@ -97,13 +97,13 @@ def main():
         env = gym.make(TASK_ID, cfg=env_cfg, render_mode="rgb_array" if args_cli.record else None)
         unwrapped = env.unwrapped
 
-        motion_manager = unwrapped._motion_manager
-        motion_library = unwrapped._motion_library
+        motions = unwrapped.motions
+        motion_library = motions.library
 
-        motion_name = args_cli.motion if args_cli.motion is not None else _choose_motion(motion_manager.motion_names)
-        if motion_name not in motion_manager.motion_name_to_id:
-            raise ValueError(f"Unknown motion '{motion_name}'. Available: {motion_manager.motion_names}")
-        motion_id = motion_manager.motion_name_to_id[motion_name]
+        motion_name = args_cli.motion if args_cli.motion is not None else _choose_motion(motions.names)
+        if motion_name not in motions.name_to_id:
+            raise ValueError(f"Unknown motion '{motion_name}'. Available: {motions.names}")
+        motion_id = motions.name_to_id[motion_name]
         duration = motion_library.duration[motion_id].item()
         print(f"[INFO] Playing motion '{motion_name}' (id={motion_id}, duration={duration:.2f}s)")
 

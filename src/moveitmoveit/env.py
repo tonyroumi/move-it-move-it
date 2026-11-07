@@ -9,8 +9,7 @@ from .env_cfg import MotionLearningEnvCfg
 from moveitmoveit.utils import transforms
 
 from .commands import COMMAND_DIM, CommandIndex
-from .motion.library import MotionLibrary
-from .motion_manager import MotionManager
+from .motion_set import MotionSet
 from .rewards import (
     action_rate_l2_reward,
     joint_acc_reward,
@@ -34,8 +33,7 @@ class MotionLearningEnv(DirectRLEnv):
     def __init__(self, cfg: MotionLearningEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self._motion_manager = MotionManager(cfg.motion_manifest, self.device)
-        self._motion_library = MotionLibrary(self._motion_manager.motion_files, self.device)
+        self.motions = MotionSet.from_manifest(cfg.motion_manifest, self.device)
 
         self._setup_env()
 
@@ -73,9 +71,9 @@ class MotionLearningEnv(DirectRLEnv):
         key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
         self.ref_body_index = self.robot.data.body_names.index("torso")
         self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
-        self.motion_dof_indexes = self._motion_library.get_dof_index(self.robot.data.joint_names)
-        self.motion_ref_body_index = self._motion_library.get_body_index(["torso"])[0]
-        self.motion_key_body_indexes = self._motion_library.get_body_index(key_body_names)
+        self.motion_dof_indexes = self.motions.library.get_dof_index(self.robot.data.joint_names)
+        self.motion_ref_body_index = self.motions.library.get_body_index(["torso"])[0]
+        self.motion_key_body_indexes = self.motions.library.get_body_index(key_body_names)
 
         self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
         self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -185,8 +183,8 @@ class MotionLearningEnv(DirectRLEnv):
         self.previous_actions[env_ids] = 0.0
 
         num_samples = env_ids.shape[0]
-        self.motion_ids[env_ids] = self._motion_manager.sample_motion(num_samples)
-        times = self._motion_library.sample_times(self.motion_ids[env_ids])
+        self.motion_ids[env_ids] = self.motions.sample_ids(num_samples)
+        times = self.motions.library.sample_times(self.motion_ids[env_ids])
         self.motion_start_times[env_ids] = times
         (
             dof_positions,
@@ -195,7 +193,7 @@ class MotionLearningEnv(DirectRLEnv):
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
-        ) = self._motion_library.frames(self.motion_ids[env_ids], times)
+        ) = self.motions.library.frames(self.motion_ids[env_ids], times)
         root_state, dof_pos, dof_vel = self._compute_robot_state(
             env_ids,
             dof_positions,
@@ -238,7 +236,7 @@ class MotionLearningEnv(DirectRLEnv):
         return cmd_obs
 
     def _get_rewards(self) -> torch.Tensor:
-        weights = self._motion_manager.reward_weights_for(self.motion_ids)
+        weights = self.motions.reward_weights_for(self.motion_ids)
 
         (
             ref_dof_positions,
@@ -261,48 +259,48 @@ class MotionLearningEnv(DirectRLEnv):
                 self.robot.data.body_pos_w.torch[:, self.ref_body_index],
                 ref_body_positions[:, self.motion_key_body_indexes],
                 ref_body_positions[:, self.motion_ref_body_index],
-                **self._motion_manager.reward_kwargs_for("motion_tracking", self.motion_ids),
+                **self.motions.reward_kwargs_for("motion_tracking", self.motion_ids),
             ),
             "lin_vel_tracking": lin_vel_tracking_reward(
                 self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
                 self.robot.data.body_quat_w.torch[:, self.ref_body_index],
                 self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
-                **self._motion_manager.reward_kwargs_for("lin_vel_tracking", self.motion_ids),
+                **self.motions.reward_kwargs_for("lin_vel_tracking", self.motion_ids),
             ),
             "yaw_vel_tracking": yaw_vel_tracking_reward(
                 self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index],
                 self.robot.data.body_quat_w.torch[:, self.ref_body_index],
                 self.commands[:, CommandIndex.YAW],
-                **self._motion_manager.reward_kwargs_for("yaw_vel_tracking", self.motion_ids),
+                **self.motions.reward_kwargs_for("yaw_vel_tracking", self.motion_ids),
             ),
             "target_hit": target_hit_reward(
                 root_positions_xy,
                 goal_positions,
-                **self._motion_manager.reward_kwargs_for("target_hit", self.motion_ids),
+                **self.motions.reward_kwargs_for("target_hit", self.motion_ids),
             ),
             "line_following": line_following_reward(
                 self.robot.data.body_quat_w.torch[:, self.ref_body_index],
                 self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
                 self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
-                **self._motion_manager.reward_kwargs_for("line_following", self.motion_ids),
+                **self.motions.reward_kwargs_for("line_following", self.motion_ids),
             ),
             "action_rate_l2": action_rate_l2_reward(
                 self.actions,
                 self.previous_actions,
-                **self._motion_manager.reward_kwargs_for("action_rate_l2", self.motion_ids),
+                **self.motions.reward_kwargs_for("action_rate_l2", self.motion_ids),
             ),
             "joint_acc": joint_acc_reward(
                 self.robot.data.joint_acc.torch,
-                **self._motion_manager.reward_kwargs_for("joint_acc", self.motion_ids),
+                **self.motions.reward_kwargs_for("joint_acc", self.motion_ids),
             ),
             "joint_vel": joint_vel_reward(
                 self.robot.data.joint_vel.torch,
-                **self._motion_manager.reward_kwargs_for("joint_vel", self.motion_ids),
+                **self.motions.reward_kwargs_for("joint_vel", self.motion_ids),
             ),
             "progress": progress_reward(
                 goal_distance,
                 self.previous_goal_distance,
-                **self._motion_manager.reward_kwargs_for("progress", self.motion_ids),
+                **self.motions.reward_kwargs_for("progress", self.motion_ids),
             ),
         }
 
@@ -342,7 +340,7 @@ class MotionLearningEnv(DirectRLEnv):
             dim=-1,
         )
 
-        enabled = self._motion_manager.termination_flags_for(self.motion_ids)
+        enabled = self.motions.termination_flags_for(self.motion_ids)
         died = torch.any(enabled & terminations, dim=-1)
         return died, time_out
 
@@ -360,7 +358,7 @@ class MotionLearningEnv(DirectRLEnv):
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
-        ) = self._motion_library.frames(self.motion_ids, current_times)
+        ) = self.motions.library.frames(self.motion_ids, current_times)
 
         if self.cfg.random_reset:
             body_positions, body_rotations, body_linear_velocities, body_angular_velocities = (
@@ -391,9 +389,9 @@ class MotionLearningEnv(DirectRLEnv):
         env_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if motion_ids is None:
-            motion_ids = self._motion_manager.sample_motion(num_samples)
+            motion_ids = self.motions.sample_ids(num_samples)
         if current_times is None:
-            current_times = self._motion_library.sample_times(motion_ids)
+            current_times = self.motions.library.sample_times(motion_ids)
 
         (
             dof_positions,
@@ -402,7 +400,7 @@ class MotionLearningEnv(DirectRLEnv):
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
-        ) = self._motion_library.history(motion_ids, current_times, self.cfg.num_amp_observations)
+        ) = self.motions.library.history(motion_ids, current_times, self.cfg.num_amp_observations)
 
         if self.cfg.random_reset:
             if env_ids is not None:
@@ -446,7 +444,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         resample_env_ids = resample.nonzero(as_tuple=False).squeeze(-1)
         if resample_env_ids.numel() > 0:
-            sampled_commands = self._motion_manager.sample_commands(self.motion_ids[resample_env_ids])
+            sampled_commands = self.motions.sample_commands(self.motion_ids[resample_env_ids])
 
             # goal_offset = sampled_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1].clone()
             # root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
