@@ -17,16 +17,19 @@ hardcoded per-behavior.
 - `moveitmoveit/env.py` / `moveitmoveit/env_cfg.py`
   - the single `MotionLearningEnv(DirectRLEnv)` — no `envs/` package, since there is and will only
     ever be one environment (the same robot, driven by the motion manifest)
-- `moveitmoveit/motion_manager.py`
-  - per-motion command/reward/termination tables built from the motion manifest, per-env clip assignment
+- `moveitmoveit/manifest.py`
+  - parses and validates the motion manifest, with no torch dependency
+- `moveitmoveit/motion_set.py`
+  - `MotionSet`: per-motion command/reward/termination/selection tables built from the motion manifest, and the `MotionLibrary` holding their clips. Per-env clip assignment lives on the env
 - `moveitmoveit/motion/`
-  - `motion_loader.py` — reference motion clip loading and state sampling
+  - `library.py` — `MotionLibrary`: reference motion clip loading and state sampling by motion id
+  - `reference.py` — `ReferenceMotions`: what the env reset, tracking and AMP consumers ask of the reference motion
   - `motion_viewer.py` — standalone motion clip visualization
 
 ## Motion Manifest
 
-Each motion has a manifest YAML (`data/motions/<motion>.yaml`) that
-declares its reward composition and termination condition.
+The manifest YAML (`src/configs/manifest.yaml`) declares each motion's clip,
+selection weight, commands, reward composition and termination condition.
 # Coding Conventions
 
 - Python 3.12
