@@ -134,3 +134,57 @@ def test_amp_seed_ignores_yaw_when_random_yaw_is_off(library):
     seed = reference.amp_seed(ids, times, transforms.random_yaw_orientation(2, "cpu"))
 
     assert torch.equal(seed.view(4, -1), expected_amp_obs(library, ids, times, None, local_frame=False))
+
+
+def test_frames_for_reset_maps_to_the_robot_and_draws_nothing(library):
+    reference = make_reference(library)
+    ids = torch.tensor([0, 1])
+    times = torch.tensor([0.05, 0.1])
+    frames = library.frames(ids, times)
+
+    state_before = torch.get_rng_state()
+    reset = reference.frames_for_reset(ids, times)
+
+    assert torch.equal(state_before, torch.get_rng_state())
+    assert torch.equal(reset.dof_positions, frames.dof_positions[:, DOF_ORDER])
+    assert torch.equal(reset.dof_velocities, frames.dof_velocities[:, DOF_ORDER])
+    assert torch.equal(reset.root_positions, frames.body_positions[:, ROOT])
+    assert torch.equal(reset.root_rotations, frames.body_rotations[:, ROOT])
+    assert torch.equal(reset.root_linear_velocities, frames.body_linear_velocities[:, ROOT])
+    assert torch.equal(reset.root_angular_velocities, frames.body_angular_velocities[:, ROOT])
+
+
+def test_tracking_targets_rotate_key_bodies_about_the_root(library):
+    reference = make_reference(library)
+    ids = torch.tensor([0, 1])
+    times = torch.tensor([0.05, 0.1])
+    yaw = transforms.random_yaw_orientation(2, "cpu")
+    frames = library.frames(ids, times)
+
+    targets = reference.tracking_targets(ids, times, yaw)
+
+    assert torch.equal(targets.dof_positions, frames.dof_positions[:, DOF_ORDER])
+    # the root is the pivot, so it stays put while the offsets rotate
+    assert torch.equal(targets.root_positions, frames.body_positions[:, ROOT])
+    offsets = frames.body_positions[:, KEY_BODIES] - frames.body_positions[:, ROOT].unsqueeze(1)
+    rotated = transforms.quat_apply(yaw.unsqueeze(1).expand(-1, len(KEY_BODIES), 4), offsets)
+    assert torch.allclose(targets.key_body_positions - targets.root_positions.unsqueeze(1), rotated, atol=1e-5)
+
+
+def test_tracking_targets_ignore_yaw_when_random_yaw_is_off(library):
+    reference = make_reference(library, random_yaw=False)
+    ids = torch.tensor([0, 1])
+    times = torch.tensor([0.05, 0.1])
+    frames = library.frames(ids, times)
+
+    targets = reference.tracking_targets(ids, times, transforms.random_yaw_orientation(2, "cpu"))
+
+    assert torch.equal(targets.key_body_positions, frames.body_positions[:, KEY_BODIES])
+
+
+def test_tracking_targets_hold_the_final_frame_past_the_clip_end(library):
+    reference = make_reference(library, random_yaw=False)
+
+    targets = reference.tracking_targets(torch.tensor([0]), torch.tensor([50.0]), torch.zeros(1, 4))
+
+    assert targets.dof_positions[0].tolist() == pytest.approx([10.0 * (k + 1) for k in DOF_ORDER], abs=1e-2)
