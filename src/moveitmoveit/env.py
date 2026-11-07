@@ -9,7 +9,7 @@ from .env_cfg import MotionLearningEnvCfg
 from moveitmoveit.utils import transforms
 
 from .commands import COMMAND_DIM, CommandIndex
-from .motion.motion_loader import MotionLoader
+from .motion.library import MotionLibrary
 from .motion_manager import MotionManager
 from .rewards import (
     action_rate_l2_reward,
@@ -35,7 +35,7 @@ class MotionLearningEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self._motion_manager = MotionManager(cfg.motion_manifest, self.device)
-        self._motion_loader = MotionLoader(self._motion_manager.motion_files, self.device)
+        self._motion_library = MotionLibrary(self._motion_manager.motion_files, self.device)
 
         self._setup_env()
 
@@ -73,9 +73,9 @@ class MotionLearningEnv(DirectRLEnv):
         key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
         self.ref_body_index = self.robot.data.body_names.index("torso")
         self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
-        self.motion_dof_indexes = self._motion_loader.get_dof_index(self.robot.data.joint_names)
-        self.motion_ref_body_index = self._motion_loader.get_body_index(["torso"])[0]
-        self.motion_key_body_indexes = self._motion_loader.get_body_index(key_body_names)
+        self.motion_dof_indexes = self._motion_library.get_dof_index(self.robot.data.joint_names)
+        self.motion_ref_body_index = self._motion_library.get_body_index(["torso"])[0]
+        self.motion_key_body_indexes = self._motion_library.get_body_index(key_body_names)
 
         self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
         self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -186,7 +186,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         num_samples = env_ids.shape[0]
         self.motion_ids[env_ids] = self._motion_manager.sample_motion(num_samples)
-        times = self._motion_loader.sample_times(num_samples, self.motion_ids[env_ids])
+        times = self._motion_library.sample_times(self.motion_ids[env_ids])
         self.motion_start_times[env_ids] = times
         (
             dof_positions,
@@ -195,7 +195,7 @@ class MotionLearningEnv(DirectRLEnv):
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
-        ) = self._motion_loader.sample(num_samples=num_samples, clip_indexes=self.motion_ids[env_ids], times=times)
+        ) = self._motion_library.frames(self.motion_ids[env_ids], times)
         root_state, dof_pos, dof_vel = self._compute_robot_state(
             env_ids,
             dof_positions,
@@ -218,7 +218,7 @@ class MotionLearningEnv(DirectRLEnv):
         # self._resample_commands(dones=done_envs)
 
         amp_observations = self.collect_reference_motions(
-            num_samples, clip_indexes=self.motion_ids[env_ids], current_times=times, env_ids=env_ids
+            num_samples, motion_ids=self.motion_ids[env_ids], current_times=times, env_ids=env_ids
         )
         self.amp_observation_buffer[env_ids] = amp_observations.view(num_samples, self.cfg.num_amp_observations, -1)
 
@@ -360,11 +360,7 @@ class MotionLearningEnv(DirectRLEnv):
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
-        ) = self._motion_loader.sample(
-            num_samples=self.num_envs,
-            clip_indexes=self.motion_ids,
-            times=current_times,
-        )
+        ) = self._motion_library.frames(self.motion_ids, current_times)
 
         if self.cfg.random_reset:
             body_positions, body_rotations, body_linear_velocities, body_angular_velocities = (
@@ -390,12 +386,14 @@ class MotionLearningEnv(DirectRLEnv):
     def collect_reference_motions(
         self,
         num_samples: int,
-        clip_indexes: torch.Tensor | None = None,
+        motion_ids: torch.Tensor | None = None,
         current_times: torch.Tensor | None = None,
         env_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if clip_indexes is None:
-            clip_indexes = self._motion_manager.sample_motion(num_samples)
+        if motion_ids is None:
+            motion_ids = self._motion_manager.sample_motion(num_samples)
+        if current_times is None:
+            current_times = self._motion_library.sample_times(motion_ids)
 
         (
             dof_positions,
@@ -404,12 +402,7 @@ class MotionLearningEnv(DirectRLEnv):
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
-        ) = self._motion_loader.sample_history(
-            num_samples=num_samples,
-            clip_indexes=clip_indexes,
-            times=current_times,
-            num_steps=self.cfg.num_amp_observations,
-        )
+        ) = self._motion_library.history(motion_ids, current_times, self.cfg.num_amp_observations)
 
         if self.cfg.random_reset:
             if env_ids is not None:

@@ -53,7 +53,6 @@ class BaseAgent(ABC):
     def init(self, env: DirectRLEnv, cfg: dict) -> None:
         """Initialize the agent with the environment and configuration."""
         self._step_dt = env.unwrapped.step_dt # policy frequency
-        self._motion_names = env.unwrapped._motion_manager.motion_names
         self._cmd_dim = env.unwrapped.command_dim
 
         self._obs_preprocessor = self._build_observations_preprocessor(env)
