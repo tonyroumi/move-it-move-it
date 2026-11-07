@@ -22,3 +22,8 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["moveitmoveit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+addopts = "-p no:cacheprovider"
