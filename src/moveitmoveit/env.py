@@ -9,7 +9,9 @@ from .env_cfg import MotionLearningEnvCfg
 from moveitmoveit.utils import transforms
 
 from .commands import COMMAND_DIM, CommandIndex
+from .motion.reference import ReferenceMotions, SkeletonMap
 from .motion_set import MotionSet
+from .observations import compute_proprioceptive_obs
 from .rewards import (
     action_rate_l2_reward,
     joint_acc_reward,
@@ -74,6 +76,13 @@ class MotionLearningEnv(DirectRLEnv):
         self.motion_dof_indexes = self.motions.library.get_dof_index(self.robot.data.joint_names)
         self.motion_ref_body_index = self.motions.library.get_body_index(["torso"])[0]
         self.motion_key_body_indexes = self.motions.library.get_body_index(key_body_names)
+        self.reference = ReferenceMotions(
+            self.motions.sample_ids,
+            self.motions.library,
+            SkeletonMap(self.motion_dof_indexes, self.motion_ref_body_index, self.motion_key_body_indexes),
+            self.cfg.num_amp_observations,
+            self.cfg.random_reset,
+        )
 
         self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
         self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -215,10 +224,9 @@ class MotionLearningEnv(DirectRLEnv):
         done_envs[env_ids] = True
         # self._resample_commands(dones=done_envs)
 
-        amp_observations = self.collect_reference_motions(
-            num_samples, motion_ids=self.motion_ids[env_ids], current_times=times, env_ids=env_ids
+        self.amp_observation_buffer[env_ids] = self.reference.amp_seed(
+            self.motion_ids[env_ids], times, self.random_yaw_quat[env_ids]
         )
-        self.amp_observation_buffer[env_ids] = amp_observations.view(num_samples, self.cfg.num_amp_observations, -1)
 
     def _get_observations(self) -> dict:
         self._resample_commands()
@@ -381,58 +389,6 @@ class MotionLearningEnv(DirectRLEnv):
             body_angular_velocities,
         )
 
-    def collect_reference_motions(
-        self,
-        num_samples: int,
-        motion_ids: torch.Tensor | None = None,
-        current_times: torch.Tensor | None = None,
-        env_ids: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        if motion_ids is None:
-            motion_ids = self.motions.sample_ids(num_samples)
-        if current_times is None:
-            current_times = self.motions.library.sample_times(motion_ids)
-
-        (
-            dof_positions,
-            dof_velocities,
-            body_positions,
-            body_rotations,
-            body_linear_velocities,
-            body_angular_velocities,
-        ) = self.motions.library.history(motion_ids, current_times, self.cfg.num_amp_observations)
-
-        if self.cfg.random_reset:
-            if env_ids is not None:
-                random_yaw = self.random_yaw_quat[env_ids]
-            else:
-                # samples are an arbitrary discriminator batch, unrelated to any environment:
-                # rotate by an independent random yaw per sample so the discriminator also sees
-                # real motion at randomized headings, not just each clip's original heading.
-                random_yaw = transforms.random_yaw_orientation(num_samples, self.device)
-            random_yaw = random_yaw.repeat_interleave(self.cfg.num_amp_observations, dim=0)
-            body_positions, body_rotations, body_linear_velocities, body_angular_velocities = (
-                transforms.apply_random_yaw(
-                    random_yaw,
-                    self.motion_ref_body_index,
-                    body_positions,
-                    body_rotations,
-                    body_linear_velocities,
-                    body_angular_velocities,
-                )
-            )
-
-        return compute_proprioceptive_obs(
-            dof_positions[:, self.motion_dof_indexes],
-            dof_velocities[:, self.motion_dof_indexes],
-            body_positions[:, self.motion_ref_body_index],
-            body_rotations[:, self.motion_ref_body_index],
-            body_linear_velocities[:, self.motion_ref_body_index],
-            body_angular_velocities[:, self.motion_ref_body_index],
-            body_positions[:, self.motion_key_body_indexes],
-            local_frame=self.cfg.random_reset
-        ).view(-1, self.amp_observation_size)
-
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands for envs that have gone `command_resample_steps` steps since their
         last command sample or whose `dones` flag is set."""
@@ -483,61 +439,3 @@ class MotionLearningEnv(DirectRLEnv):
             root_state[:, 7:10] = transforms.quat_apply(random_yaw, root_state[:, 7:10])
             root_state[:, 10:13] = transforms.quat_apply(random_yaw, root_state[:, 10:13])
         return root_state, dof_pos, dof_vel
-
-
-@torch.jit.script
-def compute_proprioceptive_obs(
-    dof_positions: torch.Tensor,
-    dof_velocities: torch.Tensor,
-    root_positions: torch.Tensor,
-    root_rotations: torch.Tensor,
-    root_linear_velocities: torch.Tensor,
-    root_angular_velocities: torch.Tensor,
-    body_positions: torch.Tensor,
-    local_frame: bool = False,
-) -> torch.Tensor:
-    num_envs = root_positions.shape[0]
-    num_bodies = body_positions.shape[1]
-
-    # Body positions relative to the root.
-    body_offsets = body_positions - root_positions.unsqueeze(1)
-
-    if local_frame:
-        # Express root velocities in the root's local frame.
-        lin_vel = transforms.quat_apply_inverse(
-            root_rotations,
-            root_linear_velocities,
-        )
-        ang_vel = transforms.quat_apply_inverse(
-            root_rotations,
-            root_angular_velocities,
-        )
-
-        # Apply the inverse root rotation to every body offset.
-        root_rotations_expanded = root_rotations.unsqueeze(1).expand(
-            num_envs, num_bodies, 4
-        )
-        body_positions_local = transforms.quat_apply_inverse(
-            root_rotations_expanded,
-            body_offsets,
-        )
-
-        body_positions_flat = body_positions_local.reshape(num_envs, -1)
-
-    else:
-        lin_vel = root_linear_velocities
-        ang_vel = root_angular_velocities
-        body_positions_flat = body_offsets.reshape(num_envs, -1)
-
-    return torch.cat(
-        (
-            dof_positions,
-            dof_velocities,
-            root_positions[:, 2:3],
-            transforms.quaternion_to_tangent_and_normal(root_rotations),
-            lin_vel,
-            ang_vel,
-            body_positions_flat,
-        ),
-        dim=-1,
-    )

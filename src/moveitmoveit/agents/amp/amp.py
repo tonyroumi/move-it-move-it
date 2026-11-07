@@ -26,14 +26,14 @@ class AMP(PPO):
         super().__init__(cfg=cfg, logger=logger)
 
     def init(self, env: DirectRLEnv, cfg: dict):
-        self.collect_reference_motions: Callable = env.unwrapped.collect_reference_motions
+        self.style_batch: Callable = env.unwrapped.reference.style_batch
 
         super().init(env, cfg)
 
     def _initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         super()._initialize_models(env, model_cfg)
 
-        self.amp_obs_dim = self.collect_reference_motions(1).shape[-1]
+        self.amp_obs_dim = self.style_batch(1).shape[-1]
         self.discriminator = MLP(
             in_channels=self.amp_obs_dim,
             out_channels=1,
@@ -98,7 +98,7 @@ class AMP(PPO):
     def _update_discriminator(self) -> None:
         """Run one round of discriminator gradient updates."""
         for _ in range(self.cfg.disc_num_updates):
-            ref_motion = self.collect_reference_motions(self.cfg.disc_batch_size)
+            ref_motion = self.style_batch(self.cfg.disc_batch_size)
             agent_motion = self._amp_observations_buf.sample(self.cfg.disc_batch_size)
 
             ref_motion = self._disc_obs_preprocessor(ref_motion, train=True)
