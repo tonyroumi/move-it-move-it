@@ -1,18 +1,17 @@
 import torch
 
-from .commands import COMMAND_DIM, CommandIndex
-from .manifest import MotionSpec, load_manifest
+from .manifest import COMMAND_DIM, CommandIndex, MotionSpec, load_manifest
 from .motion.library import MotionLibrary
-from .terms import NUM_REWARDS, NUM_TERMINATIONS, REWARD_KWARG_DEFAULTS, RewardIndex, TerminationIndex
 
 
 class MotionSet:
-    """The motions a manifest declares: their clips, plus per-motion command, reward, termination
-    and selection tables. Built in one place, so a motion id means the same thing everywhere.
-    Per-env motion state stays on the env."""
+    """The motions a manifest declares: their clips, plus per-motion command and selection tables.
+    Built in one place, so a motion id means the same thing everywhere. Per-env motion state stays
+    on the env, and reward and termination tables on ComposedMDP."""
 
     def __init__(self, specs: list[MotionSpec], device: torch.device | str):
         self.device = device
+        self.specs = specs
 
         self.names = [spec.name for spec in specs]
         self.name_to_id = {name: i for i, name in enumerate(self.names)}
@@ -20,8 +19,6 @@ class MotionSet:
         self.library = MotionLibrary([spec.file for spec in specs], device)
 
         self._build_command_tables(specs)
-        self._build_reward_tables(specs)
-        self._build_termination_tables(specs)
         self._build_sample_prob_table(specs)
 
     @classmethod
@@ -40,37 +37,6 @@ class MotionSet:
                 index = CommandIndex[key.upper()]
                 self.command_low[motion_id, index] = low
                 self.command_high[motion_id, index] = high
-
-    def _build_reward_tables(self, specs: list[MotionSpec]):
-        self.reward_weights = torch.zeros(self.num_motions, NUM_REWARDS, device=self.device)
-
-        # per-motion kwarg tensors for rewards
-        self.reward_kwargs = {
-            name: {
-                kwarg_name: torch.full((self.num_motions,), default, device=self.device)
-                for kwarg_name, default in defaults.items()
-            }
-            for name, defaults in REWARD_KWARG_DEFAULTS.items()
-        }
-
-        for motion_id, spec in enumerate(specs):
-            for name, reward in spec.rewards.items():
-                self.reward_weights[motion_id, RewardIndex[name.upper()]] = reward.weight
-
-                for kwarg_name, value in reward.kwargs.items():
-                    self.reward_kwargs[name][kwarg_name][motion_id] = value
-
-    def _build_termination_tables(self, specs: list[MotionSpec]):
-        self.termination_flags = torch.zeros(
-            self.num_motions,
-            NUM_TERMINATIONS,
-            device=self.device,
-            dtype=torch.bool,
-        )
-
-        for motion_id, spec in enumerate(specs):
-            for name in spec.terminations:
-                self.termination_flags[motion_id, TerminationIndex[name.upper()]] = True
 
     def _build_sample_prob_table(self, specs: list[MotionSpec]):
         weights = torch.zeros(self.num_motions, device=self.device)
@@ -95,16 +61,3 @@ class MotionSet:
         commands[zero_mask] = 0.0
 
         return commands
-
-    def reward_weights_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        return self.reward_weights[motion_ids]
-
-    def reward_kwargs_for(self, reward_name: str, motion_ids: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Per-env kwargs (e.g. `scale=...`) for the given reward, ready to pass as `**kwargs`."""
-        return {
-            kwarg_name: values[motion_ids]
-            for kwarg_name, values in self.reward_kwargs.get(reward_name, {}).items()
-        }
-
-    def termination_flags_for(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        return self.termination_flags[motion_ids]

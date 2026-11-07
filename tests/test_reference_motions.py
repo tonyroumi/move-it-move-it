@@ -8,7 +8,7 @@ pytest.importorskip("isaaclab.utils.math", reason="needs IsaacLab's quaternion m
 from conftest import FPS  # noqa: E402
 from moveitmoveit.motion.library import MotionLibrary  # noqa: E402
 from moveitmoveit.motion.reference import ReferenceMotions, SkeletonMap  # noqa: E402
-from moveitmoveit.observations import compute_proprioceptive_obs  # noqa: E402
+from moveitmoveit.mdp import OBSERVATIONS, BodyState, ComposedMDP  # noqa: E402
 from moveitmoveit.utils import transforms  # noqa: E402
 
 DOF_ORDER = [2, 0, 1]  # robot order differs from clip order
@@ -29,7 +29,8 @@ def picker(num_samples: int) -> torch.Tensor:
 
 
 def make_reference(library: MotionLibrary, random_yaw: bool = True, pick=picker) -> ReferenceMotions:
-    return ReferenceMotions(pick, library, SkeletonMap(DOF_ORDER, ROOT, KEY_BODIES), NUM_STEPS, random_yaw)
+    style_obs = ComposedMDP([], OBSERVATIONS, OBSERVATIONS, "cpu").style_obs
+    return ReferenceMotions(pick, library, SkeletonMap(DOF_ORDER, ROOT, KEY_BODIES), NUM_STEPS, random_yaw, style_obs)
 
 
 def expected_amp_obs(library, ids, times, yaw, local_frame: bool) -> torch.Tensor:
@@ -40,7 +41,7 @@ def expected_amp_obs(library, ids, times, yaw, local_frame: bool) -> torch.Tenso
         positions, rotations, linear, angular = transforms.apply_random_yaw(
             yaw.repeat_interleave(NUM_STEPS, dim=0), ROOT, positions, rotations, linear, angular
         )
-    return compute_proprioceptive_obs(
+    state = BodyState(
         frames.dof_positions[:, DOF_ORDER],
         frames.dof_velocities[:, DOF_ORDER],
         positions[:, ROOT],
@@ -48,8 +49,8 @@ def expected_amp_obs(library, ids, times, yaw, local_frame: bool) -> torch.Tenso
         linear[:, ROOT],
         angular[:, ROOT],
         positions[:, KEY_BODIES],
-        local_frame=local_frame,
     )
+    return torch.cat([term.fn(state, local_frame) for term in OBSERVATIONS.values()], dim=-1)
 
 
 def test_style_batch_draws_ids_then_times_then_yaw(library):
