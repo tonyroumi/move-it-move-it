@@ -65,28 +65,10 @@ class PPO(BaseAgent):
         ).to(env.unwrapped.device)
 
         self._value_preprocessor = RunningStandardScaler(size=1).to(env.unwrapped.device)
-        self._command_preprocessor = self._build_command_preprocessor(env)
-
-    def _build_command_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
-        """Maps raw commands to [-1, 1]. Seeded once from the widest low/high any motion
-        uses for each command in the manifest, and never updated with `train=True`, so
-        commands are scaled to a fixed, known range rather than normalized empirically."""
-        command_low = env.unwrapped._motion_manager.command_low
-        command_high = env.unwrapped._motion_manager.command_high
-
-        low = command_low.min(dim=0).values
-        high = command_high.max(dim=0).values
-
-        return RunningStandardScaler(
-            size=self._cmd_dim,
-            mean=0.5 * (low + high),
-            variance=(0.5 * (high - low)) ** 2,
-        ).to(env.unwrapped.device)
 
     def _preprocess_observations(self, observations: torch.Tensor, train: bool = False) -> torch.Tensor:
-        """Normalizes the proprioceptive prefix against running statistics and the
-        trailing raw command block against the fixed command range, then reassembles
-        them into the input the actor/critic expect."""
+        """Normalizes the proprioceptive prefix against running statistics, passing the
+        trailing raw command block through unscaled."""
         return self._obs_preprocessor(observations, train=train)
 
     def _initialize_storage(self, env: DirectRLEnv) -> None:

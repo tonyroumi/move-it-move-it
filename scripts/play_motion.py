@@ -98,19 +98,19 @@ def main():
         unwrapped = env.unwrapped
 
         motion_manager = unwrapped._motion_manager
-        motion_loader = unwrapped._motion_loader
+        motion_library = unwrapped._motion_library
 
         motion_name = args_cli.motion if args_cli.motion is not None else _choose_motion(motion_manager.motion_names)
         if motion_name not in motion_manager.motion_name_to_id:
             raise ValueError(f"Unknown motion '{motion_name}'. Available: {motion_manager.motion_names}")
         motion_id = motion_manager.motion_name_to_id[motion_name]
-        duration = motion_loader.duration[motion_id].item()
+        duration = motion_library.duration[motion_id].item()
         print(f"[INFO] Playing motion '{motion_name}' (id={motion_id}, duration={duration:.2f}s)")
 
         env.reset()
 
         env_ids = torch.arange(unwrapped.num_envs, dtype=torch.long, device=unwrapped.device)
-        clip_indexes = torch.full((unwrapped.num_envs,), motion_id, dtype=torch.long, device=unwrapped.device)
+        motion_ids = torch.full((unwrapped.num_envs,), motion_id, dtype=torch.long, device=unwrapped.device)
         physics_dt = unwrapped.sim.get_physics_dt()
 
         # sample a single random yaw up front and hold it for the whole playback (mirroring the
@@ -127,9 +127,7 @@ def main():
             # rotate the root's translational path itself, pivoting about the clip's own start position,
             # so the character actually walks off in the direction it's now facing.
             zero_times = torch.zeros((unwrapped.num_envs,), device=unwrapped.device)
-            _, _, clip_origin_positions, *_ = motion_loader.sample(
-                num_samples=unwrapped.num_envs, clip_indexes=clip_indexes, times=zero_times
-            )
+            clip_origin_positions = motion_library.frames(motion_ids, zero_times).body_positions
             clip_origin_position = clip_origin_positions[:, unwrapped.motion_ref_body_index]
 
         frames = []
@@ -152,7 +150,7 @@ def main():
                     body_rotations,
                     body_linear_velocities,
                     body_angular_velocities,
-                ) = motion_loader.sample(num_samples=unwrapped.num_envs, clip_indexes=clip_indexes, times=times)
+                ) = motion_library.frames(motion_ids, times)
 
                 root_state, dof_pos, dof_vel = unwrapped._compute_robot_state(
                     env_ids,

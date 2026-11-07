@@ -6,14 +6,33 @@
 from __future__ import annotations
 
 import os
+from typing import NamedTuple
 
 import numpy as np
 import torch
 
 
-class MotionLoader:
+class MotionFrames(NamedTuple):
+    """Motion data sampled from a :class:`MotionLibrary`, in the clips' DOF and body order."""
+
+    dof_positions: torch.Tensor
+    """Shape is (N, num_dofs)."""
+    dof_velocities: torch.Tensor
+    """Shape is (N, num_dofs)."""
+    body_positions: torch.Tensor
+    """Shape is (N, num_bodies, 3)."""
+    body_rotations: torch.Tensor
+    """Shape is (N, num_bodies, 4), as xyzw quaternion."""
+    body_linear_velocities: torch.Tensor
+    """Shape is (N, num_bodies, 3)."""
+    body_angular_velocities: torch.Tensor
+    """Shape is (N, num_bodies, 3)."""
+
+
+class MotionLibrary:
     """
-    Helper class to load and sample motion data from one or more NumPy-file format motion clips.
+    Stores the frames of one or more NumPy-file format motion clips and samples them by motion id
+    and time. A motion's id is its clip's position in ``motion_files``.
 
     All motion data is stored in single tensors shared across clips, with an added leading "clip"
     dimension, e.g. ``dof_positions`` has shape ``(num_clips, max_num_frames, num_dofs)``. Clips
@@ -31,7 +50,7 @@ class MotionLoader:
             motion_files: Motion file paths to load.
             device: The device to which to load the data.
         """
-        assert len(motion_files) > 0, "MotionLoader requires at least one motion file."
+        assert len(motion_files) > 0, "MotionLibrary requires at least one motion file."
         for motion_file in motion_files:
             assert os.path.isfile(motion_file), f"Invalid file path: {motion_file}"
 
@@ -71,7 +90,7 @@ class MotionLoader:
             print(f"Motion loaded ({motion_file}): duration: {dur} sec, frames: {nf}")
 
     @property
-    def num_clips(self) -> int:
+    def num_motions(self) -> int:
         """Number of motion clips."""
         return self.dof_positions.shape[0]
 
@@ -99,7 +118,7 @@ class MotionLoader:
         self,
         data: torch.Tensor,
         *,
-        clip_indexes: torch.Tensor,
+        motion_ids: torch.Tensor,
         index_0: torch.Tensor,
         index_1: torch.Tensor,
         blend: torch.Tensor,
@@ -108,7 +127,7 @@ class MotionLoader:
 
         Args:
             data: Motion data tensor. Shape is (num_clips, max_frames, X) or (num_clips, max_frames, M, X).
-            clip_indexes: Clip index per sample. Shape is (N,).
+            motion_ids: Motion id per sample. Shape is (N,).
             index_0: First frame index per sample (within its clip). Shape is (N,).
             index_1: Second frame index per sample (within its clip). Shape is (N,).
             blend: Interpolation coefficient between 0 (index_0) and 1 (index_1). Shape is (N,).
@@ -116,8 +135,8 @@ class MotionLoader:
         Returns:
             Interpolated values. Shape is (N, X) or (N, M, X).
         """
-        a = data[clip_indexes, index_0]
-        b = data[clip_indexes, index_1]
+        a = data[motion_ids, index_0]
+        b = data[motion_ids, index_1]
         if a.ndim >= 2:
             blend = blend.unsqueeze(-1)
         if a.ndim >= 3:
@@ -128,7 +147,7 @@ class MotionLoader:
         self,
         data: torch.Tensor,
         *,
-        clip_indexes: torch.Tensor,
+        motion_ids: torch.Tensor,
         index_0: torch.Tensor,
         index_1: torch.Tensor,
         blend: torch.Tensor,
@@ -139,7 +158,7 @@ class MotionLoader:
         Args:
             data: Motion data tensor (xyzw quaternions). Shape is (num_clips, max_frames, 4) or
                 (num_clips, max_frames, M, 4).
-            clip_indexes: Clip index per sample. Shape is (N,).
+            motion_ids: Motion id per sample. Shape is (N,).
             index_0: First frame index per sample (within its clip). Shape is (N,).
             index_1: Second frame index per sample (within its clip). Shape is (N,).
             blend: Interpolation coefficient between 0 (index_0) and 1 (index_1). Shape is (N,).
@@ -147,8 +166,8 @@ class MotionLoader:
         Returns:
             Interpolated quaternions. Shape is (N, 4) or (N, M, 4).
         """
-        q0 = data[clip_indexes, index_0]
-        q1 = data[clip_indexes, index_1]
+        q0 = data[motion_ids, index_0]
+        q1 = data[motion_ids, index_1]
         if q0.ndim >= 2:
             blend = blend.unsqueeze(-1)
         if q0.ndim >= 3:
@@ -185,7 +204,7 @@ class MotionLoader:
         return new_q
 
     def _compute_frame_blend(
-        self, times: torch.Tensor, clip_indexes: torch.Tensor
+        self, times: torch.Tensor, motion_ids: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute the indexes of the first and second values, as well as the blending time
         to interpolate between them and the given times.
@@ -193,148 +212,78 @@ class MotionLoader:
         Args:
             times: Times, between 0 and each sample's clip duration, to sample motion values.
                 Specified times will be clipped to fall within the range of that clip's duration.
-            clip_indexes: Which clip each sample is drawn from. Shape is (N,).
+            motion_ids: Which motion each sample is drawn from. Shape is (N,).
 
         Returns:
             First value indexes, Second value indexes, and blending time between 0 (first value) and 1 (second value).
         """
-        duration = self.duration[clip_indexes]
-        num_frames = self.num_frames[clip_indexes]
+        duration = self.duration[motion_ids]
+        num_frames = self.num_frames[motion_ids]
         phase = torch.clamp(times / duration, 0.0, 1.0)
         index_0 = torch.round(phase * (num_frames - 1).to(times.dtype)).long()
         index_1 = torch.minimum(index_0 + 1, num_frames - 1)
         blend = torch.round((times - index_0 * self.dt) / self.dt, decimals=5)
         return index_0, index_1, blend
 
-    def sample_clip_indexes(self, num_samples: int) -> torch.Tensor:
-        """Randomly sample, per sample, which clip to draw from.
-
-        Args:
-            num_samples: Number of clip-index samples to generate.
-
-        Returns:
-            Clip indexes, uniformly sampled over ``[0, num_clips)``.
-        """
-        return torch.randint(0, self.num_clips, (num_samples,), device=self.device)
-
-    def sample_times(
-        self, num_samples: int, clip_indexes: torch.Tensor | None = None, duration: float | None = None
-    ) -> torch.Tensor:
+    def sample_times(self, motion_ids: torch.Tensor) -> torch.Tensor:
         """Sample random motion times uniformly within each sample's clip duration.
 
         Args:
-            num_samples: Number of time samples to generate.
-            clip_indexes: Which clip each sample is drawn from. If not defined, clips are
-                sampled uniformly at random (see :meth:`sample_clip_indexes`).
-            duration: Maximum motion duration to sample.
-                If not defined samples will be within the range of each sample's clip duration.
-
-        Raises:
-            AssertionError: If the specified duration is longer than a sampled clip's duration.
+            motion_ids: Which motion each sample is drawn from. Shape is (N,).
 
         Returns:
-            Time samples, between 0 and the specified/clip duration.
+            Time samples, between 0 and each sample's clip duration. Shape is (N,).
         """
-        if clip_indexes is None:
-            clip_indexes = self.sample_clip_indexes(num_samples)
-        else:
-            clip_indexes = torch.as_tensor(clip_indexes, dtype=torch.long, device=self.device)
-        clip_durations = self.duration[clip_indexes]
-        if duration is not None:
-            assert torch.all(clip_durations >= duration), (
-                f"The specified duration ({duration}) is longer than a sampled clip's duration"
-            )
-            clip_durations = torch.full((num_samples,), duration, dtype=self.duration.dtype, device=self.device)
-        return clip_durations * torch.rand(num_samples, device=self.device)
+        motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
+        return self.duration[motion_ids] * torch.rand(motion_ids.shape[0], device=self.device)
 
-    def sample(
-        self,
-        num_samples: int,
-        clip_indexes: torch.Tensor | None = None,
-        times: torch.Tensor | None = None,
-        duration: float | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Sample motion data, drawing each sample from its assigned clip.
+    def frames(self, motion_ids: torch.Tensor, times: torch.Tensor) -> MotionFrames:
+        """Sample motion data, drawing each sample from its assigned motion.
 
         Args:
-            num_samples: Number of samples to generate. If ``times`` is defined, this parameter
-                is ignored (``len(times)`` is used instead).
-            clip_indexes: Which clip each sample is drawn from. If not defined, clips are
-                sampled uniformly at random (see :meth:`sample_clip_indexes`).
-            times: Motion time used for sampling, per sample.
-                If not defined, motion data will be random sampled uniformly in time.
-            duration: Maximum motion duration to sample. If not defined, samples will be
-                within the range of each sample's clip duration. If ``times`` is defined,
-                this parameter is ignored.
+            motion_ids: Which motion each sample is drawn from. Shape is (N,).
+            times: Motion time used for sampling, per sample. Shape is (N,).
 
         Returns:
-            A tuple containing sampled motion data:
-                - DOF positions (with shape (N, num_dofs))
-                - DOF velocities (with shape (N, num_dofs))
-                - Body positions (with shape (N, num_bodies, 3))
-                - Body rotations (with shape (N, num_bodies, 4), as xyzw quaternion)
-                - Body linear velocities (with shape (N, num_bodies, 3))
-                - Body angular velocities (with shape (N, num_bodies, 3))
+            The sampled motion data.
         """
-        if clip_indexes is None:
-            clip_indexes = self.sample_clip_indexes(num_samples)
-        else:
-            clip_indexes = torch.as_tensor(clip_indexes, dtype=torch.long, device=self.device)
-        if times is None:
-            times = self.sample_times(num_samples, clip_indexes=clip_indexes, duration=duration)
-        else:
-            times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
-        index_0, index_1, blend = self._compute_frame_blend(times, clip_indexes)
+        motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
+        times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
+        index_0, index_1, blend = self._compute_frame_blend(times, motion_ids)
 
-        return (
-            self._interpolate(self.dof_positions, clip_indexes=clip_indexes, index_0=index_0, index_1=index_1, blend=blend),
-            self._interpolate(self.dof_velocities, clip_indexes=clip_indexes, index_0=index_0, index_1=index_1, blend=blend),
-            self._interpolate(self.body_positions, clip_indexes=clip_indexes, index_0=index_0, index_1=index_1, blend=blend),
-            self._slerp(self.body_rotations, clip_indexes=clip_indexes, index_0=index_0, index_1=index_1, blend=blend),
+        return MotionFrames(
+            self._interpolate(self.dof_positions, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
+            self._interpolate(self.dof_velocities, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
+            self._interpolate(self.body_positions, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
+            self._slerp(self.body_rotations, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
             self._interpolate(
-                self.body_linear_velocities, clip_indexes=clip_indexes, index_0=index_0, index_1=index_1, blend=blend
+                self.body_linear_velocities, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend
             ),
             self._interpolate(
-                self.body_angular_velocities, clip_indexes=clip_indexes, index_0=index_0, index_1=index_1, blend=blend
+                self.body_angular_velocities, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend
             ),
         )
 
-    def sample_history(
-        self,
-        num_samples: int,
-        clip_indexes: torch.Tensor | None = None,
-        times: torch.Tensor | None = None,
-        num_steps: int = 1,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def history(self, motion_ids: torch.Tensor, times: torch.Tensor, num_steps: int) -> MotionFrames:
         """Sample a history of motion states, ``num_steps`` apart in time, ending at each sample's time.
 
         Args:
-            num_samples: Number of samples to generate.
-            clip_indexes: Which clip each sample is drawn from. If not defined, clips are
-                sampled uniformly at random (see :meth:`sample_clip_indexes`).
+            motion_ids: Which motion each sample is drawn from. Shape is (N,).
             times: Motion time used for sampling, per sample (the most recent time in each
-                sample's history). If not defined, motion data will be random sampled uniformly
-                in time.
+                sample's history). Shape is (N,).
             num_steps: Number of historical steps to sample per sample, spaced ``dt`` apart,
                 going backwards in time from ``times``.
 
         Returns:
-            A tuple containing sampled motion data (see :meth:`sample`), flattened over samples
-            and steps, i.e. with shape (num_samples * num_steps, ...).
+            The sampled motion data, flattened over samples and steps, i.e. with shape
+            (N * num_steps, ...).
         """
-        if clip_indexes is None:
-            clip_indexes = self.sample_clip_indexes(num_samples)
-        else:
-            clip_indexes = torch.as_tensor(clip_indexes, dtype=torch.long, device=self.device)
-        if times is None:
-            times = self.sample_times(num_samples, clip_indexes)
-        else:
-            times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
-        # step back num_steps times, dt apart, from each sample's time -> (num_samples * num_steps,)
+        motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
+        times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
+        # step back num_steps times, dt apart, from each sample's time -> (N * num_steps,)
         steps = torch.arange(num_steps, device=self.device)
         history_times = (times.unsqueeze(-1) - self.dt * steps).flatten()
-        history_clip_indexes = clip_indexes.repeat_interleave(num_steps)
-        return self.sample(num_samples=num_samples * num_steps, clip_indexes=history_clip_indexes, times=history_times)
+        return self.frames(motion_ids.repeat_interleave(num_steps), history_times)
 
     def get_dof_index(self, dof_names: list[str]) -> list[int]:
         """Get skeleton DOFs indexes by DOFs names.
@@ -380,7 +329,7 @@ if __name__ == "__main__":
     parser.add_argument("--file", type=str, required=True, help="Motion file")
     args, _ = parser.parse_known_args()
 
-    motion = MotionLoader([args.file], "cpu")
+    motion = MotionLibrary([args.file], "cpu")
 
     print("- number of frames:", motion.num_frames[0])
     print("- number of DOFs:", motion.num_dofs)

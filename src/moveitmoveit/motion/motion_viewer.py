@@ -13,9 +13,9 @@ import numpy as np
 import torch
 
 try:
-    from .motion_loader import MotionLoader
+    from .library import MotionLibrary
 except ImportError:
-    from motion_loader import MotionLoader
+    from library import MotionLibrary
 
 
 class MotionViewer:
@@ -48,15 +48,15 @@ class MotionViewer:
         self._render_scene = render_scene
 
         # Load motions
-        self._motion_loader = MotionLoader(
+        self._motion_library = MotionLibrary(
             motion_files=[motion_file],
             device=device,
         )
 
-        self._num_frames = int(self._motion_loader.num_frames[0])
+        self._num_frames = int(self._motion_library.num_frames[0])
         self._current_frame = 0
         self._body_positions = (
-            self._motion_loader.body_positions[0, : self._num_frames]
+            self._motion_library.body_positions[0, : self._num_frames]
             .cpu()
             .numpy()
         )
@@ -64,19 +64,19 @@ class MotionViewer:
         # Determine which body to use as the root.
         if root_body is None:
             self._root_body_index = 0
-            self._root_body_name = self._motion_loader.body_names[0]
+            self._root_body_name = self._motion_library.body_names[0]
         else:
-            if root_body not in self._motion_loader.body_names:
+            if root_body not in self._motion_library.body_names:
                 raise ValueError(
                     f"Root body '{root_body}' not found. "
-                    f"Available bodies: {self._motion_loader.body_names}"
+                    f"Available bodies: {self._motion_library.body_names}"
                 )
 
-            self._root_body_index = self._motion_loader.body_names.index(root_body)
+            self._root_body_index = self._motion_library.body_names.index(root_body)
             self._root_body_name = root_body
 
         print("\nBody")
-        for i, name in enumerate(self._motion_loader.body_names):
+        for i, name in enumerate(self._motion_library.body_names):
             minimum = np.min(
                 self._body_positions[:, i],
                 axis=0,
@@ -108,7 +108,7 @@ class MotionViewer:
         root_positions = self._body_positions[:, self._root_body_index]
 
         # N frames contain N - 1 time intervals.
-        duration = (self._num_frames - 1) * self._motion_loader.dt
+        duration = (self._num_frames - 1) * self._motion_library.dt
 
         if duration <= 0.0:
             raise ValueError("Motion clip must contain at least two frames.")
@@ -130,7 +130,7 @@ class MotionViewer:
         frame_velocities = np.diff(
             root_positions,
             axis=0,
-        ) / self._motion_loader.dt
+        ) / self._motion_library.dt
 
         return frame_velocities
 
@@ -147,12 +147,12 @@ class MotionViewer:
             axis=1,
         )
 
-        duration = (self._num_frames - 1) * self._motion_loader.dt
+        duration = (self._num_frames - 1) * self._motion_library.dt
 
         print("\nMotion")
         print(f"  |-- root body: {self._root_body_name}")
         print(f"  |-- frames: {self._num_frames}")
-        print(f"  |-- dt: {self._motion_loader.dt:.6f} s")
+        print(f"  |-- dt: {self._motion_library.dt:.6f} s")
         print(f"  |-- duration: {duration:.3f} s")
 
         print("\nNominal velocity")
@@ -270,7 +270,7 @@ class MotionViewer:
             fig=self._figure,
             func=self._drawing_callback,
             frames=self._num_frames,
-            interval=1000 * self._motion_loader.dt,
+            interval=1000 * self._motion_library.dt,
         )
 
         plt.show()
