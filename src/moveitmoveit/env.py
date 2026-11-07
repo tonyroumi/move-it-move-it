@@ -8,34 +8,23 @@ from .env_cfg import MotionLearningEnvCfg
 
 from moveitmoveit.utils import transforms
 
-from .commands import COMMAND_DIM, CommandIndex
+from .manifest import COMMAND_DIM
+from .mdp import BodyState, ComposedMDP, StepContext, observation_dim
 from .motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
 from .motion_set import MotionSet
-from .observations import compute_proprioceptive_obs
-from .rewards import (
-    action_rate_l2_reward,
-    joint_acc_reward,
-    joint_vel_reward,
-    lin_vel_tracking_reward,
-    line_following_reward,
-    motion_tracking_reward,
-    progress_reward,
-    target_hit_reward,
-    yaw_vel_tracking_reward,
-)
-from .terminations import (
-    deviation_from_motion_termination,
-    unhealthy_termination,
-)
 
 
 class MotionLearningEnv(DirectRLEnv):
     cfg: MotionLearningEnvCfg
 
     def __init__(self, cfg: MotionLearningEnvCfg, render_mode: str | None = None, **kwargs):
+        # DirectRLEnv builds its gym spaces from these during __init__
+        cfg.observation_space = observation_dim(cfg.policy_obs) + COMMAND_DIM
+        cfg.amp_observation_space = observation_dim(cfg.style_obs)
         super().__init__(cfg, render_mode, **kwargs)
 
         self.motions = MotionSet.from_manifest(cfg.motion_manifest, self.device)
+        self.mdp = ComposedMDP(self.motions.specs, cfg.policy_obs, cfg.style_obs, self.device)
 
         self._setup_env()
 
@@ -50,22 +39,15 @@ class MotionLearningEnv(DirectRLEnv):
         )
 
     @property
-    def current_state(self) -> tuple[torch.Tensor, ...]:
-        dof_positions = self.robot.data.joint_pos.torch
-        dof_velocities = self.robot.data.joint_vel.torch
-        root_positions = self.robot.data.body_pos_w.torch[:, self.ref_body_index]
-        root_rotations = self.robot.data.body_quat_w.torch[:, self.ref_body_index]
-        root_linear_velocities = self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index]
-        root_angular_velocities = self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index]
-        key_body_positions = self.robot.data.body_pos_w.torch[:, self.key_body_indexes]
-        return (
-            dof_positions,
-            dof_velocities,
-            root_positions,
-            root_rotations,
-            root_linear_velocities,
-            root_angular_velocities,
-            key_body_positions,
+    def current_state(self) -> BodyState:
+        return BodyState(
+            self.robot.data.joint_pos.torch,
+            self.robot.data.joint_vel.torch,
+            self.robot.data.body_pos_w.torch[:, self.ref_body_index],
+            self.robot.data.body_quat_w.torch[:, self.ref_body_index],
+            self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
+            self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index],
+            self.robot.data.body_pos_w.torch[:, self.key_body_indexes],
         )
 
     def _setup_env(self):
@@ -83,6 +65,7 @@ class MotionLearningEnv(DirectRLEnv):
             ),
             self.cfg.num_amp_observations,
             self.cfg.random_reset,
+            self.mdp.style_obs,
         )
 
         self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
@@ -106,9 +89,6 @@ class MotionLearningEnv(DirectRLEnv):
             self.command_dim,
             device=self.device,
         )
-
-        # distance to the commanded point-goal as of the last reward computation, for the progress reward
-        self.previous_goal_distance = torch.zeros(self.num_envs, device=self.device)
 
         # current/previous action, tracked for the action-rate smoothness penalty
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
@@ -222,119 +202,38 @@ class MotionLearningEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         self._resample_commands()
 
-        obs = compute_proprioceptive_obs(*self.current_state, local_frame=self.cfg.random_reset or self.render_enabled)
-        cmd_obs = torch.concatenate((obs, self.commands), dim=-1)
+        policy_obs, style_obs = self.mdp.observations(
+            self.current_state, self.commands, local_frame=self.cfg.random_reset or self.render_enabled
+        )
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
             self.amp_observation_buffer[:, i + 1] = self.amp_observation_buffer[:, i]
-        self.amp_observation_buffer[:, 0] = obs.clone()
+        self.amp_observation_buffer[:, 0] = style_obs
 
         self.extras["amp_obs"] = self.amp_observation_buffer.view(-1, self.amp_observation_size)
 
-        return cmd_obs
+        return policy_obs
 
     def _get_rewards(self) -> torch.Tensor:
-        weights = self.motions.reward_weights_for(self.motion_ids)
-
-        targets = self._current_tracking_targets()
-
-        root_positions_xy = self.robot.data.body_pos_w.torch[:, self.ref_body_index, :2]
-        goal_positions = self.commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
-        goal_distance = torch.norm(goal_positions - root_positions_xy, dim=-1)
-
-        reward_terms = {
-            "motion_tracking": motion_tracking_reward(
-                self.robot.data.joint_pos.torch,
-                targets.dof_positions,
-                self.robot.data.body_pos_w.torch[:, self.key_body_indexes],
-                self.robot.data.body_pos_w.torch[:, self.ref_body_index],
-                targets.key_body_positions,
-                targets.root_positions,
-                **self.motions.reward_kwargs_for("motion_tracking", self.motion_ids),
-            ),
-            "lin_vel_tracking": lin_vel_tracking_reward(
-                self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
-                self.robot.data.body_quat_w.torch[:, self.ref_body_index],
-                self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
-                **self.motions.reward_kwargs_for("lin_vel_tracking", self.motion_ids),
-            ),
-            "yaw_vel_tracking": yaw_vel_tracking_reward(
-                self.robot.data.body_ang_vel_w.torch[:, self.ref_body_index],
-                self.robot.data.body_quat_w.torch[:, self.ref_body_index],
-                self.commands[:, CommandIndex.YAW],
-                **self.motions.reward_kwargs_for("yaw_vel_tracking", self.motion_ids),
-            ),
-            "target_hit": target_hit_reward(
-                root_positions_xy,
-                goal_positions,
-                **self.motions.reward_kwargs_for("target_hit", self.motion_ids),
-            ),
-            "line_following": line_following_reward(
-                self.robot.data.body_quat_w.torch[:, self.ref_body_index],
-                self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
-                self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1],
-                **self.motions.reward_kwargs_for("line_following", self.motion_ids),
-            ),
-            "action_rate_l2": action_rate_l2_reward(
-                self.actions,
-                self.previous_actions,
-                **self.motions.reward_kwargs_for("action_rate_l2", self.motion_ids),
-            ),
-            "joint_acc": joint_acc_reward(
-                self.robot.data.joint_acc.torch,
-                **self.motions.reward_kwargs_for("joint_acc", self.motion_ids),
-            ),
-            "joint_vel": joint_vel_reward(
-                self.robot.data.joint_vel.torch,
-                **self.motions.reward_kwargs_for("joint_vel", self.motion_ids),
-            ),
-            "progress": progress_reward(
-                goal_distance,
-                self.previous_goal_distance,
-                **self.motions.reward_kwargs_for("progress", self.motion_ids),
-            ),
-        }
-
-        self.previous_goal_distance = goal_distance
-
-        rewards = torch.stack(list(reward_terms.values()), dim=-1)
-        weighted_rewards = weights * rewards
-        total_reward = weighted_rewards.sum(dim=-1)
-
-        self.extras["reward_terms_raw"] = {
-            name: reward.detach()
-            for name, reward in reward_terms.items()
-        }
-
-        self.extras["reward_terms"] = {
-            name: weighted_rewards[:, i].detach()
-            for i, name in enumerate(reward_terms)
-        }
-        self.extras["reward_terms"]["task"] = total_reward.detach()
-
-        return total_reward
+        total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
+            self._step_context(), self.motion_ids
+        )
+        return total
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
+        return self.mdp.died(self._step_context(), self.motion_ids), time_out
 
-        targets = self._current_tracking_targets()
-        terminations = torch.stack(
-            [
-                deviation_from_motion_termination(
-                    self.robot.data.joint_pos.torch,
-                    targets.dof_positions,
-                ),
-                unhealthy_termination(
-                    self.robot.data.body_pos_w.torch[:, self.ref_body_index, 2],
-                ),
-            ],
-            dim=-1,
+    def _step_context(self) -> StepContext:
+        return StepContext(
+            self.current_state,
+            self.robot.data.joint_acc.torch,
+            self.commands,
+            self.actions,
+            self.previous_actions,
+            self._current_tracking_targets,
         )
-
-        enabled = self.motions.termination_flags_for(self.motion_ids)
-        died = torch.any(enabled & terminations, dim=-1)
-        return died, time_out
 
     def _current_tracking_targets(self) -> TrackingTargets:
         """The reference pose at each environment's current clip time."""

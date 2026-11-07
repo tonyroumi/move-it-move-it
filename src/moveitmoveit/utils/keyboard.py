@@ -5,7 +5,7 @@ import torch
 
 from isaaclab.devices import Se2Keyboard, Se2KeyboardCfg
 
-from moveitmoveit.commands import CommandIndex
+from moveitmoveit.manifest import CommandIndex
 
 
 _SE2_COMMANDS = (CommandIndex.LIN_X, CommandIndex.LIN_Y, CommandIndex.YAW)
@@ -43,7 +43,7 @@ class Keyboard(Se2Keyboard):
     }
 
     # Derived from CommandIndex rather than hand-maintained, so the extra
-    # command set/order stays in sync with commands.py automatically.
+    # command set/order stays in sync with CommandIndex automatically.
     EXTRA_COMMAND_ORDER = tuple(
         sorted(
             (

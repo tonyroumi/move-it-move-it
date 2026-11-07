@@ -1,15 +1,24 @@
 """Parses and validates a motion manifest. Deliberately has no torch dependency."""
 
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Any
 
 import yaml
 
-from .commands import CommandIndex
-from .terms import REWARD_KWARG_DEFAULTS, TerminationIndex
 
+class CommandIndex(IntEnum):
+    LIN_X = 0
+    LIN_Y = 1
+    YAW = 2
+    BINARY_KEY_0 = 3
+    BINARY_KEY_1 = 4
+    GOAL_X = 5
+    GOAL_Y = 6
+
+
+COMMAND_DIM = len(CommandIndex)
 COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex)
-TERMINATION_NAMES = frozenset(termination.name.lower() for termination in TerminationIndex)
 MOTION_KEYS = frozenset({"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination"})
 
 
@@ -54,7 +63,7 @@ def load_manifest(path: str) -> list[MotionSpec]:
 
 def _parse_motion(name: str, motion: Any) -> MotionSpec:
     motion = _mapping(motion, name)
-    _check_known(motion, MOTION_KEYS, name)
+    check_known(motion, MOTION_KEYS, name)
     if not isinstance(motion.get("file"), str):
         raise ValueError(f"{name}: 'file' must be a path.")
 
@@ -79,7 +88,7 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
 
 def _parse_commands(commands: Any, motion: str) -> dict[str, tuple[float, float]]:
     commands = _mapping(commands, f"{motion}.commands")
-    _check_known(commands, COMMAND_KEYS, f"{motion}.commands")
+    check_known(commands, COMMAND_KEYS, f"{motion}.commands")
 
     parsed = {}
     for key, value in commands.items():
@@ -98,14 +107,12 @@ def _parse_commands(commands: Any, motion: str) -> dict[str, tuple[float, float]
 
 def _parse_rewards(rewards: Any, motion: str) -> dict[str, RewardSpec]:
     rewards = _mapping(rewards, f"{motion}.rewards")
-    _check_known(rewards, REWARD_KWARG_DEFAULTS, f"{motion}.rewards")
 
     parsed = {}
     for name, spec in rewards.items():
         where = f"{motion}.rewards.{name}"
         if isinstance(spec, dict):
             kwargs = {key: value for key, value in spec.items() if key != "weight"}
-            _check_known(kwargs, REWARD_KWARG_DEFAULTS[name], where)
             parsed[name] = RewardSpec(
                 weight=_number(spec.get("weight", 1.0), f"{where}.weight"),
                 kwargs={key: _number(value, f"{where}.{key}") for key, value in kwargs.items()},
@@ -120,7 +127,8 @@ def _parse_terminations(terminations: Any, motion: str) -> tuple[str, ...]:
         terminations = [terminations]
     if not isinstance(terminations, list):
         raise ValueError(f"{motion}.termination: expected a name or a list of names, got {terminations!r}.")
-    _check_known(terminations, TERMINATION_NAMES, f"{motion}.termination")
+    if not all(isinstance(name, str) for name in terminations):
+        raise ValueError(f"{motion}.termination: expected a name or a list of names, got {terminations!r}.")
     return tuple(terminations)
 
 
@@ -139,7 +147,7 @@ def _number(value: Any, where: str) -> float:
     return float(value)
 
 
-def _check_known(names: Any, known: Any, where: str) -> None:
+def check_known(names: Any, known: Any, where: str) -> None:
     unknown = [name for name in names if name not in known]
     if unknown:
         raise ValueError(f"{where}: unknown {unknown}. Known: {sorted(known)}.")

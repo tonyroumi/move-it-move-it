@@ -12,8 +12,6 @@ from isaaclab.utils.configclass import configclass
 
 from isaaclab_assets import HUMANOID_28_CFG
 
-from moveitmoveit.commands import COMMAND_DIM
-
 
 @configclass
 class HumanoidSceneCfg(InteractiveSceneCfg):
@@ -60,10 +58,17 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     )
 
     action_space: int = 28
-    observation_space: int = 81 + COMMAND_DIM
     state_space: int = 0
     num_amp_observations = 2
-    amp_observation_space = 81
+
+    # which observation terms each consumer reads, in order. Part of a policy's input layout, so
+    # these live here: train.py dumps them to env.yaml and play.py restores them with the checkpoint.
+    policy_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_orientation", "root_lin_vel", "root_ang_vel", "key_body_offsets")
+    style_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_orientation", "root_lin_vel", "root_ang_vel", "key_body_offsets")
+
+    # derived from the selections above when the env is built
+    observation_space: int = 0
+    amp_observation_space = 0
 
     motion_manifest: str = ""
 

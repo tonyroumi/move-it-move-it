@@ -10,7 +10,7 @@ import gymnasium as gym
 import torch
 
 import moveitmoveit
-from moveitmoveit.commands import CommandIndex
+from moveitmoveit.manifest import CommandIndex
 from moveitmoveit.utils.paths import CONFIGS_DIR, resolve_checkpoint, resolve_checkpoint_from_run_dir
 from moveitmoveit.utils.logger import Logger
 

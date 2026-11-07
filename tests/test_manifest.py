@@ -73,11 +73,8 @@ def test_shipped_manifest_is_valid():
     [
         ({"commands": {"lin_xx": [0.0, 1.0]}}, "lin_xx"),
         ({"zero_command_probability": 1.0}, "zero_command_probability"),
-        ({"termination": "unhealhty"}, "unhealhty"),
-        ({"termination": ["unhealthy", "unhealhty"]}, "unhealhty"),
         ({"termination": 3}, "termination"),
-        ({"rewards": {"lin_vel_trackin": 1.0}}, "lin_vel_trackin"),
-        ({"rewards": {"lin_vel_tracking": {"weight": 1.0, "scael": 3.0}}}, "scael"),
+        ({"termination": [3]}, "termination"),
         ({"rewards": {"lin_vel_tracking": "high"}}, "lin_vel_tracking"),
         ({"rewards": {"joint_acc": {"scale": "1e-4"}}}, "joint_acc.scale"),
         ({"commands": {"lin_x": [1.0, 0.0]}}, "reversed"),
@@ -107,9 +104,8 @@ def test_rejects_malformed_documents(write_manifest):
         load_manifest(write_manifest({"m": {"file": "m.npz", "sample_prob": 0}}))
 
 
-@pytest.mark.parametrize("module", ["manifest.py", "terms.py", "commands.py"])
-def test_manifest_layer_does_not_import_torch(module):
-    tree = ast.parse((REPO_ROOT / "src/moveitmoveit" / module).read_text())
+def test_manifest_layer_does_not_import_torch():
+    tree = ast.parse((REPO_ROOT / "src/moveitmoveit/manifest.py").read_text())
     imported = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -117,4 +113,4 @@ def test_manifest_layer_does_not_import_torch(module):
         elif isinstance(node, ast.ImportFrom):
             imported.add(("." * node.level) + (node.module or ""))
 
-    assert imported <= {"dataclasses", "enum", "typing", "yaml", ".commands", ".terms"}
+    assert imported <= {"dataclasses", "enum", "typing", "yaml"}
