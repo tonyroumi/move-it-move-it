@@ -2,7 +2,7 @@ from typing import Callable, NamedTuple
 
 import torch
 
-from moveitmoveit.observations import compute_proprioceptive_obs
+from moveitmoveit.mdp import BodyState
 from moveitmoveit.utils import transforms
 
 from .library import MotionFrames, MotionLibrary
@@ -50,12 +50,14 @@ class ReferenceMotions:
         skeleton_map: SkeletonMap,
         num_amp_steps: int,
         random_yaw: bool,
+        style_obs: Callable[[BodyState, bool], torch.Tensor],
     ):
         self._pick = picker
         self._library = library
         self._skeleton = skeleton_map
         self._num_amp_steps = num_amp_steps
         self._random_yaw = random_yaw
+        self._style_obs = style_obs
 
     def frames_for_reset(self, motion_ids: torch.Tensor, times: torch.Tensor) -> ResetFrames:
         """The state to reset each env to, with no yaw applied."""
@@ -110,7 +112,7 @@ class ReferenceMotions:
             frames = self._apply_yaw(frames, yaw.repeat_interleave(self._num_amp_steps, dim=0))
 
         root = self._skeleton.root_body_index
-        return compute_proprioceptive_obs(
+        state = BodyState(
             frames.dof_positions[:, self._skeleton.dof_indexes],
             frames.dof_velocities[:, self._skeleton.dof_indexes],
             frames.body_positions[:, root],
@@ -118,8 +120,8 @@ class ReferenceMotions:
             frames.body_linear_velocities[:, root],
             frames.body_angular_velocities[:, root],
             frames.body_positions[:, self._skeleton.key_body_indexes],
-            local_frame=self._random_yaw,
         )
+        return self._style_obs(state, self._random_yaw)
 
     def _apply_yaw(self, frames: MotionFrames, yaw: torch.Tensor) -> MotionFrames:
         body_positions, body_rotations, body_linear_velocities, body_angular_velocities = transforms.apply_random_yaw(

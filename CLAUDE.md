@@ -20,7 +20,7 @@ hardcoded per-behavior.
 - `moveitmoveit/manifest.py`
   - parses and validates the motion manifest, with no torch dependency
 - `moveitmoveit/motion_set.py`
-  - `MotionSet`: per-motion command/reward/termination/selection tables built from the motion manifest, and the `MotionLibrary` holding their clips. Per-env clip assignment lives on the env
+  - `MotionSet`: per-motion command/selection tables built from the motion manifest, and the `MotionLibrary` holding their clips. Per-env clip assignment lives on the env
 - `moveitmoveit/motion/`
   - `library.py` — `MotionLibrary`: reference motion clip loading and state sampling by motion id
   - `reference.py` — `ReferenceMotions`: what the env reset, tracking and AMP consumers ask of the reference motion
