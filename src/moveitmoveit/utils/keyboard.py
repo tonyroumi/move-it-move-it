@@ -141,7 +141,7 @@ class PointGoalKeyboard(Se2Keyboard):
     2D offset that grows while a key is held, rather than emitting an instantaneous velocity -- i.e.
     a point that walks away from its starting position as you steer it. The offset is in world-frame
     meters, not rotated by the robot's heading (matching how goal commands are sampled in
-    `MotionManager`/`MotionLearningEnv`); the caller is responsible for anchoring it to the robot's
+    `MotionSet`/`MotionLearningEnv`); the caller is responsible for anchoring it to the robot's
     current position before writing it into the env's `commands` buffer.
 
     Keys:
