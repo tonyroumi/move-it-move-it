@@ -1,4 +1,7 @@
-"""Shared fixtures. Run with: ./isaaclab.sh -p -m pytest tests
+"""Shared fixtures. Run with: python -m pytest tests
+
+Modules that need IsaacLab skip themselves without it. Under IsaacLab's Python
+(./isaaclab.sh -p -m pytest tests) they run too; no simulator is started either way.
 
 Clips are synthetic so these tests pin code semantics, not the contents of the committed clips.
 """
