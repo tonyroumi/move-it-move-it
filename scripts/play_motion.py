@@ -98,13 +98,13 @@ def main():
         unwrapped = env.unwrapped
 
         motions = unwrapped.motions
-        motion_library = motions.library
+        reference = unwrapped.reference
 
         motion_name = args_cli.motion if args_cli.motion is not None else _choose_motion(motions.names)
         if motion_name not in motions.name_to_id:
             raise ValueError(f"Unknown motion '{motion_name}'. Available: {motions.names}")
         motion_id = motions.name_to_id[motion_name]
-        duration = motion_library.duration[motion_id].item()
+        duration = motions.library.duration[motion_id].item()
         print(f"[INFO] Playing motion '{motion_name}' (id={motion_id}, duration={duration:.2f}s)")
 
         env.reset()
@@ -114,11 +114,9 @@ def main():
         physics_dt = unwrapped.sim.get_physics_dt()
 
         # sample a single random yaw up front and hold it for the whole playback (mirroring the
-        # per-episode, not per-step, yaw randomization applied during training); `_compute_robot_state`
-        # would otherwise draw a fresh yaw on every call, since it's normally only called once per
-        # reset, so its own random-yaw handling is disabled here and applied manually below instead
+        # per-episode, not per-step, yaw randomization applied during training); it's applied
+        # manually below instead of through `_compute_robot_state`, to pivot about the clip's start
         random_yaw = transforms.random_yaw_orientation(env_ids.shape[0], unwrapped.device) if args_cli.random_reset else None
-        unwrapped.cfg.random_reset = False
         if random_yaw is not None:
             print(f"[INFO] Applying a fixed random yaw rotation about the z-axis: {random_yaw}")
             # `_compute_robot_state`/training only rotate orientation, velocity, and other bodies'
@@ -127,8 +125,7 @@ def main():
             # rotate the root's translational path itself, pivoting about the clip's own start position,
             # so the character actually walks off in the direction it's now facing.
             zero_times = torch.zeros((unwrapped.num_envs,), device=unwrapped.device)
-            clip_origin_positions = motion_library.frames(motion_ids, zero_times).body_positions
-            clip_origin_position = clip_origin_positions[:, unwrapped.motion_ref_body_index]
+            clip_origin_position = reference.frames_for_reset(motion_ids, zero_times).root_positions
 
         frames = []
         if args_cli.record:
@@ -143,24 +140,9 @@ def main():
                 start_time = time.time()
 
                 times = torch.full((unwrapped.num_envs,), clip_time, device=unwrapped.device)
-                (
-                    dof_positions,
-                    dof_velocities,
-                    body_positions,
-                    body_rotations,
-                    body_linear_velocities,
-                    body_angular_velocities,
-                ) = motion_library.frames(motion_ids, times)
+                frames = reference.frames_for_reset(motion_ids, times)
 
-                root_state, dof_pos, dof_vel = unwrapped._compute_robot_state(
-                    env_ids,
-                    dof_positions,
-                    dof_velocities,
-                    body_positions,
-                    body_rotations,
-                    body_linear_velocities,
-                    body_angular_velocities,
-                )
+                root_state, dof_pos, dof_vel = unwrapped._compute_robot_state(env_ids, frames)
                 if random_yaw is not None:
                     pivot = clip_origin_position + unwrapped.scene.env_origins[env_ids]
                     root_state[:, 0:3] = pivot + transforms.quat_apply(random_yaw, root_state[:, 0:3] - pivot)

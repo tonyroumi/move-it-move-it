@@ -17,6 +17,28 @@ class SkeletonMap(NamedTuple):
     key_body_indexes: list[int]
 
 
+class ResetFrames(NamedTuple):
+    """Robot state to reset to, in robot DOF order, before any yaw. All shapes are (N, X)."""
+
+    dof_positions: torch.Tensor
+    dof_velocities: torch.Tensor
+    root_positions: torch.Tensor
+    root_rotations: torch.Tensor
+    root_linear_velocities: torch.Tensor
+    root_angular_velocities: torch.Tensor
+
+
+class TrackingTargets(NamedTuple):
+    """Pose the tracking reward and termination compare the robot against."""
+
+    dof_positions: torch.Tensor
+    """In robot DOF order. Shape is (N, num_dofs)."""
+    root_positions: torch.Tensor
+    """Shape is (N, 3)."""
+    key_body_positions: torch.Tensor
+    """Shape is (N, num_key_bodies, 3)."""
+
+
 class ReferenceMotions:
     """Reference motion, by what each consumer asks of it. Per-env state stays on the env, which
     passes in the motion ids, times and yaw it owns."""
@@ -34,6 +56,30 @@ class ReferenceMotions:
         self._skeleton = skeleton_map
         self._num_amp_steps = num_amp_steps
         self._random_yaw = random_yaw
+
+    def frames_for_reset(self, motion_ids: torch.Tensor, times: torch.Tensor) -> ResetFrames:
+        """The state to reset each env to, with no yaw applied."""
+        frames = self._library.frames(motion_ids, times)
+        root = self._skeleton.root_body_index
+        return ResetFrames(
+            frames.dof_positions[:, self._skeleton.dof_indexes],
+            frames.dof_velocities[:, self._skeleton.dof_indexes],
+            frames.body_positions[:, root],
+            frames.body_rotations[:, root],
+            frames.body_linear_velocities[:, root],
+            frames.body_angular_velocities[:, root],
+        )
+
+    def tracking_targets(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor) -> TrackingTargets:
+        """The pose to track at each env's current motion time, at that env's yaw."""
+        frames = self._library.frames(motion_ids, times)
+        if self._random_yaw:
+            frames = self._apply_yaw(frames, yaw)
+        return TrackingTargets(
+            frames.dof_positions[:, self._skeleton.dof_indexes],
+            frames.body_positions[:, self._skeleton.root_body_index],
+            frames.body_positions[:, self._skeleton.key_body_indexes],
+        )
 
     def amp_seed(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
         """AMP observation history ending at each env's reset time, at that env's yaw.

@@ -9,7 +9,7 @@ from .env_cfg import MotionLearningEnvCfg
 from moveitmoveit.utils import transforms
 
 from .commands import COMMAND_DIM, CommandIndex
-from .motion.reference import ReferenceMotions, SkeletonMap
+from .motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
 from .motion_set import MotionSet
 from .observations import compute_proprioceptive_obs
 from .rewards import (
@@ -73,13 +73,14 @@ class MotionLearningEnv(DirectRLEnv):
         key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
         self.ref_body_index = self.robot.data.body_names.index("torso")
         self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
-        self.motion_dof_indexes = self.motions.library.get_dof_index(self.robot.data.joint_names)
-        self.motion_ref_body_index = self.motions.library.get_body_index(["torso"])[0]
-        self.motion_key_body_indexes = self.motions.library.get_body_index(key_body_names)
         self.reference = ReferenceMotions(
             self.motions.sample_ids,
             self.motions.library,
-            SkeletonMap(self.motion_dof_indexes, self.motion_ref_body_index, self.motion_key_body_indexes),
+            SkeletonMap(
+                self.motions.library.get_dof_index(self.robot.data.joint_names),
+                self.motions.library.get_body_index(["torso"])[0],
+                self.motions.library.get_body_index(key_body_names),
+            ),
             self.cfg.num_amp_observations,
             self.cfg.random_reset,
         )
@@ -195,23 +196,13 @@ class MotionLearningEnv(DirectRLEnv):
         self.motion_ids[env_ids] = self.motions.sample_ids(num_samples)
         times = self.motions.library.sample_times(self.motion_ids[env_ids])
         self.motion_start_times[env_ids] = times
-        (
-            dof_positions,
-            dof_velocities,
-            body_positions,
-            body_rotations,
-            body_linear_velocities,
-            body_angular_velocities,
-        ) = self.motions.library.frames(self.motion_ids[env_ids], times)
-        root_state, dof_pos, dof_vel = self._compute_robot_state(
-            env_ids,
-            dof_positions,
-            dof_velocities,
-            body_positions,
-            body_rotations,
-            body_linear_velocities,
-            body_angular_velocities,
-        )
+        frames = self.reference.frames_for_reset(self.motion_ids[env_ids], times)
+
+        yaw = None
+        if self.cfg.random_reset:
+            yaw = transforms.random_yaw_orientation(num_samples, self.device)
+            self.random_yaw_quat[env_ids] = yaw
+        root_state, dof_pos, dof_vel = self._compute_robot_state(env_ids, frames, yaw)
 
         self._write_robot_state(
             env_ids,
@@ -246,14 +237,7 @@ class MotionLearningEnv(DirectRLEnv):
     def _get_rewards(self) -> torch.Tensor:
         weights = self.motions.reward_weights_for(self.motion_ids)
 
-        (
-            ref_dof_positions,
-            _,
-            ref_body_positions,
-            _,
-            _,
-            _,
-        ) = self.current_env_reference_motion()
+        targets = self._current_tracking_targets()
 
         root_positions_xy = self.robot.data.body_pos_w.torch[:, self.ref_body_index, :2]
         goal_positions = self.commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
@@ -262,11 +246,11 @@ class MotionLearningEnv(DirectRLEnv):
         reward_terms = {
             "motion_tracking": motion_tracking_reward(
                 self.robot.data.joint_pos.torch,
-                ref_dof_positions[:, self.motion_dof_indexes],
+                targets.dof_positions,
                 self.robot.data.body_pos_w.torch[:, self.key_body_indexes],
                 self.robot.data.body_pos_w.torch[:, self.ref_body_index],
-                ref_body_positions[:, self.motion_key_body_indexes],
-                ref_body_positions[:, self.motion_ref_body_index],
+                targets.key_body_positions,
+                targets.root_positions,
                 **self.motions.reward_kwargs_for("motion_tracking", self.motion_ids),
             ),
             "lin_vel_tracking": lin_vel_tracking_reward(
@@ -334,12 +318,12 @@ class MotionLearningEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
-        ref_dof_positions, *_ = self.current_env_reference_motion()
+        targets = self._current_tracking_targets()
         terminations = torch.stack(
             [
                 deviation_from_motion_termination(
                     self.robot.data.joint_pos.torch,
-                    ref_dof_positions[:, self.motion_dof_indexes],
+                    targets.dof_positions,
                 ),
                 unhealthy_termination(
                     self.robot.data.body_pos_w.torch[:, self.ref_body_index, 2],
@@ -352,42 +336,13 @@ class MotionLearningEnv(DirectRLEnv):
         died = torch.any(enabled & terminations, dim=-1)
         return died, time_out
 
-    def current_env_reference_motion(self) -> tuple[torch.Tensor, ...]:
-        """Sample the reference motion at each environment's current clip time."""
+    def _current_tracking_targets(self) -> TrackingTargets:
+        """The reference pose at each environment's current clip time."""
         current_times = (
             self.motion_start_times
             + self.episode_length_buf.to(torch.float32) * self.step_dt
         )
-
-        (
-            dof_positions,
-            dof_velocities,
-            body_positions,
-            body_rotations,
-            body_linear_velocities,
-            body_angular_velocities,
-        ) = self.motions.library.frames(self.motion_ids, current_times)
-
-        if self.cfg.random_reset:
-            body_positions, body_rotations, body_linear_velocities, body_angular_velocities = (
-                transforms.apply_random_yaw(
-                    self.random_yaw_quat,
-                    self.motion_ref_body_index,
-                    body_positions,
-                    body_rotations,
-                    body_linear_velocities,
-                    body_angular_velocities,
-                )
-            )
-
-        return (
-            dof_positions,
-            dof_velocities,
-            body_positions,
-            body_rotations,
-            body_linear_velocities,
-            body_angular_velocities,
-        )
+        return self.reference.tracking_targets(self.motion_ids, current_times, self.random_yaw_quat)
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands for envs that have gone `command_resample_steps` steps since their
@@ -413,29 +368,20 @@ class MotionLearningEnv(DirectRLEnv):
     def _compute_robot_state(
         self,
         env_ids: torch.Tensor,
-        dof_positions: torch.Tensor,
-        dof_velocities: torch.Tensor,
-        body_positions: torch.Tensor,
-        body_rotations: torch.Tensor,
-        body_linear_velocities: torch.Tensor,
-        body_angular_velocities: torch.Tensor,
+        frames: ResetFrames,
+        yaw: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         
         root_state = self.default_root_state[env_ids].clone()
-        root_state[:, 0:3] = body_positions[:, self.motion_ref_body_index] + self.scene.env_origins[env_ids]
+        root_state[:, 0:3] = frames.root_positions + self.scene.env_origins[env_ids]
         root_state[:, 2] += 0.1  # lift the humanoid slightly to avoid collisions with the ground
-        root_state[:, 3:7] = body_rotations[:, self.motion_ref_body_index]
-        root_state[:, 7:10] = body_linear_velocities[:, self.motion_ref_body_index]
-        root_state[:, 10:13] = body_angular_velocities[:, self.motion_ref_body_index]
+        root_state[:, 3:7] = frames.root_rotations
+        root_state[:, 7:10] = frames.root_linear_velocities
+        root_state[:, 10:13] = frames.root_angular_velocities
 
-        dof_pos = dof_positions[:, self.motion_dof_indexes]
-        dof_vel = dof_velocities[:, self.motion_dof_indexes]
-
-        if self.cfg.random_reset:
-            random_yaw = transforms.random_yaw_orientation(env_ids.shape[0], self.device)
-            self.random_yaw_quat[env_ids] = random_yaw
-            root_state[:, 0:3] =  transforms.quat_apply(random_yaw, root_state[:, 0:3])
-            root_state[:, 3:7] = transforms.quat_mul(random_yaw, root_state[:, 3:7])
-            root_state[:, 7:10] = transforms.quat_apply(random_yaw, root_state[:, 7:10])
-            root_state[:, 10:13] = transforms.quat_apply(random_yaw, root_state[:, 10:13])
-        return root_state, dof_pos, dof_vel
+        if yaw is not None:
+            root_state[:, 0:3] =  transforms.quat_apply(yaw, root_state[:, 0:3])
+            root_state[:, 3:7] = transforms.quat_mul(yaw, root_state[:, 3:7])
+            root_state[:, 7:10] = transforms.quat_apply(yaw, root_state[:, 7:10])
+            root_state[:, 10:13] = transforms.quat_apply(yaw, root_state[:, 10:13])
+        return root_state, frames.dof_positions, frames.dof_velocities
