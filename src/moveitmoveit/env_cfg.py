@@ -75,6 +75,8 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     # environment flags
     random_reset: bool = True
     command_resample_steps: int = 150
+    # off while play.py drives the commands from the keyboard
+    resample_commands: bool = True
 
     # rendering
     camera_type: Literal["facing", "third-person", "none"] = "none"

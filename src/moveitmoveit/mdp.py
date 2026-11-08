@@ -45,7 +45,8 @@ class StepContext:
     previous_actions: torch.Tensor
     sample_targets: Callable[[], TrackingTargets]
     memory: dict[str, torch.Tensor] = field(default_factory=dict)
-    """State a term keeps across steps. Owned by ComposedMDP, never reset between episodes."""
+    """State a term keeps across steps. Owned by ComposedMDP. Rows the env resets
+    (`ComposedMDP.reset_memory`) read NaN, meaning that env has no previous step."""
 
     @cached_property
     def targets(self) -> TrackingTargets:
@@ -62,6 +63,7 @@ class StepContext:
 
     @property
     def commanded_goal(self) -> torch.Tensor:
+        """The goal's world-space XY position."""
         return self.commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
 
 
@@ -213,9 +215,11 @@ def joint_vel(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
 
 @reward(scale=1.0)
 def progress(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
-    """How much closer to the commanded goal position the last step made us."""
+    """How much closer to the commanded goal position the last step made us. 0 on an env's first
+    step and on the first step after its episode or goal changes, so a new goal earns nothing."""
     distance = torch.norm(c.commanded_goal - c.root_positions_xy, dim=-1)
-    previous = c.memory.get("goal_distance", torch.zeros_like(distance))
+    previous = c.memory.get("goal_distance", distance)
+    previous = torch.where(torch.isnan(previous), distance, previous)
     c.memory["goal_distance"] = distance
     return scale * (previous - distance)
 
@@ -233,6 +237,28 @@ def deviation_from_motion(c: StepContext, threshold: float = 1.5) -> torch.Tenso
 def unhealthy(c: StepContext, height_threshold: float = 0.65) -> torch.Tensor:
     """The root body falls below a minimum height."""
     return c.state.root_positions[:, 2] < height_threshold
+
+
+# --- commands ---------------------------------------------------------------------------------
+
+
+def policy_commands(
+    state: BodyState, commands: torch.Tensor, has_goal: torch.Tensor, local_frame: bool
+) -> torch.Tensor:
+    """The commands as the policy observes them.
+
+    The goal command is a world-space XY position, which a policy can't use as is, so it becomes
+    the goal's offset from the root: in the root's heading frame when `local_frame`, else along the
+    world axes. Envs whose motion has no goal (`has_goal`, shape (N,)) observe 0 there.
+    """
+    goal = slice(CommandIndex.GOAL_X, CommandIndex.GOAL_Y + 1)
+    offset = commands[:, goal] - state.root_positions[:, :2]
+    if local_frame:
+        offset = transforms.world_to_heading_frame_xy(state.root_rotations, offset)
+
+    observed = commands.clone()
+    observed[:, goal] = torch.where(has_goal.unsqueeze(-1), offset, torch.zeros_like(offset))
+    return observed
 
 
 # --- composition ------------------------------------------------------------------------------
@@ -310,6 +336,11 @@ class ComposedMDP:
         terms = {name: weighted[:, i].detach() for i, name in enumerate(raw)}
         terms["task"] = total.detach()
         return total, {name: value.detach() for name, value in raw.items()}, terms
+
+    def reset_memory(self, env_ids: torch.Tensor) -> None:
+        """Forget what terms remembered about these envs, e.g. when their episode or goal changes."""
+        for value in self._memory.values():
+            value[env_ids] = float("nan")
 
     def died(self, c: StepContext, motion_ids: torch.Tensor) -> torch.Tensor:
         """Envs where a termination their motion enabled has fired."""

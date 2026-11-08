@@ -141,13 +141,14 @@ class PointGoalKeyboard(Se2Keyboard):
     2D offset that grows while a key is held, rather than emitting an instantaneous velocity -- i.e.
     a point that walks away from its starting position as you steer it. The offset is in world-frame
     meters, not rotated by the robot's heading (matching how goal commands are sampled in
-    `MotionSet`/`MotionLearningEnv`); the caller is responsible for anchoring it to the robot's
-    current position before writing it into the env's `commands` buffer.
+    `MotionSet`/`MotionLearningEnv`); the caller adds it to a fixed world anchor (play.py uses each
+    env's start position) before writing it into the env's `commands` buffer, so the goal stays put
+    while the robot walks toward it.
 
     Keys:
         Forward/Backward:  Up Arrow / Numpad 8, Down Arrow / Numpad 2  -> +X / -X
         Left/Right:        Arrow keys / Numpad 4, 6                    -> -Y / +Y
-        Reset:             L                                            -> back to `initial_offset`
+        Reset:             L                                            -> back to `initial_offset` from the anchor
 
     Yaw keys (Z / X, Numpad 7 / 9) have no effect in this mode.
 

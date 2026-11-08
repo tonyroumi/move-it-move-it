@@ -9,7 +9,7 @@ from .env_cfg import MotionLearningEnvCfg
 from moveitmoveit.utils import transforms
 
 from .manifest import COMMAND_DIM
-from .mdp import BodyState, ComposedMDP, StepContext, observation_dim
+from .mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
 from .motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
 from .motion_set import MotionSet
 
@@ -202,9 +202,10 @@ class MotionLearningEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         self._resample_commands()
 
-        policy_obs, style_obs = self.mdp.observations(
-            self.current_state, self.commands, local_frame=self.cfg.random_reset or self.render_enabled
-        )
+        state = self.current_state
+        local_frame = self.cfg.random_reset or self.render_enabled
+        commands = policy_commands(state, self.commands, self.motions.has_goal[self.motion_ids], local_frame)
+        policy_obs, style_obs = self.mdp.observations(state, commands, local_frame=local_frame)
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
@@ -245,7 +246,11 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands for envs that have gone `command_resample_steps` steps since their
-        last command sample or whose `dones` flag is set."""
+        last command sample or whose `dones` flag is set. Goals are placed relative to where each
+        env's root is now, then stay fixed in world space."""
+
+        if not self.cfg.resample_commands:
+            return
 
         resample = self.episode_length_buf % (self.cfg.command_resample_steps + 1) == 0
 
@@ -254,15 +259,13 @@ class MotionLearningEnv(DirectRLEnv):
 
         resample_env_ids = resample.nonzero(as_tuple=False).squeeze(-1)
         if resample_env_ids.numel() > 0:
-            sampled_commands = self.motions.sample_commands(self.motion_ids[resample_env_ids])
+            root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
+            self.commands[resample_env_ids] = self.motions.sample_commands(
+                self.motion_ids[resample_env_ids], root_positions_xy
+            )
 
-            # goal_offset = sampled_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1].clone()
-            # root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
-            # sampled_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy
-
-            self.commands[resample_env_ids] = sampled_commands
-
-            # self.previous_goal_distance[resample_env_ids] = torch.norm(goal_offset, dim=-1)
+            # a new goal or episode: progress toward the old goal no longer means anything
+            self.mdp.reset_memory(resample_env_ids)
 
     def _compute_robot_state(
         self,
