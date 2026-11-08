@@ -11,7 +11,6 @@ import torch
 
 import moveitmoveit
 from moveitmoveit.manifest import CommandIndex
-from moveitmoveit.utils.paths import CONFIGS_DIR, resolve_checkpoint, resolve_checkpoint_from_run_dir
 from moveitmoveit.utils.logger import Logger
 
 from isaaclab.utils.dict import update_class_from_dict
@@ -33,34 +32,13 @@ TASK_ID = "MoveIt-Humanoid-v0"
 
 parser = argparse.ArgumentParser(description="Play a checkpoint of an agent.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
-parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint.")
 parser.add_argument(
-    "--algo",
+    "--checkpoint",
     type=str,
-    default=None,
-    choices=["PPO", "AMP"],
-    help="RL algorithm whose runs to search under, as written by train.py. Ignored if --log-dir is given.",
-)
-parser.add_argument(
-    "--log-dir",
-    type=str,
-    default=None,
+    required=True,
     help=(
-        "Path to a specific run's log directory, as written by train.py (contains params/ and "
-        "checkpoints/). When given, the env and agent configs are loaded from "
-        "<log-dir>/params/{env,agent}.yaml instead of being re-resolved from the task registry, "
-        "and the checkpoint defaults to <log-dir>/checkpoints/ rather than the most recently "
-        "written run. Ignored for config resolution if not provided (task registry is used instead)."
-    ),
-)
-parser.add_argument(
-    "--step",
-    type=int,
-    default=None,
-    help=(
-        "Timestep of the checkpoint to play (checkpoints/{step}.pt). Taken from --log-dir if given, "
-        "otherwise from the most recently written run directory. Defaults to checkpoints/best_agent.pt. "
-        "Ignored if --checkpoint is provided."
+        "Path to a model checkpoint written by train.py (<run>/checkpoints/<name>.pt). The env and agent"
+        " configs are loaded from that run's params/{env,agent}.yaml."
     ),
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
@@ -115,37 +93,12 @@ if args_cli.record:
 
 def main():
     """Play with skrl agent."""
-    env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
-
-    # seed/experiment/logger are shared across algorithms, so they live in their own config
-    # rather than being duplicated in each agents/<algo>.yaml
-    experiment_cfg = load_yaml(os.path.join(CONFIGS_DIR, "experiment.yaml"))
-    agent_cfg["seed"] = experiment_cfg["seed"]
-    agent_cfg["experiment"] = experiment_cfg["experiment"]
-    agent_cfg["logger"] = experiment_cfg["logger"]
+    env_cfg, _ = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
     with launch_simulation(env_cfg, args_cli):
-        # override configurations with non-hydra CLI arguments
-
-        if args_cli.log_dir:
-            resume_path = resolve_checkpoint_from_run_dir(log_dir, checkpoint=args_cli.checkpoint, step=args_cli.step)
-        else:
-            if args_cli.algo is None:
-                raise ValueError("--algo is required to locate runs when --log-dir is not given.")
-
-            # specify directory for logging experiments: directory/experiment_name/algorithm/run
-            log_root_path = os.path.join(
-                "logs",
-                agent_cfg["experiment"]["directory"],
-                agent_cfg["experiment"]["experiment_name"],
-                args_cli.algo,
-            )
-            log_root_path = os.path.abspath(log_root_path)
-
-            print(f"[INFO] Loading experiment from directory: {log_root_path}")
-
-            resume_path = resolve_checkpoint(log_root_path, checkpoint=args_cli.checkpoint, step=args_cli.step)
-            log_dir = os.path.dirname(os.path.dirname(resume_path))
+        # train.py writes checkpoints to <run>/checkpoints/, next to the configs it ran with in <run>/params/
+        resume_path = os.path.abspath(args_cli.checkpoint)
+        log_dir = os.path.dirname(os.path.dirname(resume_path))
 
         # load the env/agent configs as they were dumped by train.py
         params_dir = os.path.join(log_dir, "params")
