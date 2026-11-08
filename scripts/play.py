@@ -64,8 +64,9 @@ parser.add_argument(
     choices=["velocity", "point_goal"],
     help=(
         "With --joystick, which command the keyboard drives: 'velocity' for the SE(2) lin/yaw"
-        " command (original behavior), or 'point_goal' for the 2D goal point, moved with the same"
-        " up/down/left/right keys."
+        " command (original behavior), or 'point_goal' for a world-space goal point that starts 1 m"
+        " ahead (+X) of each env's start position, stays put while the robot walks, and is moved with"
+        " the same up/down/left/right keys. Needs a checkpoint whose manifest declares goal_x/goal_y."
     ),
 )
 parser.add_argument(
@@ -112,6 +113,8 @@ def main():
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
         env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
         env_cfg.random_reset = False
+        # the keyboard owns the commands; the env's own resampling would overwrite them
+        env_cfg.resample_commands = not args_cli.joystick
         args_cli.seed = agent_cfg["seed"]
 
         # create isaac environment
@@ -141,6 +144,12 @@ def main():
             )
 
             if args_cli.joystick_mode == "point_goal":
+                if not env.unwrapped.motions.has_goal.any():
+                    raise ValueError(
+                        "--joystick-mode point_goal needs a checkpoint trained on a manifest motion that"
+                        " declares goal_x/goal_y commands; this one has none, so its policy never sees a goal."
+                    )
+
                 from moveitmoveit.utils.keyboard import PointGoalKeyboard
 
                 keyboard = PointGoalKeyboard(se2_keyboard_cfg, dt=env.unwrapped.step_dt)
@@ -202,6 +211,9 @@ def main():
         runner.agent.load_checkpoint(resume_path, device=env.unwrapped.device)
 
         obs, _ = env.reset()
+        # the keyboard's goal offset is taken from each env's start position, once, so the goal is a
+        # fixed point in world space rather than one that moves along with the robot
+        goal_anchor_xy = env.unwrapped.robot.data.body_pos_w.torch[:, env.unwrapped.ref_body_index, :2].clone()
         timestep = 0
         try:
             while True:
@@ -211,10 +223,7 @@ def main():
                     command = keyboard.advance().to(env.unwrapped.device)
                     command = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1).clone()
                     if args_cli.joystick_mode == "point_goal":
-                        root_positions_xy = env.unwrapped.robot.data.body_pos_w.torch[
-                            :, env.unwrapped.ref_body_index, :2
-                        ]
-                        command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy
+                        command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += goal_anchor_xy
 
                         goal_positions_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
                         goal_height = torch.full(

@@ -23,6 +23,25 @@ def quaternion_to_tangent_and_normal(q: torch.Tensor) -> torch.Tensor:
     normal = quat_apply(q, ref_normal)
     return torch.cat([tangent, normal], dim=len(tangent.shape) - 1)
 
+def world_to_heading_frame_xy(rotations: torch.Tensor, vectors_xy: torch.Tensor) -> torch.Tensor:
+    """Rotate world-frame XY vectors into each body's heading frame: yaw only, so a tilted body
+    still sees a vector ahead of it along +X and one to its left along +Y.
+
+    Args:
+        rotations: Body orientations. Shape is (N, 4).
+        vectors_xy: World-frame XY vectors. Shape is (N, 2).
+
+    Returns:
+        The vectors in the heading frame. Shape is (N, 2).
+    """
+    x_axis = torch.zeros_like(rotations[:, :3])
+    x_axis[:, 0] = 1.0
+    heading = quat_apply(rotations, x_axis)
+    yaw = torch.atan2(heading[:, 1], heading[:, 0])
+    cos, sin = torch.cos(yaw), torch.sin(yaw)
+    x, y = vectors_xy[:, 0], vectors_xy[:, 1]
+    return torch.stack((cos * x + sin * y, -sin * x + cos * y), dim=-1)
+
 @torch.jit.script
 def normalize_angle(x: torch.Tensor) -> torch.Tensor:
     return torch.atan2(torch.sin(x), torch.cos(x))

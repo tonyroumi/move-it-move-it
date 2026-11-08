@@ -183,7 +183,7 @@ def test_progress_keeps_its_own_memory_across_steps(specs):
 
     distance = torch.norm(first.commanded_goal - first.root_positions_xy, dim=-1)
     next_distance = torch.norm(second.commanded_goal - second.root_positions_xy, dim=-1)
-    assert torch.equal(raw_first["progress"], -distance)  # memory starts at zero, as previous_goal_distance did
+    assert torch.equal(raw_first["progress"], torch.zeros(NUM_ENVS))  # no previous step, so no progress yet
     assert torch.equal(raw_second["progress"], distance - next_distance)
 
 
