@@ -223,14 +223,21 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
         # runs before this step's _get_observations, so self.standing is still the mode the policy
-        # observed when it chose the action; AMP gates its style reward with the same mask
+        # observed when it chose the action; AMP gates its style reward with a mask built from it
         self.extras["standing"] = self.standing
+        self.extras["style_reward_off"] = self._style_reward_off()
         context = self._step_context()
         total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
             context, self.motion_ids, self.standing
         )
         self.extras["command_tracking"] = self.mdp.command_tracking(context, self.motion_ids)
         return total
+
+    def _style_reward_off(self) -> torch.Tensor:
+        """(N,) bool: envs that earn no AMP style reward this step. Standing envs are the only
+        condition today; OR another per-env mask in here to turn style off for it too, without
+        putting those envs in standing mode (their task rewards stay the motion's `rewards`)."""
+        return self.standing
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1

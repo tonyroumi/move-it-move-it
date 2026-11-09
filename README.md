@@ -75,6 +75,12 @@ standing:
   reward is 0 for that env. The discriminator's training is unchanged: standing envs' AMP
   observations still reach its buffer. A nonzero command restores the motion's `rewards` and the
   style reward from the next step on.
+- **Style reward off.** AMP doesn't know about standing: it zeroes the style reward for the envs in
+  the env's per-step `extras["style_reward_off"]` (N,) bool mask, and every env earns style when
+  the mask is missing. `MotionLearningEnv._style_reward_off()` builds that mask, today from
+  standing mode alone; OR another per-env condition into it to turn style off for those envs too,
+  without putting them in standing mode. `extras["standing"]` is still exported, but AMP no longer
+  reads it.
 - **Transitions.** Commands resample every `command_resample_steps` and on reset, with a zero
   command at the motion's `zero_command_prob`, so episodes switch between modes. Resets start
   from clip frames, so standing envs also learn to stop from a walking pose. Goal envs also switch

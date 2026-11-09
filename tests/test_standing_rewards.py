@@ -361,17 +361,60 @@ def amp(monkeypatch):
         sys.modules.pop(name)
 
 
-def test_style_reward_is_off_only_for_standing_envs_and_the_discriminator_still_sees_them(amp):
-    task, amp_obs = amp.step({"standing": torch.tensor([True, False, True, False])})
+def test_style_reward_is_off_only_for_flagged_envs_and_the_discriminator_still_sees_them(amp):
+    task, amp_obs = amp.step({"style_reward_off": torch.tensor([True, False, True, False])})
 
-    walking = torch.tensor([False, True, False, True])
-    expected = 0.5 * task + torch.where(walking, 2.0 * amp.style, torch.zeros(4))
-    assert torch.allclose(amp.captured["rewards"], expected)
-    assert torch.allclose(amp.captured["infos"]["reward_terms"]["style"], torch.where(walking, 2.0 * amp.style, torch.zeros(4)))
+    on = torch.tensor([False, True, False, True])
+    expected = 0.5 * task + torch.where(on, 2.0 * amp.style, torch.zeros(4))
+    assert torch.allclose(amp.captured["rewards"], expected)  # what PPO stores in the rollout
+    assert torch.allclose(amp.captured["infos"]["reward_terms"]["style"], torch.where(on, 2.0 * amp.style, torch.zeros(4)))
     assert torch.allclose(amp.captured["infos"]["reward_terms_raw"]["style"], amp.style)  # raw stays the discriminator's
     assert len(amp.appended) == 1 and torch.equal(amp.appended[0], amp_obs)  # every env's AMP obs, as before
 
 
-def test_without_a_standing_mask_every_env_earns_style_as_before(amp):
-    task, _ = amp.step({})
+@pytest.mark.parametrize("infos", [{}, {"style_reward_off": torch.zeros(4, dtype=torch.bool)}], ids=["missing", "all_false"])
+def test_without_a_flagged_env_every_env_earns_style_as_before(amp, infos):
+    task, _ = amp.step(infos)
     assert torch.allclose(amp.captured["rewards"], 0.5 * task + 2.0 * amp.style)
+
+
+def test_every_env_flagged_leaves_only_the_task_reward(amp):
+    task, _ = amp.step({"style_reward_off": torch.ones(4, dtype=torch.bool)})
+    assert torch.allclose(amp.captured["rewards"], 0.5 * task)
+    assert len(amp.appended) == 1  # the discriminator still sees them
+
+
+def test_the_standing_mask_alone_no_longer_gates_style(amp):
+    # AMP reads only `style_reward_off`; the env derives it from standing (see the env tests below)
+    task, _ = amp.step({"standing": torch.ones(4, dtype=torch.bool)})
+    assert torch.allclose(amp.captured["rewards"], 0.5 * task + 2.0 * amp.style)
+
+
+def test_the_env_turns_style_off_exactly_for_standing_envs(env_class, env_motions, amp):
+    env = make_env(env_class, env_motions, [0, 0, 1, 1])
+    env.commands[1, CommandIndex.LIN_X] = 0.8
+    env.commands[3, GOAL] = torch.tensor([2.5, 0.0])
+    env._get_observations()
+    env._get_rewards()
+    assert env.extras["style_reward_off"].tolist() == env.extras["standing"].tolist() == [True, False, True, False]
+
+    task, _ = amp.step({"style_reward_off": env.extras["style_reward_off"]})
+    assert torch.allclose(amp.captured["rewards"], 0.5 * task + torch.tensor([0.0, 1.0, 0.0, 1.0]) * 2.0 * amp.style)
+
+
+def test_another_condition_can_turn_style_off_without_putting_envs_in_standing_mode(env_class, env_motions):
+    class FlaggedEnv(env_class):
+        def _style_reward_off(self):
+            return super()._style_reward_off() | self.flagged
+
+    env = make_env(FlaggedEnv, env_motions, [0, 0, 2])
+    env.flagged = torch.tensor([False, True, True])
+    env.commands[1:, CommandIndex.LIN_X] = 0.8  # envs 1 and 2 walk
+    env._get_observations()
+    env._get_rewards()
+
+    assert env.extras["standing"].tolist() == [True, False, False]
+    assert env.extras["style_reward_off"].tolist() == [True, True, True]
+    weighted = env.extras["reward_terms"]
+    assert weighted["root_lin_vel_l2"].tolist() == pytest.approx([2.0, 0.0, 0.0])  # standing rewards only for env 0
+    assert weighted["lin_vel_tracking"][1:].tolist() == pytest.approx([3.0 * math.exp(-2.0 * 0.64)] * 2)  # flagged envs keep theirs
