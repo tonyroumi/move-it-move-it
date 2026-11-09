@@ -1,5 +1,6 @@
 """Composition semantics: selection, per-motion tables, lazy reference sampling, default layout."""
 
+import numpy as np
 import pytest
 import torch
 
@@ -202,7 +203,9 @@ def test_unknown_term_names_are_rejected_when_composing(specs, motion, message):
 
 
 def test_shipped_manifest_composes():
-    assert ComposedMDP(load_manifest(str(REPO_ROOT / "src/configs/manifest.yaml")), DEFAULT_OBS, DEFAULT_OBS, "cpu").reward_names
+    specs = load_manifest(str(REPO_ROOT / "src/configs/manifest.yaml"))
+    joint_names = np.load(REPO_ROOT / "src/data/walk.npz")["dof_names"].tolist()  # the robot's joints
+    assert ComposedMDP(specs, DEFAULT_OBS, DEFAULT_OBS, "cpu", joint_names=joint_names).reward_names
 
 
 def test_unknown_observation_is_rejected():
@@ -227,6 +230,7 @@ def test_registries_hold_every_term_the_old_modules_named():
         "root_ang_vel_l2",
         "upright",
         "support_centered",
+        "standing_pose",
     ]
     assert {name: term.defaults for name, term in REWARDS.items()} == {
         "motion_tracking": {"dof_scale": 2.0, "key_body_scale": 5.0},
@@ -242,5 +246,6 @@ def test_registries_hold_every_term_the_old_modules_named():
         "root_ang_vel_l2": {"scale": 2.0},
         "upright": {"scale": 10.0},
         "support_centered": {"scale": 20.0},
+        "standing_pose": {"scale": 2.0, "tolerance": 0.05},
     }
     assert list(TERMINATIONS) == ["deviation_from_motion", "unhealthy"]

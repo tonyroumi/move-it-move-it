@@ -6,6 +6,7 @@ import sys
 import types
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 
@@ -136,7 +137,8 @@ def test_unknown_standing_terms_are_rejected(specs):
 
 @pytest.mark.parametrize("manifest", ["manifest.yaml", "goal_manifest.yaml"])
 def test_shipped_manifests_compose_their_standing_rewards(manifest):
-    mdp = ComposedMDP(load_manifest(str(REPO_ROOT / "src/configs" / manifest)), OBS, OBS, "cpu")
+    joint_names = np.load(REPO_ROOT / "src/data/walk.npz")["dof_names"].tolist()  # the robot's joints
+    mdp = ComposedMDP(load_manifest(str(REPO_ROOT / "src/configs" / manifest)), OBS, OBS, "cpu", joint_names=joint_names)
 
     assert set(STANDING_TERMS) <= set(mdp.reward_names)
     for name in STANDING_TERMS:
