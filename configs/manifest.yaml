@@ -1,6 +1,6 @@
 motions:
   walk:
-    file: /home/anthony/Dev/move-it-move-it/data/walk.npz
+    file: walk.npz
     sample_prob: 1.0
 
     commands:

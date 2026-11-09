@@ -22,10 +22,9 @@ Motion clips (`.npz`) are distributed separately:
 
 > **Download:** _TBD (link coming soon)._
 
-Put them in `data/` at the repo root (git-ignored). A manifest's `file:` is opened as written, so a
-relative path such as `data/walk.npz` resolves against the directory you run from. The shipped
-`manifest.yaml`, `goal_manifest.yaml` and `smooth_walk_manifest.yaml` point at an absolute
-`.../data/walk.npz`; change it to your copy.
+Put them in `data/` at the repo root (git-ignored), or anywhere and set `MOVEITMOVEIT_DATA_DIR` to
+that directory. A relative manifest `file:` (e.g. `walk.npz`, `jump/running_jump.npz`) is resolved
+against that data directory; an absolute one is used as-is.
 
 Preview a clip kinematically:
 
@@ -42,7 +41,7 @@ Preview a clip kinematically:
 | Option | Meaning |
 | --- | --- |
 | `--manifest` | Required. Motions, commands and rewards (see [Manifest](#manifest)). |
-| `--algo` | Required, `AMP` or `PPO`. Names the log folder only; the agent comes from `configs/agents/amp.yaml` (`agent.class_type`). |
+| `--algo` | Required, `AMP` or `PPO`. Loads `configs/agents/amp.yaml` or `configs/agents/ppo.yaml`. |
 | `--num_envs` | Defaults to 4096. |
 | `--checkpoint` | Resume from a `.pt` file. |
 | `env.<field>=...` / `agent.<path>=...` | Hydra overrides of `MotionLearningEnvCfg` (`src/moveitmoveit/env_cfg.py`) or the agent YAML. |
@@ -80,7 +79,7 @@ train on it; unknown keys are rejected.
 ```yaml
 motions:
   walk:
-    file: data/walk.npz        # required
+    file: walk.npz             # required; relative to the data directory
     sample_prob: 1.0           # relative weight for resets and discriminator batches (default 1.0)
     commands:                  # [low, high] range or a fixed value; omitted commands are 0
       lin_x: [0.0, 1.5]        # m/s, body frame
@@ -164,3 +163,12 @@ the terms by editing `env_cfg.py` or overriding at train time:
 ```
 
 To add a term, register a function in `mdp.py` with `@observation(dim=...)`.
+
+## Tests
+
+```bash
+pytest
+```
+
+The tests cover manifest loading and agent-config selection; they need `torch`, `gymnasium` and
+`pyyaml`, not IsaacLab.

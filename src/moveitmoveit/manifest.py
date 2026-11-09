@@ -1,8 +1,11 @@
 from dataclasses import dataclass, field
 from enum import IntEnum
+from pathlib import Path
 from typing import Any
 
 import yaml
+
+from .utils.paths import MOTIONS_DIR
 
 
 class CommandIndex(IntEnum):
@@ -43,6 +46,7 @@ class StandingSpec:
 class MotionSpec:
     name: str
     file: str
+    """Absolute path to the clip."""
     sample_prob: float
     commands: dict[str, tuple[float, float]]
     """(low, high) per declared command. Absent commands are always 0."""
@@ -52,8 +56,9 @@ class MotionSpec:
     standing: StandingSpec | None = None
 
 
-def load_manifest(path: str) -> list[MotionSpec]:
-    """Read a manifest. A motion's position in the returned list is its motion id."""
+def load_manifest(path: str, data_dir: str | Path | None = None) -> list[MotionSpec]:
+    """Read a manifest. A motion's position in the returned list is its motion id. A relative
+    `file` is resolved against `data_dir`, by default $MOVEITMOVEIT_DATA_DIR or <repo>/data."""
     with open(path, "r") as f:
         document = yaml.safe_load(f)
 
@@ -63,13 +68,14 @@ def load_manifest(path: str) -> list[MotionSpec]:
     if not motions:
         raise ValueError(f"{path}: declares no motions.")
 
-    specs = [_parse_motion(name, motion) for name, motion in motions.items()]
+    data_dir = Path(MOTIONS_DIR if data_dir is None else data_dir)
+    specs = [_parse_motion(name, motion, data_dir) for name, motion in motions.items()]
     if not sum(spec.sample_prob for spec in specs) > 0:
         raise ValueError(f"{path}: at least one motion needs a positive sample_prob.")
     return specs
 
 
-def _parse_motion(name: str, motion: Any) -> MotionSpec:
+def _parse_motion(name: str, motion: Any, data_dir: Path) -> MotionSpec:
     """Validate one motion entry."""
     motion = _mapping(motion, name)
     check_known(motion, MOTION_KEYS, name)
@@ -86,7 +92,8 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
 
     return MotionSpec(
         name=name,
-        file=motion["file"],
+        # joining an absolute path keeps it as-is
+        file=str(data_dir / Path(motion["file"]).expanduser()),
         sample_prob=sample_prob,
         commands=_parse_commands(motion.get("commands"), name),
         zero_command_prob=zero_command_prob,

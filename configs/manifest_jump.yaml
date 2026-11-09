@@ -1,14 +1,14 @@
-# Catalog of the retargeted jump clips in data/jump. Paths are relative: run from the repo root.
+# Catalog of the retargeted jump clips in data/jump. Files are relative to the data dir (<repo>/data or $MOVEITMOVEIT_DATA_DIR).
 # No commands or task rewards are chosen here. To train, copy the clips you want into your own manifest.
 # To view one clip: ./isaaclab.sh -p scripts/play_motion.py --motion data/jump/running_jump.npz
 # Sources and terms: data/jump/ATTRIBUTION.md.
 motions:
   running_jump:
-    file: data/jump/running_jump.npz
+    file: jump/running_jump.npz
     sample_prob: 1.0
     termination: unhealthy
 
   standing_broad_jump:
-    file: data/jump/standing_broad_jump.npz
+    file: jump/standing_broad_jump.npz
     sample_prob: 1.0
     termination: unhealthy
