@@ -1,4 +1,4 @@
-"""Script to kinematically play back a single motion clip on the humanoid in Isaac Sim."""
+"""Script to play back a single motion clip in IsaacLab."""
 
 import argparse
 import contextlib
@@ -20,20 +20,19 @@ from isaaclab_tasks.utils import (
     setup_preset_cli,
 )
 
-# PLACEHOLDER: Extension template (do not remove this comment)
 with contextlib.suppress(ImportError):
     import isaaclab_tasks_experimental  # noqa: F401
 
 TASK_ID = "MoveIt-Humanoid-v0"
 
-parser = argparse.ArgumentParser(description="Play back a motion clip on the humanoid, kinematically.")
+parser = argparse.ArgumentParser(description="Play back a motion clip on the humanoid.")
 parser.add_argument("--motion", type=str, required=True, help="Path to the motion clip (.npz) to play.")
 parser.add_argument(
     "--camera_type",
     type=str,
     default=None,
     choices=["facing", "third-person", "none"],
-    help="Scripted camera mode. Defaults to the task's configured camera_type.",
+    help="camera mode. Defaults to the task's configured camera_type.",
 )
 parser.add_argument("--record", action="store_true", default=False, help="Record a video of the playback.")
 parser.add_argument(
@@ -48,14 +47,12 @@ if args_cli.record:
 
 
 def main():
-    """Play the clip back on a single env, optionally recording it."""
     env_cfg, _ = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
     motion_file = os.path.abspath(args_cli.motion)
     motion_name = os.path.splitext(os.path.basename(motion_file))[0]
 
     with launch_simulation(env_cfg, args_cli):
-        # a single env is enough to preview a clip
         env_cfg.scene.num_envs = 1
         env_cfg.random_reset = False
         env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type

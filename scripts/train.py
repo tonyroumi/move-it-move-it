@@ -1,4 +1,4 @@
-"""Script to train an RL agent."""
+"""Script to train an agent."""
 
 import argparse
 import contextlib
@@ -33,7 +33,7 @@ with contextlib.suppress(ImportError):
 
 TASK_ID = "MoveIt-Humanoid-v0"
 
-parser = argparse.ArgumentParser(description="Train an agent to MOVE in IsaacLab")
+parser = argparse.ArgumentParser(description="Train a motion-conditioned RL policy in Isaac Lab.")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint to resume training.")
 parser.add_argument("--algo", type=str, required=True, choices=["PPO", "AMP"], help="RL algorithm.")
@@ -45,7 +45,6 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 
 def main():
-    """Train an agent."""
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
