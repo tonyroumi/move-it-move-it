@@ -123,3 +123,27 @@ standing:
 - **Compatibility.** `standing.pose` and `standing_pose` are optional. A manifest without them
   scores standing as before, and the observation and action layouts don't change. A policy trained
   without the term won't stand differently until it is retrained with it.
+
+### Viewing the standing pose
+
+`scripts/view_standing_pose.py` puts the humanoid in a manifest's `standing.pose` target and
+freezes it, so you can look at the posture in the Isaac Sim viewer:
+
+```bash
+./isaaclab.sh -p scripts/view_standing_pose.py                    # src/configs/manifest.yaml
+./isaaclab.sh -p scripts/view_standing_pose.py --manifest src/configs/goal_manifest.yaml --motion walk_to_goal
+```
+
+- **Same target as the reward.** The script builds the env from the manifest and reads the pose
+  from the `standing_pose` reward's own target table, in the robot's joint order, so it shows
+  exactly what training asks for. `--motion` picks a motion; by default it's the first that
+  declares a `standing.pose`. The joint values are printed at startup.
+- **Frozen.** The pose is written once and the links are placed by forward kinematics; the script
+  then only renders and never steps physics, so gravity, contacts and the PD drives don't act and
+  the pose holds exactly. The viewer stays live to orbit and zoom. Ctrl+C quits.
+- **On the ground.** The root starts at the robot's default height and is then lowered so the
+  lower foot's sole (0.05 m below the foot body, from `humanoid_28.usd`'s foot box) rests on the
+  ground. That assumes flat feet, as in the shipped pose; a pose with tilted feet may sink a toe
+  or heel into the ground or float slightly.
+- **It's a reference, not a policy.** It shows the target, not what a trained policy does, and
+  it doesn't check that the pose is balanced: unfrozen, the robot would fall.
