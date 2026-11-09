@@ -120,8 +120,15 @@ class MotionLearningEnv(DirectRLEnv):
 
         root_pos = self.robot.data.root_pos_w.torch[0]
 
-        target_offset = transforms.quat_apply(self.random_yaw_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
-        eye_offset = transforms.quat_apply(self.random_yaw_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
+        if self.cfg.camera_type == "third-person":
+            # stay behind the robot as it turns: rotate by its live heading, yaw only so
+            # body tilt never pitches or rolls the camera
+            root_quat = self.robot.data.root_quat_w.torch[:1]
+            target_offset = transforms.quat_apply_yaw(root_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
+            eye_offset = transforms.quat_apply_yaw(root_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
+        else:
+            target_offset = transforms.quat_apply(self.random_yaw_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
+            eye_offset = transforms.quat_apply(self.random_yaw_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
 
         target = root_pos + target_offset
         eye = target + eye_offset
