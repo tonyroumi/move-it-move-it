@@ -51,8 +51,10 @@ class ReferenceMotions:
         num_amp_steps: int,
         random_yaw: bool,
         style_obs: Callable[[BodyState, bool], torch.Tensor],
+        condition_picker: Callable[[torch.Tensor], torch.Tensor] | None = None,
     ):
         self._pick = picker
+        self._pick_for_conditions = condition_picker
         self._library = library
         self._skeleton = skeleton_map
         self._num_amp_steps = num_amp_steps
@@ -89,10 +91,18 @@ class ReferenceMotions:
         observations = self._amp_observations(motion_ids, times, yaw if self._random_yaw else None)
         return observations.view(motion_ids.shape[0], self._num_amp_steps, -1)
 
-    def style_batch(self, num_samples: int) -> torch.Tensor:
-        """A batch of real motion for the discriminator.
+    def style_batch(self, num_samples: int, conditions: torch.Tensor | None = None) -> torch.Tensor:
+        """A batch of real motion for the discriminator. With `conditions` (num_samples,), sample i
+        comes from a clip labeled with conditions[i] (needs a `condition_picker`).
         Shape is (num_samples, num_amp_steps * amp_obs_dim), newest first."""
-        motion_ids = self._pick(num_samples)
+        if conditions is None:
+            motion_ids = self._pick(num_samples)
+        else:
+            if self._pick_for_conditions is None:
+                raise RuntimeError("style_batch was given conditions, but these reference motions have no condition_picker.")
+            if conditions.shape != (num_samples,):
+                raise ValueError(f"conditions must have shape ({num_samples},), got {tuple(conditions.shape)}.")
+            motion_ids = self._pick_for_conditions(conditions)
         times = self._library.sample_times(motion_ids)
         # an independent random yaw per sample, so the discriminator sees real motion at any heading
         yaw = transforms.random_yaw_orientation(num_samples, self._library.device) if self._random_yaw else None

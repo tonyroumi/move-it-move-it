@@ -1,7 +1,7 @@
 
 motions:
   walk:
-    file: walk.npz
+    file: locomotion/walk.npz
     sample_prob: 1.0
 
     commands:

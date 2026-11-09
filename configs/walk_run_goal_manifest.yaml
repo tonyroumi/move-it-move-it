@@ -1,0 +1,82 @@
+# Walking or running to a world-space goal, picked by the binary key (Left Shift in play.py's
+# joystick modes): key off walks, key on runs. Clip paths are relative to the data directory.
+#
+# Both motions declare `style_condition`, which makes AMP's discriminator conditional on the key:
+# real walk frames are paired with key 0, real run frames with key 1, and the policy's own frames
+# with the key it acted on. Each motion's binary_key_0 must be fixed at its style_condition.
+# Standing (a zeroed command, or arriving within goal_radius) keeps its own rewards, earns no style
+# reward and stays out of the discriminator. Weights are untuned starting points, as in
+# goal_manifest.yaml; see it for what each term does.
+#
+#   ./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/walk_run_goal_manifest.yaml
+motions:
+  walk_to_goal:
+    file: locomotion/walk.npz
+    sample_prob: 0.5
+    style_condition: 0
+
+    commands: &goal_commands
+      goal_x: [-5.0, 5.0]
+      goal_y: [-5.0, 5.0]
+      binary_key_0: 0.0
+
+    zero_command_prob: 0.25
+
+    rewards: &goal_rewards
+      progress:
+        weight: 1.0
+        scale: 30.0
+      target_hit:
+        weight: 0.5
+        scale: 0.5
+
+    standing: &standing
+      goal_radius: 0.3
+      pose:
+        right_hip_x: -0.12
+        left_hip_x: 0.12
+        right_ankle_x: 0.12
+        left_ankle_x: -0.12
+        right_shoulder_x: -0.18
+        left_shoulder_x: 0.18
+        right_elbow: -0.2
+        left_elbow: -0.2
+      rewards:
+        target_hit:
+          weight: 0.5
+          scale: 0.5
+        root_lin_vel_l2:
+          weight: 1.0
+          scale: 4.0
+        root_ang_vel_l2:
+          weight: 0.5
+          scale: 2.0
+        joint_vel:
+          weight: 0.5
+          scale: 5.0e-2
+        upright:
+          weight: 0.5
+          scale: 10.0
+        support_centered:
+          weight: 0.5
+          scale: 20.0
+        standing_pose:
+          weight: 0.75
+          scale: 2.0
+          tolerance: 0.05
+
+    termination: unhealthy
+
+  run_to_goal:
+    file: locomotion/run.npz
+    sample_prob: 0.5
+    style_condition: 1
+
+    commands:
+      <<: *goal_commands
+      binary_key_0: 1.0
+
+    zero_command_prob: 0.25
+    rewards: *goal_rewards
+    standing: *standing
+    termination: unhealthy

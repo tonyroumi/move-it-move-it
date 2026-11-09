@@ -15,8 +15,9 @@ _NON_TELEOP_COMMANDS = (CommandIndex.GOAL_X, CommandIndex.GOAL_Y)
 
 
 class Keyboard(Se2Keyboard):
-    """Isaac Lab's SE(2) keyboard plus binary commands, 1.0 while held: Left Shift drives
-    binary_key_0 and Space binary_key_1."""
+    """Isaac Lab's SE(2) keyboard plus binary commands, 1.0 while held and on the first `advance`
+    after a press (so a tap between two calls isn't lost): Left Shift drives binary_key_0 and
+    Space binary_key_1."""
 
     EXTRA_KEY_MAPPING = {
         "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
@@ -50,6 +51,8 @@ class Keyboard(Se2Keyboard):
             command_name: 0.0
             for command_name in self.EXTRA_COMMAND_ORDER
         }
+        # pressed since the last advance(), so a tap between two calls isn't lost
+        self._pressed = set()
 
     def reset(self):
         """Reset both SE(2) and custom keyboard commands."""
@@ -57,6 +60,7 @@ class Keyboard(Se2Keyboard):
 
         for command_name in self._extra_commands:
             self._extra_commands[command_name] = 0.0
+        self._pressed.clear()
 
     def __str__(self) -> str:
         """The SE(2) bindings followed by the binary ones."""
@@ -76,7 +80,8 @@ class Keyboard(Se2Keyboard):
         command = torch.zeros(len(CommandIndex), dtype=se2_command.dtype, device=se2_command.device)
         command[list(_SE2_COMMANDS)] = se2_command
         for name in self.EXTRA_COMMAND_ORDER:
-            command[name] = self._extra_commands[name]
+            command[name] = 1.0 if name in self._pressed else self._extra_commands[name]
+        self._pressed.clear()
 
         return command
 
@@ -96,6 +101,7 @@ class Keyboard(Se2Keyboard):
 
         if event.type == carb.input.KeyboardEventType.KEY_PRESS:
             self._extra_commands[command_name] = 1.0
+            self._pressed.add(command_name)
 
         elif event.type == carb.input.KeyboardEventType.KEY_RELEASE:
             self._extra_commands[command_name] = 0.0
@@ -103,9 +109,10 @@ class Keyboard(Se2Keyboard):
         return True
 
 
-class PointGoalKeyboard(Se2Keyboard):
+class PointGoalKeyboard(Keyboard):
     """Drives the GOAL_X/GOAL_Y command: the SE(2) arrow keys move a world-frame goal offset at
-    their sensitivity in m/s (integrated over `dt` per `advance`), and L resets it."""
+    their sensitivity in m/s (integrated over `dt` per `advance`), and L resets it. The binary keys
+    are as in `Keyboard`."""
 
     def __init__(self, cfg: Se2KeyboardCfg, dt: float, initial_offset: tuple[float, float] = (1.0, 0.0)):
         super().__init__(cfg)
@@ -119,15 +126,16 @@ class PointGoalKeyboard(Se2Keyboard):
         self._goal_offset = self._initial_offset.clone()
 
     def advance(self) -> torch.Tensor:
-        """The full (len(CommandIndex),) command, holding only the world-frame goal offset;
-        the caller anchors it to a world position."""
-        se2_command = super().advance()
+        """The full (len(CommandIndex),) command, holding the world-frame goal offset and the binary
+        keys; the caller anchors the goal to a world position."""
+        command = super().advance()
+        se2_command = command[list(_SE2_COMMANDS)]
 
         # Isaac Lab's Se2Keyboard maps left -> +v_y, right -> -v_y; negate to get left -> -y, right -> +y.
         self._goal_offset[0] += se2_command[0] * self._dt
         self._goal_offset[1] -= se2_command[1] * self._dt
 
-        command = torch.zeros(len(CommandIndex), dtype=se2_command.dtype, device=se2_command.device)
+        command[list(_SE2_COMMANDS)] = 0.0
         command[CommandIndex.GOAL_X] = self._goal_offset[0]
         command[CommandIndex.GOAL_Y] = self._goal_offset[1]
 

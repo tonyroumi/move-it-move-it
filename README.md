@@ -23,13 +23,14 @@ Motion clips (`.npz`) are distributed separately:
 > **Download:** _TBD (link coming soon)._
 
 Put them in `data/` at the repo root (git-ignored), or anywhere and set `MOVEITMOVEIT_DATA_DIR` to
-that directory. A relative manifest `file:` (e.g. `walk.npz`, `jump/running_jump.npz`) is resolved
-against that data directory; an absolute one is used as-is.
+that directory. A relative manifest `file:` (e.g. `locomotion/walk.npz`, `jump/running_jump.npz`)
+is resolved against that data directory; an absolute one is used as-is. The shipped manifests
+expect `locomotion/walk.npz`, `locomotion/run.npz` and `jump/*.npz`.
 
 Preview a clip kinematically:
 
 ```bash
-./isaaclab.sh -p scripts/play_motion.py --motion data/walk.npz
+./isaaclab.sh -p scripts/play_motion.py --motion data/locomotion/walk.npz
 ```
 
 ## Training
@@ -65,7 +66,7 @@ observations the policy was trained with.
 | --- | --- |
 | `--num_envs` | Defaults to 1. |
 | `--joystick` | Drive commands from the keyboard (no `--headless`). Key bindings are printed at start-up. |
-| `--joystick-mode velocity\|point_goal` | `velocity` (default): lin_x/lin_y/yaw, with Left Shift / Space as `binary_key_0` / `binary_key_1`. `point_goal`: arrows move a red goal sphere relative to the robot's heading, `L` resets it; needs a manifest with `goal_x`/`goal_y`. |
+| `--joystick-mode velocity\|point_goal` | `velocity` (default): lin_x/lin_y/yaw, with Left Shift / Space as `binary_key_0` / `binary_key_1`. `point_goal`: arrows move a red goal sphere relative to the robot's heading, `L` resets it, Left Shift / Space as in `velocity`; needs a manifest with `goal_x`/`goal_y`. |
 | `--joystick-overlay` | Show held keys on screen (with `--joystick`). |
 | `--camera_type facing\|third-person\|none` | Scripted camera. |
 | `--real-time` | Step at wall-clock speed. |
@@ -79,7 +80,7 @@ train on it; unknown keys are rejected.
 ```yaml
 motions:
   walk:
-    file: walk.npz             # required; relative to the data directory
+    file: locomotion/walk.npz  # required; relative to the data directory
     sample_prob: 1.0           # relative weight for resets and discriminator batches (default 1.0)
     commands:                  # [low, high] range or a fixed value; omitted commands are 0
       lin_x: [0.0, 1.5]        # m/s, body frame
@@ -92,6 +93,7 @@ motions:
       lin_vel_tracking: {weight: 3.0, scale: 2.0}
       yaw_vel_tracking: 3.0
     termination: unhealthy     # name or list (default unhealthy)
+    style_condition: 0         # optional, 0 or 1; see below
     standing:                  # optional, see below
       lin_vel_threshold: 0.1   # m/s (default 0.1)
       yaw_vel_threshold: 0.1   # rad/s (default 0.1)
@@ -108,9 +110,17 @@ Commands resample every `env.command_resample_steps` (150) steps and on reset.
 thresholds and whose goal (if any) is within `goal_radius` is "standing": `standing.rewards`
 replace `rewards` and the AMP style reward is 0 for that env.
 
+**Conditional discriminator.** If motions declare `style_condition`, AMP's discriminator is
+conditioned on the binary key: clips with condition 0 are real for key off, 1 for key on. Then
+every motion must declare it, each motion's `binary_key_0` must be fixed at its condition, and
+every condition an env can produce needs a clip with positive `sample_prob` (a zeroed command
+turns the key off, so a key-on motion with `zero_command_prob` > 0 needs a `standing` block or a
+key-off clip). Conditional and unconditional checkpoints don't load into each other.
+
 Shipped manifests: `manifest.yaml` (velocity walking + standing), `smooth_walk_manifest.yaml`
 (forward walking + standing), `goal_manifest.yaml` (walk to a point goal + standing),
-`manifest_jump.yaml` (jump-clip catalog for viewing; no commands or rewards).
+`walk_run_goal_manifest.yaml` (walk or run to a goal, picked by `binary_key_0` / Left Shift;
+conditional), `manifest_jump.yaml` (jump-clip catalog for viewing; no commands or rewards).
 
 ## Rewards
 
@@ -170,5 +180,5 @@ To add a term, register a function in `mdp.py` with `@observation(dim=...)`.
 pytest
 ```
 
-The tests cover manifest loading and agent-config selection; they need `torch`, `gymnasium` and
+The tests cover manifests, agent-config selection, conditional AMP and keyboard input; they need `torch`, `gymnasium` and
 `pyyaml`, not IsaacLab.

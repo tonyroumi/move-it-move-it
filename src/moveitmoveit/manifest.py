@@ -20,7 +20,14 @@ class CommandIndex(IntEnum):
 
 COMMAND_DIM = len(CommandIndex)
 COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex)
-MOTION_KEYS = frozenset({"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing"})
+MOTION_KEYS = frozenset(
+    {"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing", "style_condition"}
+)
+
+STYLE_CONDITION_COMMAND = CommandIndex.BINARY_KEY_0
+"""The command a conditional discriminator's behavior condition comes from: the binary key."""
+NUM_STYLE_CONDITIONS = 2
+"""Key off (0, e.g. walk) and key on (1, e.g. run)."""
 STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "pose", "rewards"})
 
 
@@ -54,6 +61,9 @@ class MotionSpec:
     rewards: dict[str, RewardSpec]
     terminations: tuple[str, ...]
     standing: StandingSpec | None = None
+    style_condition: int | None = None
+    """The behavior condition this clip's frames are real examples of, for a conditional
+    discriminator (0 or 1, the value of its binary key). None in an unconditional manifest."""
 
 
 def load_manifest(path: str, data_dir: str | Path | None = None) -> list[MotionSpec]:
@@ -72,7 +82,51 @@ def load_manifest(path: str, data_dir: str | Path | None = None) -> list[MotionS
     specs = [_parse_motion(name, motion, data_dir) for name, motion in motions.items()]
     if not sum(spec.sample_prob for spec in specs) > 0:
         raise ValueError(f"{path}: at least one motion needs a positive sample_prob.")
+    check_style_conditions(specs, path)
     return specs
+
+
+def generated_style_conditions(spec: MotionSpec) -> set[int]:
+    """The conditions an env on this motion can label its own (generated) AMP samples with. Its
+    binary key is fixed at its `style_condition`; a zeroed command turns the key off, but with a
+    `standing` block a zeroed command always means standing, whose samples carry no condition."""
+    conditions = {spec.style_condition}
+    if spec.zero_command_prob > 0.0 and spec.standing is None:
+        conditions.add(0)
+    return conditions
+
+
+def check_style_conditions(specs: list[MotionSpec], where: str) -> None:
+    """A manifest is conditional when its motions declare `style_condition`. Then every motion must,
+    each one's binary key must be fixed at its condition, and every condition an env can generate
+    must have a real clip to compare against."""
+    declared = [spec.style_condition is not None for spec in specs]
+    if not any(declared):
+        return
+    if not all(declared):
+        missing = [spec.name for spec in specs if spec.style_condition is None]
+        raise ValueError(f"{where}: style_condition must be declared by every motion or by none; missing in {missing}.")
+
+    key = STYLE_CONDITION_COMMAND.name.lower()
+    for spec in specs:
+        low, high = spec.commands.get(key, (0.0, 0.0))
+        if not low == high == float(spec.style_condition):
+            raise ValueError(
+                f"{spec.name}: style_condition {spec.style_condition} needs commands.{key} fixed at"
+                f" {spec.style_condition}, got [{low}, {high}]. Generated samples are labeled from that key,"
+                " so the two must agree."
+            )
+
+    real = {spec.style_condition for spec in specs if spec.sample_prob > 0.0}
+    for spec in specs:
+        if spec.sample_prob > 0.0:
+            unmatched = sorted(generated_style_conditions(spec) - real)
+            if unmatched:
+                raise ValueError(
+                    f"{spec.name}: its envs generate style_condition {unmatched}, but no motion with a positive"
+                    " sample_prob provides real clips for it. A zeroed command turns the key off: declare a"
+                    " standing block, set zero_command_prob to 0, or add such a clip."
+                )
 
 
 def _parse_motion(name: str, motion: Any, data_dir: Path) -> MotionSpec:
@@ -100,7 +154,15 @@ def _parse_motion(name: str, motion: Any, data_dir: Path) -> MotionSpec:
         rewards=_parse_rewards(motion.get("rewards"), name),
         terminations=_parse_terminations(motion.get("termination", "unhealthy"), name),
         standing=_parse_standing(motion["standing"], name) if "standing" in motion else None,
+        style_condition=_parse_style_condition(motion["style_condition"], name) if "style_condition" in motion else None,
     )
+
+
+def _parse_style_condition(value: Any, motion: str) -> int:
+    """A clip's behavior condition: 0 (key off) or 1 (key on)."""
+    if isinstance(value, bool) or not isinstance(value, int) or value not in range(NUM_STYLE_CONDITIONS):
+        raise ValueError(f"{motion}.style_condition: expected one of {list(range(NUM_STYLE_CONDITIONS))}, got {value!r}.")
+    return value
 
 
 def _parse_commands(commands: Any, motion: str) -> dict[str, tuple[float, float]]:

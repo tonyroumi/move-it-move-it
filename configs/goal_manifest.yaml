@@ -3,7 +3,7 @@
 # observes it as an offset in its heading frame. Weights are untuned starting points.
 motions:
   walk_to_goal:
-    file: walk.npz
+    file: locomotion/walk.npz
     sample_prob: 1.0
 
     commands:
