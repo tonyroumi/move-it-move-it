@@ -1,131 +1,166 @@
 # move-it-move-it
 
-An RL framework built on IsaacLab, implementing PPO and AMP
-(Adversarial Motion Priors) for training stylistic humanoid locomotion policies.
+PPO and AMP (Adversarial Motion Priors) for training a 28-DOF humanoid to imitate motion clips
+and follow commands, built on IsaacLab. Everything runs as the single task `MoveIt-Humanoid-v0`.
 
 ## Setup
 
-```bash
-pip install -e . --no-deps
-```
+1. Install IsaacLab / Isaac Sim. Its packages (`isaaclab`, `isaaclab_tasks`, `isaaclab_assets`, ...)
+   are not on PyPI; install them with `./isaaclab.sh --install` from the IsaacLab repo.
+2. Install this package into the same environment:
 
-Requires IsaacLab/Isaac Sim installed separately. IsaacLab submodules
-(`isaaclab`, `isaaclab_tasks`, `isaaclab_physx`) are not on PyPI — install
-them via `./isaaclab.sh --install` from the IsaacLab repo.
+   ```bash
+   pip install -e . --no-deps
+   ```
 
-## Running
+Run commands from this repo's root through IsaacLab's launcher (`<isaaclab>/isaaclab.sh -p ...`;
+shortened to `./isaaclab.sh` below).
 
-Train:
+## Data
 
-```bash
-./isaaclab.sh -p scripts/train.py --task <task_name>
-```
+Motion clips (`.npz`) are distributed separately:
 
-Play a checkpoint:
+> **Download:** _TBD (link coming soon)._
 
-```bash
-./isaaclab.sh -p scripts/play.py --task <task_name> --checkpoint <path>
-```
+Put them in `data/` at the repo root (git-ignored). A manifest's `file:` is opened as written, so a
+relative path such as `data/walk.npz` resolves against the directory you run from. The shipped
+`manifest.yaml`, `goal_manifest.yaml` and `smooth_walk_manifest.yaml` point at an absolute
+`.../data/walk.npz`; change it to your copy.
 
-## Goal tracking
-
-`configs/goal_manifest.yaml` trains walking toward a random world-space goal, sampled per
-environment as an offset from the robot (`goal_x`/`goal_y`) and held fixed in the world until the
-next resample. The policy observes the goal as an offset in its heading frame; `progress` rewards
-closing the distance and is 0 on the first step after a reset or a new goal.
+Preview a clip kinematically:
 
 ```bash
-./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/goal_manifest.yaml
+./isaaclab.sh -p scripts/play_motion.py --motion data/walk.npz
 ```
 
-Drive the goal from the keyboard while playing a checkpoint trained this way. The arrow keys move
-the goal (a red sphere) in world X/Y from a point 1 m ahead of the robot's start position; `L`
-puts it back there:
+## Training
 
 ```bash
-./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick --joystick-mode point_goal
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifest.yaml --headless
 ```
 
-A policy only walks to goals like those it trained on, so goals far outside the sampled range,
-or behind obstacles, may not be reached.
+| Option | Meaning |
+| --- | --- |
+| `--manifest` | Required. Motions, commands and rewards (see [Manifest](#manifest)). |
+| `--algo` | Required, `AMP` or `PPO`. Names the log folder only; the agent comes from `configs/agents/amp.yaml` (`agent.class_type`). |
+| `--num_envs` | Defaults to 4096. |
+| `--checkpoint` | Resume from a `.pt` file. |
+| `env.<field>=...` / `agent.<path>=...` | Hydra overrides of `MotionLearningEnvCfg` (`src/moveitmoveit/env_cfg.py`) or the agent YAML. |
 
-## Standing mode
+Seed, experiment name, logger backend (`tensorboard`, `wandb`, `both`, `none`) and checkpoint
+interval come from `configs/experiment.yaml`. Runs are written to
+`logs/<directory>/<experiment_name>/<algo>/<timestamp>/`, with `params/` (env, agent and manifest
+configs) and `checkpoints/` (`<step>.pt` every `checkpoint_interval` iterations, `best_agent.pt`
+for the best mean episode reward).
 
-A motion that declares a `standing` block trains a second, per-environment mode: when the
-command asks for no locomotion, the robot is asked to stand as still as it can instead of
-imitating the motion's clip.
+## Playing
+
+```bash
+./isaaclab.sh -p scripts/play.py --checkpoint logs/.../<timestamp>/checkpoints/best_agent.pt
+```
+
+The env and agent configs are reloaded from the run's `params/`, so play uses the manifest and
+observations the policy was trained with.
+
+| Option | Meaning |
+| --- | --- |
+| `--num_envs` | Defaults to 1. |
+| `--joystick` | Drive commands from the keyboard (no `--headless`). Key bindings are printed at start-up. |
+| `--joystick-mode velocity\|point_goal` | `velocity` (default): lin_x/lin_y/yaw, with Left Shift / Space as `binary_key_0` / `binary_key_1`. `point_goal`: arrows move a red goal sphere relative to the robot's heading, `L` resets it; needs a manifest with `goal_x`/`goal_y`. |
+| `--joystick-overlay` | Show held keys on screen (with `--joystick`). |
+| `--camera_type facing\|third-person\|none` | Scripted camera. |
+| `--real-time` | Step at wall-clock speed. |
+| `--record [--record-length N]` | Save a video to `<run>/videos/play/` (default 200 steps). |
+
+## Manifest
+
+A manifest is a YAML file with one top-level `motions:` key. Each motion is one clip plus how to
+train on it; unknown keys are rejected.
 
 ```yaml
-standing:
-  lin_vel_threshold: 0.1   # m/s, on the lin_x/lin_y norm (default 0.1)
-  yaw_vel_threshold: 0.1   # rad/s, on |yaw| (default 0.1)
-  goal_radius: 0.3         # m, on the goal's distance from the root (default 0.3)
-  rewards:                 # replace the motion's `rewards` while standing
-    root_lin_vel_l2: 2.0
-    upright: 1.0
+motions:
+  walk:
+    file: data/walk.npz        # required
+    sample_prob: 1.0           # relative weight for resets and discriminator batches (default 1.0)
+    commands:                  # [low, high] range or a fixed value; omitted commands are 0
+      lin_x: [0.0, 1.5]        # m/s, body frame
+      lin_y: [-0.5, 0.5]       # m/s, body frame
+      yaw: [-1.5, 1.5]         # rad/s
+      binary_key_0: 0.0        # also binary_key_1
+      # goal_x / goal_y: [low, high] m, offset from the root when sampled, then fixed in the world
+    zero_command_prob: 0.2     # chance a sampled command is all zeros (default 0.0)
+    rewards:                   # name: weight, or name: {weight, <kwarg>: value}
+      lin_vel_tracking: {weight: 3.0, scale: 2.0}
+      yaw_vel_tracking: 3.0
+    termination: unhealthy     # name or list (default unhealthy)
+    standing:                  # optional, see below
+      lin_vel_threshold: 0.1   # m/s (default 0.1)
+      yaw_vel_threshold: 0.1   # rad/s (default 0.1)
+      goal_radius: 0.3         # m (default 0.3)
+      pose: {right_hip_x: -0.12, left_hip_x: 0.12}  # rad per joint, unlisted joints target 0
+      rewards:
+        root_lin_vel_l2: 2.0
+        standing_pose: {weight: 1.5, scale: 2.0, tolerance: 0.05}
 ```
 
-- **When an env stands.** Its command, as the policy observes it, has a lin_x/lin_y norm and
-  |yaw| within the thresholds and a goal within `goal_radius` of the root. Motions without a goal
-  observe a zero goal offset, so only the velocity thresholds apply. A goal farther away means
-  "walk there", even though its velocity commands are 0; arriving within the radius means
-  "stand". The mode is a function of the observed command, so the observation layout is
-  unchanged and the policy can tell the modes apart.
-- **What changes while standing.** The task reward comes from `standing.rewards` and AMP's style
-  reward is 0 for that env. The discriminator's training is unchanged: standing envs' AMP
-  observations still reach its buffer. A nonzero command restores the motion's `rewards` and the
-  style reward from the next step on.
-- **Style reward off.** AMP doesn't know about standing: it zeroes the style reward for the envs in
-  the env's per-step `extras["style_reward_off"]` (N,) bool mask, and every env earns style when
-  the mask is missing. `MotionLearningEnv._style_reward_off()` builds that mask, today from
-  standing mode alone; OR another per-env condition into it to turn style off for those envs too,
-  without putting them in standing mode. `extras["standing"]` is still exported, but AMP no longer
-  reads it.
-- **Transitions.** Commands resample every `command_resample_steps` and on reset, with a zero
-  command at the motion's `zero_command_prob`, so episodes switch between modes. Resets start
-  from clip frames, so standing envs also learn to stop from a walking pose. Goal envs also switch
-  when they arrive at a goal or get a new one.
-- **Terms.** `root_lin_vel_l2`, `root_ang_vel_l2`, `upright` and `support_centered` (root over the
-  midpoint of the feet) are bounded in [0, 1], like `joint_vel` and `action_rate_l2`. They reward
-  standing still; they can't guarantee the robot is perfectly motionless.
-- A motion without a `standing` block behaves as before.
+Commands resample every `env.command_resample_steps` (150) steps and on reset.
 
-### Standing pose
+**Standing mode.** With a `standing` block, an env whose observed command is below both velocity
+thresholds and whose goal (if any) is within `goal_radius` is "standing": `standing.rewards`
+replace `rewards` and the AMP style reward is 0 for that env.
 
-Those terms leave the posture free, and a policy can stand still in a wide, arms-out stance.
-`standing_pose` asks for a posture too: a `standing.pose` target per joint, scored only in standing
-mode, since it may only be declared in `standing.rewards`.
+Shipped manifests: `manifest.yaml` (velocity walking + standing), `smooth_walk_manifest.yaml`
+(forward walking + standing), `goal_manifest.yaml` (walk to a point goal + standing),
+`manifest_jump.yaml` (jump-clip catalog for viewing; no commands or rewards).
 
-```yaml
-standing:
-  pose:                    # rad per joint, by the robot's joint names; unlisted joints target 0
-    right_hip_x: -0.12
-    left_hip_x: 0.12
-  rewards:
-    standing_pose:
-      weight: 1.5
-      scale: 2.0           # how sharply the reward falls off past the tolerance (default 2.0)
-      tolerance: 0.05      # rad each joint may deviate for free (default 0.05)
+## Rewards
+
+Defined in `src/moveitmoveit/mdp.py`; the kwargs below can be set per motion (defaults shown). The
+task reward is the weighted sum; AMP adds its style reward (`style_reward_lambda`,
+`goal_reward_lambda` in the agent YAML).
+
+| Reward | Kwargs | Rewards |
+| --- | --- | --- |
+| `motion_tracking` | `dof_scale=2.0`, `key_body_scale=5.0` | DOF positions and key-body offsets matching the clip |
+| `lin_vel_tracking` | `scale=2.0` | body-frame lin_x/lin_y matching the command |
+| `yaw_vel_tracking` | `scale=2.0` | yaw rate matching the command |
+| `line_following` | `scale=2.0` | moving in the commanded world direction |
+| `target_hit` | `scale=0.5` | being close to the goal |
+| `progress` | `scale=1.0` | distance closed to the goal this step (unbounded) |
+| `action_rate_l2` | `scale=1.0` | small action changes |
+| `joint_acc` | `scale=1e-4` | small joint accelerations |
+| `joint_vel` | `scale=1e-2` | small joint velocities |
+| `root_lin_vel_l2` | `scale=4.0` | low root linear speed |
+| `root_ang_vel_l2` | `scale=2.0` | low root angular speed |
+| `upright` | `scale=10.0` | an upright root |
+| `support_centered` | `scale=20.0` | root over the midpoint of the feet |
+| `standing_pose` | `scale=2.0`, `tolerance=0.05` | joints at `standing.pose`; only allowed in `standing.rewards` |
+
+All but `progress` are `exp(-scale * error)` in [0, 1]. Terminations: `unhealthy` (root below
+0.65 m), `deviation_from_motion` (summed squared DOF error from the clip above 1.5).
+
+## Observations
+
+The policy and the AMP discriminator each observe a list of named terms, set by `policy_obs` and
+`style_obs` in `src/moveitmoveit/env_cfg.py` (both default to all seven terms):
+
+| Term | Dim |
+| --- | --- |
+| `dof_pos` | 28 |
+| `dof_vel` | 28 |
+| `root_height` | 1 |
+| `root_orientation` | 6 |
+| `root_lin_vel` | 3 |
+| `root_ang_vel` | 3 |
+| `key_body_offsets` | 12 (hands and feet relative to the root) |
+
+The policy observation always ends with the 7 commands (`lin_x`, `lin_y`, `yaw`, `binary_key_0`,
+`binary_key_1`, `goal_x`, `goal_y`; the goal as an offset in the robot's heading frame). Change
+the terms by editing `env_cfg.py` or overriding at train time:
+
+```bash
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifest.yaml \
+  'env.policy_obs=[dof_pos,dof_vel,root_height,root_orientation,root_lin_vel,root_ang_vel]'
 ```
 
-- **Semantics.** Per joint, the deviation from the target beyond `tolerance` is squared and summed
-  over joints, and the reward is `exp(-scale * sum)`, in [0, 1]. The tolerance is the room the
-  policy has to balance at no cost. Targets are in the robot's joint coordinates: at 0 the robot
-  stands upright with legs and arms straight down and its feet 0.17 m apart. The `_x` joints
-  roll about the forward axis: a positive angle swings a hanging limb towards the robot's left.
-  Elbows bend at negative angles and knees at positive ones.
-- **The shipped target.** Both manifests ask for an upright stance with the feet about shoulder
-  width apart and the arms down. Hip rolls of ±0.12 rad put the ankles 0.37 m apart, the
-  robot's distance between its shoulder joints (0.17 m at 0), and the opposite ankle rolls keep
-  the soles flat. Shoulder rolls of ±0.18 rad hold the hands clear of the thighs, which they
-  nearly touch at 0, and the elbows bend 0.2 rad. Every other joint targets 0.
-- **Tuning.** Raise `scale` or lower `tolerance` to hold the posture more tightly; raise
-  `tolerance` to leave more room for balance. With the shipped values, every joint at its
-  tolerance scores 1.0, every joint 0.1 rad off scores 0.87, the zero pose 0.82, the feet 0.75 m
-  apart 0.77, the arms 45° out 0.29, and a wide T pose 0.003. All joints count equally.
-- **It's a reward, not a constraint.** The policy trades posture off against staying still and
-  upright, and against what physics allows, so it won't hold the target exactly. Contacts,
-  gravity and the PD drives' tracking error still move the joints.
-- **Compatibility.** `standing.pose` and `standing_pose` are optional. A manifest without them
-  scores standing as before, and the observation and action layouts don't change. A policy trained
-  without the term won't stand differently until it is retrained with it.
+To add a term, register a function in `mdp.py` with `@observation(dim=...)`.
