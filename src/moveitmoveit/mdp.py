@@ -7,7 +7,7 @@ every env feeds the same policy network.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, NamedTuple
@@ -47,6 +47,9 @@ class StepContext:
     memory: dict[str, torch.Tensor] = field(default_factory=dict)
     """State a term keeps across steps. Owned by ComposedMDP. Rows the env resets
     (`ComposedMDP.reset_memory`) read NaN, meaning that env has no previous step."""
+    standing_pose: torch.Tensor | None = None
+    """(N, num_dofs) each env's motion's `standing.pose` target, in the robot's joint order. Set by
+    ComposedMDP when it was given the robot's joint names."""
 
     @cached_property
     def targets(self) -> TrackingTargets:
@@ -265,6 +268,15 @@ def support_centered(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     return torch.exp(-scale * torch.sum((c.root_positions_xy - feet_midpoint) ** 2, dim=-1))
 
 
+@reward(scale=2.0, tolerance=0.05)
+def standing_pose(c: StepContext, scale: torch.Tensor, tolerance: torch.Tensor) -> torch.Tensor:
+    """Joint positions vs. the motion's `standing.pose` target. Each joint may deviate up to
+    `tolerance` rad for free, room to balance; the squared excess beyond it is summed over joints.
+    Only allowed in `standing.rewards`."""
+    excess = ((c.state.dof_positions - c.standing_pose).abs() - tolerance.unsqueeze(-1)).clamp_min(0.0)
+    return torch.exp(-scale * torch.sum(excess**2, dim=-1))
+
+
 # --- terminations -----------------------------------------------------------------------------
 
 
@@ -351,6 +363,9 @@ class ComposedMDP:
     A reward or termination runs if any motion declares it (a reward in its `rewards` or its
     `standing.rewards`), and motions that don't declare it weigh it 0. `weight: 0` therefore
     keeps a term running for its logs alone.
+
+    `joint_names`, the robot's joints in the order its joint positions come in, places each
+    motion's `standing.pose` in that order. The `standing_pose` reward needs it.
     """
 
     def __init__(
@@ -359,6 +374,7 @@ class ComposedMDP:
         policy_obs: Iterable[str],
         style_obs: Iterable[str],
         device: torch.device | str,
+        joint_names: Sequence[str] | None = None,
     ):
         self._policy_obs = list(policy_obs)
         self._style_obs = list(style_obs)
@@ -370,6 +386,8 @@ class ComposedMDP:
 
         for spec, standing in zip(specs, standing_rewards):
             check_known(spec.rewards, REWARDS, f"{spec.name}.rewards")
+            if "standing_pose" in spec.rewards:
+                raise ValueError(f"{spec.name}.rewards: standing_pose is a standing-mode term; declare it in standing.rewards.")
             check_known(standing, REWARDS, f"{spec.name}.standing.rewards")
             check_known(spec.terminations, TERMINATIONS, f"{spec.name}.termination")
             for name, declared in spec.rewards.items():
@@ -395,8 +413,27 @@ class ComposedMDP:
             device=device,
             dtype=torch.bool,
         ).reshape(len(specs), len(self.reward_names))
+        self.standing_pose_targets = self._standing_pose_table(specs, joint_names, device)
 
         self._memory: dict[str, torch.Tensor] = {}
+
+    def _standing_pose_table(
+        self, specs: list[MotionSpec], joint_names: Sequence[str] | None, device: torch.device | str
+    ) -> torch.Tensor | None:
+        """Each motion's `standing.pose` as (M, num_joints) in `joint_names` order, 0 where unlisted."""
+        if joint_names is None:
+            if "standing_pose" in self.reward_names:
+                raise ValueError("standing_pose needs the robot's joint_names to place standing.pose targets.")
+            return None
+
+        joint_names = list(joint_names)
+        targets = torch.zeros(len(specs), len(joint_names), device=device)
+        for motion_id, spec in enumerate(specs):
+            pose = spec.standing.pose if spec.standing is not None else {}
+            check_known(pose, joint_names, f"{spec.name}.standing.pose")
+            for joint, value in pose.items():
+                targets[motion_id, joint_names.index(joint)] = value
+        return targets
 
     def _reward_tables(
         self, declared: list[dict[str, RewardSpec]], device: torch.device | str
@@ -427,6 +464,8 @@ class ComposedMDP:
         and kwargs) instead of its own `rewards`; None scores every env with its own.
         """
         c.memory = self._memory
+        if self.standing_pose_targets is not None:
+            c.standing_pose = self.standing_pose_targets[motion_ids]
 
         def kwargs(name: str) -> dict[str, torch.Tensor]:
             values = {kwarg: table[motion_ids] for kwarg, table in self.reward_kwargs[name].items()}

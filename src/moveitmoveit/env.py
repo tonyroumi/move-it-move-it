@@ -24,7 +24,9 @@ class MotionLearningEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.motions = MotionSet.from_manifest(cfg.motion_manifest, self.device)
-        self.mdp = ComposedMDP(self.motions.specs, cfg.policy_obs, cfg.style_obs, self.device)
+        self.mdp = ComposedMDP(
+            self.motions.specs, cfg.policy_obs, cfg.style_obs, self.device, joint_names=self.robot.data.joint_names
+        )
 
         self._setup_env()
 

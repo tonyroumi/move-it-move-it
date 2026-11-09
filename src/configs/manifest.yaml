@@ -20,11 +20,24 @@ motions:
         scale: 2.0
 
     # A (near-)zero command asks the robot to stand still: these rewards then replace the ones
-    # above and the AMP style reward is off. Weights are untuned starting points, summing to the
-    # 6.0 the walking rewards can reach.
+    # above and the AMP style reward is off. Weights are untuned starting points; without
+    # standing_pose they sum to the 6.0 the walking rewards can reach.
     standing:
       lin_vel_threshold: 0.1
       yaw_vel_threshold: 0.1
+      # The posture standing_pose asks for, in rad per joint (the robot's joint coordinates; unlisted
+      # joints target 0, upright with legs and arms straight down). Hip rolls put the ankles ~0.37 m
+      # apart, the robot's shoulder width, and the ankle rolls undo them so the feet stay flat; the
+      # shoulders open 0.18 rad so the hands hang clear of the thighs, and the elbows bend a little.
+      pose:
+        right_hip_x: -0.12
+        left_hip_x: 0.12
+        right_ankle_x: 0.12
+        left_ankle_x: -0.12
+        right_shoulder_x: -0.18
+        left_shoulder_x: 0.18
+        right_elbow: -0.2
+        left_elbow: -0.2
       rewards:
         root_lin_vel_l2:
           weight: 2.0
@@ -41,5 +54,10 @@ motions:
         support_centered:
           weight: 1.0
           scale: 20.0
+        # each joint's deviation within tolerance (rad) is free, room to balance
+        standing_pose:
+          weight: 1.5
+          scale: 2.0
+          tolerance: 0.05
 
     termination: unhealthy

@@ -83,3 +83,43 @@ standing:
   midpoint of the feet) are bounded in [0, 1], like `joint_vel` and `action_rate_l2`. They reward
   standing still; they can't guarantee the robot is perfectly motionless.
 - A motion without a `standing` block behaves as before.
+
+### Standing pose
+
+Those terms leave the posture free, and a policy can stand still in a wide, arms-out stance.
+`standing_pose` asks for a posture too: a `standing.pose` target per joint, scored only in standing
+mode, since it may only be declared in `standing.rewards`.
+
+```yaml
+standing:
+  pose:                    # rad per joint, by the robot's joint names; unlisted joints target 0
+    right_hip_x: -0.12
+    left_hip_x: 0.12
+  rewards:
+    standing_pose:
+      weight: 1.5
+      scale: 2.0           # how sharply the reward falls off past the tolerance (default 2.0)
+      tolerance: 0.05      # rad each joint may deviate for free (default 0.05)
+```
+
+- **Semantics.** Per joint, the deviation from the target beyond `tolerance` is squared and summed
+  over joints, and the reward is `exp(-scale * sum)`, in [0, 1]. The tolerance is the room the
+  policy has to balance at no cost. Targets are in the robot's joint coordinates: at 0 the robot
+  stands upright with legs and arms straight down and its feet 0.17 m apart. The `_x` joints
+  roll about the forward axis: a positive angle swings a hanging limb towards the robot's left.
+  Elbows bend at negative angles and knees at positive ones.
+- **The shipped target.** Both manifests ask for an upright stance with the feet about shoulder
+  width apart and the arms down. Hip rolls of ±0.12 rad put the ankles 0.37 m apart, the
+  robot's distance between its shoulder joints (0.17 m at 0), and the opposite ankle rolls keep
+  the soles flat. Shoulder rolls of ±0.18 rad hold the hands clear of the thighs, which they
+  nearly touch at 0, and the elbows bend 0.2 rad. Every other joint targets 0.
+- **Tuning.** Raise `scale` or lower `tolerance` to hold the posture more tightly; raise
+  `tolerance` to leave more room for balance. With the shipped values, every joint at its
+  tolerance scores 1.0, every joint 0.1 rad off scores 0.87, the zero pose 0.82, the feet 0.75 m
+  apart 0.77, the arms 45° out 0.29, and a wide T pose 0.003. All joints count equally.
+- **It's a reward, not a constraint.** The policy trades posture off against staying still and
+  upright, and against what physics allows, so it won't hold the target exactly. Contacts,
+  gravity and the PD drives' tracking error still move the joints.
+- **Compatibility.** `standing.pose` and `standing_pose` are optional. A manifest without them
+  scores standing as before, and the observation and action layouts don't change. A policy trained
+  without the term won't stand differently until it is retrained with it.

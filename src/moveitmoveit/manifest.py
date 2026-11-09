@@ -1,6 +1,6 @@
 """Parses and validates a motion manifest. Deliberately has no torch dependency."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
@@ -20,7 +20,7 @@ class CommandIndex(IntEnum):
 COMMAND_DIM = len(CommandIndex)
 COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex)
 MOTION_KEYS = frozenset({"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing"})
-STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "rewards"})
+STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "pose", "rewards"})
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,9 @@ class StandingSpec:
     yaw_vel_threshold: float
     goal_radius: float
     rewards: dict[str, RewardSpec]
+    pose: dict[str, float] = field(default_factory=dict)
+    """The joint positions (rad, by joint name) the `standing_pose` reward asks for. Joints it
+    doesn't list target 0. Names are checked against the robot's joints when the MDP is built."""
 
 
 @dataclass(frozen=True)
@@ -156,7 +159,10 @@ def _parse_standing(standing: Any, motion: str) -> StandingSpec:
         if thresholds[key] < 0.0:
             raise ValueError(f"{motion}.standing: {key} must not be negative, got {thresholds[key]}.")
 
-    return StandingSpec(**thresholds, rewards=_parse_rewards(standing.get("rewards"), f"{motion}.standing"))
+    pose = _mapping(standing.get("pose"), f"{motion}.standing.pose")
+    pose = {joint: _number(value, f"{motion}.standing.pose.{joint}") for joint, value in pose.items()}
+
+    return StandingSpec(**thresholds, rewards=_parse_rewards(standing.get("rewards"), f"{motion}.standing"), pose=pose)
 
 
 def _parse_terminations(terminations: Any, motion: str) -> tuple[str, ...]:

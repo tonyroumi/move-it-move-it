@@ -25,10 +25,23 @@ motions:
     # Within goal_radius of the goal (a zeroed command, or once it arrives) the robot is asked to
     # stand still: these rewards replace the ones above and the AMP style reward is off. A goal
     # farther away asks it to walk there, though its velocity commands are 0. Weights are untuned:
-    # their sum (3.5) is meant to beat the style reward of walking in place just outside the
-    # radius, so that arriving pays.
+    # their sum (3.5 without standing_pose) is meant to beat the style reward of walking in place
+    # just outside the radius, so that arriving pays.
     standing:
       goal_radius: 0.3
+      # The posture standing_pose asks for, in rad per joint (the robot's joint coordinates; unlisted
+      # joints target 0, upright with legs and arms straight down). Hip rolls put the ankles ~0.37 m
+      # apart, the robot's shoulder width, and the ankle rolls undo them so the feet stay flat; the
+      # shoulders open 0.18 rad so the hands hang clear of the thighs, and the elbows bend a little.
+      pose:
+        right_hip_x: -0.12
+        left_hip_x: 0.12
+        right_ankle_x: 0.12
+        left_ankle_x: -0.12
+        right_shoulder_x: -0.18
+        left_shoulder_x: 0.18
+        right_elbow: -0.2
+        left_elbow: -0.2
       rewards:
         target_hit:
           weight: 0.5
@@ -48,5 +61,10 @@ motions:
         support_centered:
           weight: 0.5
           scale: 20.0
+        # each joint's deviation within tolerance (rad) is free, room to balance
+        standing_pose:
+          weight: 0.75
+          scale: 2.0
+          tolerance: 0.05
 
     termination: unhealthy

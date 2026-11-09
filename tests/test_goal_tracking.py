@@ -4,6 +4,7 @@ import math
 import sys
 import types
 
+import numpy as np
 import pytest
 import torch
 
@@ -156,7 +157,8 @@ def test_sampling_without_roots_is_unchanged(motions):
 
 def test_shipped_goal_manifest_declares_goal_rewards():
     specs = load_manifest(str(REPO_ROOT / "src/configs/goal_manifest.yaml"))
-    mdp = ComposedMDP(specs, OBS, OBS, "cpu")
+    joint_names = np.load(REPO_ROOT / "src/data/walk.npz")["dof_names"].tolist()  # the robot's joints
+    mdp = ComposedMDP(specs, OBS, OBS, "cpu", joint_names=joint_names)
 
     assert {"goal_x", "goal_y"} <= set(specs[0].commands)
     assert {"progress", "target_hit"} <= set(mdp.reward_names)
