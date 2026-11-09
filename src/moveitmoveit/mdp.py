@@ -57,6 +57,16 @@ class StepContext:
     def commanded_lin_vel(self) -> torch.Tensor:
         return self.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1]
 
+    @cached_property
+    def local_lin_vel_xy(self) -> torch.Tensor:
+        """The root's forward/lateral linear velocity in its body frame, (N, 2)."""
+        return transforms.quat_apply_inverse(self.state.root_rotations, self.state.root_linear_velocities)[:, :2]
+
+    @cached_property
+    def local_yaw_rate(self) -> torch.Tensor:
+        """The root's yaw angular velocity in its body frame, (N,)."""
+        return transforms.quat_apply_inverse(self.state.root_rotations, self.state.root_angular_velocities)[:, 2]
+
     @property
     def root_positions_xy(self) -> torch.Tensor:
         return self.state.root_positions[:, :2]
@@ -165,15 +175,13 @@ def motion_tracking(c: StepContext, dof_scale: torch.Tensor, key_body_scale: tor
 @reward(scale=2.0)
 def lin_vel_tracking(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     """Matching the commanded body-frame forward/lateral linear velocity."""
-    local = transforms.quat_apply_inverse(c.state.root_rotations, c.state.root_linear_velocities)[:, :2]
-    return torch.exp(-scale * torch.sum((local - c.commanded_lin_vel) ** 2, dim=-1))
+    return torch.exp(-scale * torch.sum((c.local_lin_vel_xy - c.commanded_lin_vel) ** 2, dim=-1))
 
 
 @reward(scale=2.0)
 def yaw_vel_tracking(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     """Matching the commanded body-frame yaw angular velocity."""
-    local = transforms.quat_apply_inverse(c.state.root_rotations, c.state.root_angular_velocities)
-    return torch.exp(-scale * (local[:, 2] - c.commands[:, CommandIndex.YAW]) ** 2)
+    return torch.exp(-scale * (c.local_yaw_rate - c.commands[:, CommandIndex.YAW]) ** 2)
 
 
 @reward(scale=0.5)
@@ -261,6 +269,39 @@ def policy_commands(
     return observed
 
 
+# --- diagnostics ------------------------------------------------------------------------------
+
+
+def velocity_tracking_metrics(
+    name: str, actual: torch.Tensor, commanded: torch.Tensor, tracked: torch.Tensor, unit: str
+) -> dict[str, torch.Tensor]:
+    """Tracking error and commanded vs. actual velocity, split by whether the command is zero.
+
+    `actual` and `commanded` are (N, D): the velocity components one tracking reward compares
+    (forward/lateral for linear velocity, D=2; yaw rate, D=1). A command is zero when all D of
+    those components are exactly 0, so e.g. a turn-in-place command counts as zero linear and
+    nonzero yaw. Each returned value is (N,), NaN outside its bucket or where `tracked` is False:
+      - error: ‖actual - commanded‖, the distance the reward's exp(-scale·error²) kernel sees.
+        Under a zero command it is the actual speed.
+      - commanded: ‖commanded‖, nonzero commands only.
+      - actual along cmd: actual projected onto the commanded direction, nonzero commands only.
+        For yaw rate that is the actual rate signed so turning the commanded way is positive.
+    """
+    error = torch.linalg.vector_norm(actual - commanded, dim=-1)
+    commanded_speed = torch.linalg.vector_norm(commanded, dim=-1)
+    along = torch.sum(actual * commanded, dim=-1) / commanded_speed.clamp_min(1e-12)
+
+    zero = tracked & (commanded_speed == 0)
+    nonzero = tracked & (commanded_speed > 0)
+    missing = torch.full_like(error, float("nan"))
+    return {
+        f"{name}_error (zero cmd) [{unit}]": torch.where(zero, error, missing),
+        f"{name}_error (nonzero cmd) [{unit}]": torch.where(nonzero, error, missing),
+        f"{name}_commanded (nonzero cmd) [{unit}]": torch.where(nonzero, commanded_speed, missing),
+        f"{name}_actual_along_cmd (nonzero cmd) [{unit}]": torch.where(nonzero, along, missing),
+    }
+
+
 # --- composition ------------------------------------------------------------------------------
 
 
@@ -318,6 +359,11 @@ class ComposedMDP:
             device=device,
             dtype=torch.bool,
         ).reshape(len(specs), len(self.termination_names))
+        self.reward_declared = torch.tensor(
+            [[name in spec.rewards for name in self.reward_names] for spec in specs],
+            device=device,
+            dtype=torch.bool,
+        ).reshape(len(specs), len(self.reward_names))
 
         self._memory: dict[str, torch.Tensor] = {}
 
@@ -336,6 +382,24 @@ class ComposedMDP:
         terms = {name: weighted[:, i].detach() for i, name in enumerate(raw)}
         terms["task"] = total.detach()
         return total, {name: value.detach() for name, value in raw.items()}, terms
+
+    def command_tracking(self, c: StepContext, motion_ids: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Per-env velocity-command tracking diagnostics for logging, each of shape (N,).
+
+        Measured in the body frame the `lin_vel_tracking`/`yaw_vel_tracking` rewards use, only
+        for envs whose motion declares that reward, and only if some motion does. A value is NaN
+        where it doesn't apply, so a consumer averages the non-NaN values and treats none as no
+        data. See `velocity_tracking_metrics` for the zero/nonzero command split.
+        """
+        metrics = {}
+        if "lin_vel_tracking" in self.reward_names:
+            tracked = self.reward_declared[motion_ids, self.reward_names.index("lin_vel_tracking")]
+            metrics |= velocity_tracking_metrics("lin_vel", c.local_lin_vel_xy, c.commanded_lin_vel, tracked, "m/s")
+        if "yaw_vel_tracking" in self.reward_names:
+            tracked = self.reward_declared[motion_ids, self.reward_names.index("yaw_vel_tracking")]
+            commanded = c.commands[:, CommandIndex.YAW : CommandIndex.YAW + 1]
+            metrics |= velocity_tracking_metrics("yaw_rate", c.local_yaw_rate.unsqueeze(-1), commanded, tracked, "rad/s")
+        return metrics
 
     def reset_memory(self, env_ids: torch.Tensor) -> None:
         """Forget what terms remembered about these envs, e.g. when their episode or goal changes."""
