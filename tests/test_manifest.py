@@ -1,6 +1,7 @@
 """The manifest parser: valid forms, strict rejection, and its torch-free guarantee."""
 
 import ast
+from dataclasses import replace
 
 import pytest
 
@@ -66,6 +67,16 @@ def test_a_zero_weight_motion_is_allowed_while_another_can_be_sampled(write_mani
 
 def test_shipped_manifest_is_valid():
     assert load_manifest(str(REPO_ROOT / "src/configs/manifest.yaml"))
+
+
+def test_smooth_walk_manifest_is_the_baseline_plus_walking_smoothness_rewards():
+    (baseline,) = load_manifest(str(REPO_ROOT / "src/configs/manifest.yaml"))
+    (smooth,) = load_manifest(str(REPO_ROOT / "src/configs/smooth_walk_manifest.yaml"))
+
+    added = {name: spec for name, spec in smooth.rewards.items() if name not in baseline.rewards}
+    assert set(added) == {"action_rate_l2", "joint_acc"}
+    assert all(spec.weight > 0.0 and set(spec.kwargs) == {"scale"} for spec in added.values())
+    assert replace(smooth, rewards={name: smooth.rewards[name] for name in baseline.rewards}) == baseline
 
 
 @pytest.mark.parametrize(
