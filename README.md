@@ -49,6 +49,50 @@ puts it back there:
 A policy only walks to goals like those it trained on, so goals far outside the sampled range,
 or behind obstacles, may not be reached.
 
+## Walk and run: conditional discriminator
+
+`configs/walk_run_goal_manifest.yaml` trains one policy to walk or run to a goal, picked by the
+binary key (`binary_key_0`, Left Shift in `play.py`'s joystick modes): key off walks, key on runs.
+
+```bash
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/walk_run_goal_manifest.yaml
+./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick --joystick-mode point_goal  # hold Left Shift to run
+```
+
+An unconditional discriminator scores every frame against the walk and run clips at once, so a
+policy that only walks still earns full style reward with the key on. A manifest whose motions
+declare `style_condition` makes the discriminator conditional: it also sees a one-hot of the
+condition, so walking with the key on scores as fake.
+
+```yaml
+run_to_goal:
+  file: data/locomotion/run.npz
+  style_condition: 1       # this clip's frames are real examples of key on
+  commands:
+    binary_key_0: 1.0      # must be fixed at style_condition
+```
+
+- **Labels.** Real frames carry their clip's `style_condition`. Generated frames carry the key the
+  policy observed when it acted, read before the commands are resampled, never a later command.
+  Each real batch is drawn with the generated batch's labels, condition for condition, so the
+  label alone says nothing about which is real. Within a condition, clips are drawn by
+  `sample_prob`, so a condition can have several clips.
+- **Kept out of the discriminator.** Standing envs, which belong to neither gait and earn no style
+  reward. The step an env resets on, whose AMP observation is the new episode's reference seed.
+  With more than 2 AMP frames, histories that still hold seed frames or motion from before a key
+  change.
+- **Unchanged.** Standing mode, the zero command and the goal rewards (`progress`, `target_hit`).
+  Policy observations, actions and rewards are the same as with an unconditional manifest.
+- **Validation.** Either every motion declares `style_condition` (0 or 1) or none does. Each
+  motion's `binary_key_0` must be fixed at its condition. Every condition an env can generate needs
+  a clip with a positive `sample_prob`: a zeroed command turns the key off, so a key-on motion with
+  `zero_command_prob` > 0 needs a `standing` block or a key-off clip.
+- **Compatibility.** A manifest without `style_condition` trains exactly as before. Conditional
+  and unconditional discriminators have different input sizes, so their checkpoints don't load
+  into each other: loading one into the other raises an error, and you have to train a new run.
+  Older checkpoints load as unconditional. A policy follows the key only after it has been
+  trained on this manifest. One trained without it ignores the key.
+
 ## Standing mode
 
 A motion that declares a `standing` block trains a second, per-environment mode: when the
@@ -73,8 +117,9 @@ standing:
   unchanged and the policy can tell the modes apart.
 - **What changes while standing.** The task reward comes from `standing.rewards` and AMP's style
   reward is 0 for that env. The discriminator's training is unchanged: standing envs' AMP
-  observations still reach its buffer. A nonzero command restores the motion's `rewards` and the
-  style reward from the next step on.
+  observations still reach its buffer (except with a conditional discriminator, see
+  [Walk and run](#walk-and-run-conditional-discriminator)). A nonzero command restores the motion's
+  `rewards` and the style reward from the next step on.
 - **Style reward off.** AMP doesn't know about standing: it zeroes the style reward for the envs in
   the env's per-step `extras["style_reward_off"]` (N,) bool mask, and every env earns style when
   the mask is missing. `MotionLearningEnv._style_reward_off()` builds that mask, today from

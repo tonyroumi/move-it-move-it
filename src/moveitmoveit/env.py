@@ -66,6 +66,7 @@ class MotionLearningEnv(DirectRLEnv):
             self.cfg.num_amp_observations,
             self.cfg.random_reset,
             self.mdp.style_obs,
+            self.motions.sample_ids_for_conditions if self.motions.num_style_conditions else None,
         )
 
         self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
@@ -89,6 +90,12 @@ class MotionLearningEnv(DirectRLEnv):
         # per-env standing mode (see StandingSpec), set from the commands each observation carries.
         # Rewards and the AMP style gate read the mode of the observation the policy acted on.
         self.standing = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+
+        # Conditional AMP (a manifest whose motions declare style_condition): the behavior condition
+        # (binary key, or -1 standing) of the commands each observation carries. Like `standing`, the
+        # value exported with a step is the one the policy acted on, never a command resampled after it.
+        self.num_style_conditions = self.motions.num_style_conditions
+        self.style_condition = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         # current/previous action, tracked for the action-rate smoothness penalty
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
@@ -204,6 +211,7 @@ class MotionLearningEnv(DirectRLEnv):
         local_frame = self.cfg.random_reset or self.render_enabled
         commands = policy_commands(state, self.commands, self.motions.has_goal[self.motion_ids], local_frame)
         self.standing = self.motions.standing(self.motion_ids, commands)
+        self.style_condition = self.motions.generated_style_conditions(commands, self.standing)
         policy_obs, style_obs = self.mdp.observations(state, commands, local_frame=local_frame)
 
         # update AMP observation history
@@ -220,6 +228,8 @@ class MotionLearningEnv(DirectRLEnv):
         # observed when it chose the action; AMP gates its style reward with a mask built from it
         self.extras["standing"] = self.standing
         self.extras["style_reward_off"] = self._style_reward_off()
+        if self.num_style_conditions:
+            self.extras["style_condition"] = self.style_condition
         context = self._step_context()
         total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
             context, self.motion_ids, self.standing
