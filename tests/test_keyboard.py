@@ -1,48 +1,17 @@
-"""play.py's keyboard commands, on stand-ins for carb and Isaac Lab's Se2Keyboard (no simulator).
+"""play.py's keyboard commands, on stand-ins for carb and Isaac Lab's Se2Keyboard (no simulator;
+see conftest.py).
 
 Run under IsaacLab's Python, which has torch: ./isaaclab.sh -p -m pytest tests
 """
 
-import sys
 from types import SimpleNamespace
 
-import pytest
 import torch
 
 from moveitmoveit.manifest import CommandIndex
 
 
 SE2 = [CommandIndex.LIN_X, CommandIndex.LIN_Y, CommandIndex.YAW]
-
-
-@pytest.fixture
-def keyboards(monkeypatch):
-    """`moveitmoveit.utils.keyboard`, imported against a fake Se2Keyboard whose held SE(2)
-    command is set directly through `held`."""
-
-    class Se2Keyboard:
-        def __init__(self, cfg):
-            self.held = torch.zeros(3)
-
-        def reset(self):
-            self.held.zero_()
-
-        def advance(self):
-            return self.held.clone()
-
-        def _on_keyboard_event(self, event, *args, **kwargs):
-            return True
-
-    event_type = SimpleNamespace(KEY_PRESS="press", KEY_REPEAT="repeat", KEY_RELEASE="release", CHAR="char")
-    monkeypatch.setitem(sys.modules, "carb", SimpleNamespace(input=SimpleNamespace(KeyboardEventType=event_type)))
-    monkeypatch.setitem(
-        sys.modules, "isaaclab.devices", SimpleNamespace(Se2Keyboard=Se2Keyboard, Se2KeyboardCfg=object)
-    )
-    monkeypatch.delitem(sys.modules, "moveitmoveit.utils.keyboard", raising=False)
-    from moveitmoveit.utils import keyboard
-
-    yield keyboard
-    sys.modules.pop("moveitmoveit.utils.keyboard", None)
 
 
 def key_event(name: str, kind: str) -> SimpleNamespace:

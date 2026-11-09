@@ -62,7 +62,7 @@ parser.add_argument(
     "--joystick-mode",
     type=str,
     default="velocity",
-    choices=["velocity", "point_goal"],
+    choices=["velocity", "point_goal", "nearby_goal"],
     help=(
         "With --joystick, which command the keyboard drives: 'velocity' for the SE(2) lin/yaw"
         " command (original behavior; already in the robot's body frame, so up is always forward),"
@@ -70,6 +70,20 @@ parser.add_argument(
         " position along its start heading, stays put while the robot walks, and is moved with the"
         " same up/down/left/right keys relative to the robot's current heading (up pushes it the way"
         " the robot faces, left/right to its own left/right). Needs a checkpoint whose manifest declares goal_x/goal_y."
+        " 'nearby_goal' for a goal tied to the robot: held arrow keys put it --nearby-goal-distance"
+        " ahead/behind/left/right of the robot's current position and heading (diagonals normalized),"
+        " re-placed every step as it moves and turns; no key puts it at the robot, which asks it to"
+        " stand. Needs a goal checkpoint, ideally one trained with a nearby_goal manifest block."
+    ),
+)
+parser.add_argument(
+    "--nearby-goal-distance",
+    type=float,
+    default=None,
+    help=(
+        "With --joystick-mode nearby_goal, how far ahead of the robot a held key puts the goal, in m."
+        " Must exceed the manifest's standing goal_radius. Defaults to the distance the checkpoint's"
+        " manifest trained with (nearby_goal.distance), or 1.0 m for a fixed-goal manifest."
     ),
 )
 parser.add_argument(
@@ -166,6 +180,10 @@ def main():
         goal_marker = None
         if args_cli.joystick_overlay and not args_cli.joystick:
             raise ValueError("--joystick-overlay requires --joystick.")
+        if args_cli.nearby_goal_distance is not None and not (
+            args_cli.joystick and args_cli.joystick_mode == "nearby_goal"
+        ):
+            raise ValueError("--nearby-goal-distance requires --joystick --joystick-mode nearby_goal.")
         if args_cli.joystick:
             if args_cli.headless:
                 raise ValueError("--joystick requires a renderer; do not combine it with --headless.")
@@ -184,16 +202,26 @@ def main():
                 omega_z_sensitivity=1.0,
             )
 
-            if args_cli.joystick_mode == "point_goal":
+            if args_cli.joystick_mode in ("point_goal", "nearby_goal"):
                 if not env.unwrapped.motions.has_goal.any():
                     raise ValueError(
-                        "--joystick-mode point_goal needs a checkpoint trained on a manifest motion that"
-                        " declares goal_x/goal_y commands; this one has none, so its policy never sees a goal."
+                        f"--joystick-mode {args_cli.joystick_mode} needs a checkpoint trained on a manifest"
+                        " motion with a goal (goal_x/goal_y commands or a nearby_goal block); this one has"
+                        " none, so its policy never sees a goal."
                     )
 
-                from moveitmoveit.utils.keyboard import PointGoalKeyboard
+                if args_cli.joystick_mode == "point_goal":
+                    from moveitmoveit.utils.keyboard import PointGoalKeyboard
 
-                keyboard = PointGoalKeyboard(se2_keyboard_cfg, dt=env.unwrapped.step_dt)
+                    # the keyboard owns the world-space goal, even for a nearby-goal checkpoint
+                    env.unwrapped.motions.use_world_goals()
+                    keyboard = PointGoalKeyboard(se2_keyboard_cfg, dt=env.unwrapped.step_dt)
+                else:
+                    from moveitmoveit.utils.keyboard import NearbyGoalKeyboard
+
+                    # the env re-places the goal from the keyboard's direction every step, as in training
+                    env.unwrapped.motions.use_nearby_goals(args_cli.nearby_goal_distance)
+                    keyboard = NearbyGoalKeyboard(se2_keyboard_cfg)
 
                 import isaaclab.sim as sim_utils
                 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
@@ -269,6 +297,17 @@ def main():
                 if keyboard is not None:
                     command = keyboard.advance().to(env.unwrapped.device)
                     command = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1).clone()
+                    if args_cli.joystick_mode == "nearby_goal":
+                        # the keyboard holds the direction; the env places the goal from it, now for
+                        # this step's direction and again after every step, from the robot's new pose
+                        env.unwrapped.goal_directions[:] = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
+                        env.unwrapped.place_nearby_goals()
+                        goal_positions_xy = env.unwrapped.commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
+                        command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = goal_positions_xy
+                        goal_height = torch.full(
+                            (goal_positions_xy.shape[0], 1), 0.1, device=goal_positions_xy.device
+                        )
+                        goal_marker.visualize(translations=torch.cat((goal_positions_xy, goal_height), dim=-1))
                     if point_goal is not None:
                         goal_positions_xy = point_goal.update(
                             command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1],

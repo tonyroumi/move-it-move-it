@@ -7,8 +7,8 @@ from isaaclab.envs import DirectRLEnv
 from moveitmoveit.utils import transforms
 
 from .env_cfg import MotionLearningEnvCfg
-from .manifest import COMMAND_DIM
-from .mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
+from .manifest import COMMAND_DIM, CommandIndex
+from .mdp import BodyState, ComposedMDP, StepContext, nearby_goal_positions, observation_dim, policy_commands
 from .motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
 from .motion_set import MotionSet
 
@@ -85,6 +85,9 @@ class MotionLearningEnv(DirectRLEnv):
 
         self.command_dim = COMMAND_DIM
         self.commands = torch.zeros(self.num_envs, self.command_dim, device=self.device)
+        # the held direction of each env's nearby goal (see NearbyGoalSpec), heading frame, unit or 0.
+        # Sampled with the commands in training; play's nearby_goal joystick mode writes it instead.
+        self.goal_directions = torch.zeros(self.num_envs, 2, device=self.device)
 
         # per-env standing mode (see StandingSpec), set from the commands each observation carries.
         # Rewards and the AMP style gate read the mode of the observation the policy acted on.
@@ -199,6 +202,7 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _get_observations(self) -> dict:
         self._resample_commands()
+        self.place_nearby_goals()
 
         state = self.current_state
         local_frame = self.cfg.random_reset or self.render_enabled
@@ -256,7 +260,8 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands every `command_resample_steps` steps or where `dones` is set.
-        Goals are placed relative to each env's current root, then stay fixed in world space."""
+        Goals are placed relative to each env's current root, then stay fixed in world space, except
+        nearby goals, which `place_nearby_goals` re-places every step."""
         if not self.cfg.resample_commands:
             return
 
@@ -272,8 +277,32 @@ class MotionLearningEnv(DirectRLEnv):
                 self.motion_ids[resample_env_ids], root_positions_xy
             )
 
+            self.goal_directions[resample_env_ids] = self.motions.sample_goal_directions(
+                self.motion_ids[resample_env_ids]
+            )
+
             # a new goal or episode: progress toward the old goal no longer means anything
             self.mdp.reset_memory(resample_env_ids)
+
+        # nearby goals also switch direction between resamples, like a key pressed or released
+        switch = ~resample & (
+            torch.rand(self.num_envs, device=self.device) < self.motions.nearby_goal_switch_prob[self.motion_ids]
+        )
+        switch_env_ids = switch.nonzero(as_tuple=False).squeeze(-1)
+        if switch_env_ids.numel() > 0:
+            self.goal_directions[switch_env_ids] = self.motions.sample_goal_directions(self.motion_ids[switch_env_ids])
+
+    def place_nearby_goals(self):
+        """Put each nearby-goal env's goal its motion's distance from the root, along its held
+        direction in the root's current heading frame (at the root when none is held). Runs every
+        step, so the goal follows the robot as it moves and turns."""
+        nearby = self.motions.nearby_goal[self.motion_ids]
+        if not nearby.any():
+            return
+        offsets = self.goal_directions * self.motions.nearby_goal_distance[self.motion_ids].unsqueeze(-1)
+        goal = slice(CommandIndex.GOAL_X, CommandIndex.GOAL_Y + 1)
+        goals = nearby_goal_positions(self.current_state, offsets)
+        self.commands[:, goal] = torch.where(nearby.unsqueeze(-1), goals, self.commands[:, goal])
 
     def _compute_robot_state(
         self,

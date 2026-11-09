@@ -211,12 +211,16 @@ def joint_vel(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
 
 @reward(scale=1.0)
 def progress(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
-    """How much closer to the commanded goal position the last step made us. 0 on an env's first
-    step and on the first step after its episode or goal changes, so a new goal earns nothing."""
+    """How much closer to the commanded goal position the last step made us: its distance from the
+    previous step's root minus its distance from this one. For a fixed goal that is the change in
+    distance; a nearby goal, re-placed from the root every step, is measured from where the step
+    started. 0 on an env's first step and on the first step after its episode or goal is resampled,
+    so a new goal earns nothing."""
+    previous_root = c.memory.get("root_xy", c.root_positions_xy)
+    previous_root = torch.where(torch.isnan(previous_root), c.root_positions_xy, previous_root)
+    c.memory["root_xy"] = c.root_positions_xy.clone()
+    previous = torch.norm(c.commanded_goal - previous_root, dim=-1)
     distance = torch.norm(c.commanded_goal - c.root_positions_xy, dim=-1)
-    previous = c.memory.get("goal_distance", distance)
-    previous = torch.where(torch.isnan(previous), distance, previous)
-    c.memory["goal_distance"] = distance
     return scale * (previous - distance)
 
 
@@ -292,6 +296,12 @@ def policy_commands(
     observed = commands.clone()
     observed[:, goal] = torch.where(has_goal.unsqueeze(-1), offset, torch.zeros_like(offset))
     return observed
+
+
+def nearby_goal_positions(state: BodyState, offsets_xy: torch.Tensor) -> torch.Tensor:
+    """(N, 2) world-space goals `offsets_xy` away from the root in its heading frame (+X ahead, +Y
+    to its left). `policy_commands` turns them back into exactly these offsets."""
+    return state.root_positions[:, :2] + transforms.heading_to_world_xy(state.root_rotations, offsets_xy)
 
 
 # --- diagnostics ------------------------------------------------------------------------------

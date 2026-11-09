@@ -25,16 +25,29 @@ def quaternion_to_tangent_and_normal(q: torch.Tensor) -> torch.Tensor:
     return torch.cat([tangent, normal], dim=len(tangent.shape) - 1)
 
 
-def world_to_heading_frame_xy(rotations: torch.Tensor, vectors_xy: torch.Tensor) -> torch.Tensor:
-    """Rotate (N, 2) world-frame XY vectors into each body's yaw-only heading frame, so a tilted
-    body still sees a vector ahead of it along +X and one to its left along +Y."""
+def heading_yaw(rotations: torch.Tensor) -> torch.Tensor:
+    """(N,) yaw of each body's heading: the world-XY direction its rotated +X axis points."""
     x_axis = torch.zeros_like(rotations[:, :3])
     x_axis[:, 0] = 1.0
     heading = quat_apply(rotations, x_axis)
-    yaw = torch.atan2(heading[:, 1], heading[:, 0])
+    return torch.atan2(heading[:, 1], heading[:, 0])
+
+
+def world_to_heading_frame_xy(rotations: torch.Tensor, vectors_xy: torch.Tensor) -> torch.Tensor:
+    """Rotate (N, 2) world-frame XY vectors into each body's yaw-only heading frame, so a tilted
+    body still sees a vector ahead of it along +X and one to its left along +Y."""
+    yaw = heading_yaw(rotations)
     cos, sin = torch.cos(yaw), torch.sin(yaw)
     x, y = vectors_xy[:, 0], vectors_xy[:, 1]
     return torch.stack((cos * x + sin * y, -sin * x + cos * y), dim=-1)
+
+
+def heading_to_world_xy(rotations: torch.Tensor, vectors_xy: torch.Tensor) -> torch.Tensor:
+    """The inverse of `world_to_heading_frame_xy`: (N, 2) heading-frame XY vectors in world XY."""
+    yaw = heading_yaw(rotations)
+    cos, sin = torch.cos(yaw), torch.sin(yaw)
+    x, y = vectors_xy[:, 0], vectors_xy[:, 1]
+    return torch.stack((cos * x - sin * y, sin * x + cos * y), dim=-1)
 
 
 @torch.jit.script

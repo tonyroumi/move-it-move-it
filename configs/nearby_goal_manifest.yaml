@@ -1,0 +1,64 @@
+# Walking toward a nearby goal tied to the robot, the training counterpart of play.py's
+# `--joystick-mode nearby_goal`. Instead of a fixed world point, the goal is `nearby_goal.distance`
+# m from the root along a held direction in its heading frame (forward/back/left/right or a
+# normalized diagonal), re-placed from the root's position and heading every step; no direction
+# puts it at the root, i.e. stand still. Directions are sampled at reset and every
+# command_resample_steps, and switch in between at switch_prob per step. Weights are untuned
+# starting points.
+motions:
+  walk_nearby_goal:
+    file: /home/anthony/Dev/move-it-move-it/data/walk.npz
+    sample_prob: 1.0
+
+    nearby_goal:
+      # m; must exceed standing.goal_radius, so a held direction never reads as "stand"
+      distance: 1.0
+      # chance a sampled direction is none (stand)
+      idle_prob: 0.25
+      # per-step chance of a new direction between resamples: ~50 steps (~1.7 s) held on average
+      switch_prob: 0.02
+
+    rewards:
+      # meters along the held direction per step, times 30 = 1 / step_dt: roughly speed that way in
+      # m/s. target_hit is left out: a goal that keeps its distance from the root scores the same
+      # wherever the robot is.
+      progress:
+        weight: 1.0
+        scale: 30.0
+
+    # With no direction held the goal is at the root, within goal_radius: these rewards replace the
+    # ones above and the AMP style reward is off. Same standing terms as goal_manifest.yaml, less
+    # target_hit, which a goal re-placed at the root every step always scores.
+    standing:
+      goal_radius: 0.3
+      pose:
+        right_hip_x: -0.12
+        left_hip_x: 0.12
+        right_ankle_x: 0.12
+        left_ankle_x: -0.12
+        right_shoulder_x: -0.18
+        left_shoulder_x: 0.18
+        right_elbow: -0.2
+        left_elbow: -0.2
+      rewards:
+        root_lin_vel_l2:
+          weight: 1.0
+          scale: 4.0
+        root_ang_vel_l2:
+          weight: 0.5
+          scale: 2.0
+        joint_vel:
+          weight: 0.5
+          scale: 5.0e-2
+        upright:
+          weight: 0.5
+          scale: 10.0
+        support_centered:
+          weight: 0.5
+          scale: 20.0
+        standing_pose:
+          weight: 0.75
+          scale: 2.0
+          tolerance: 0.05
+
+    termination: unhealthy

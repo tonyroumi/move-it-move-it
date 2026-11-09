@@ -140,3 +140,28 @@ class PointGoalKeyboard(Keyboard):
         command[CommandIndex.GOAL_Y] = self._goal_offset[1]
 
         return command
+
+
+class NearbyGoalKeyboard(Keyboard):
+    """Drives a nearby goal's held direction: the held arrow keys, in the robot's heading frame (up
+    forward, down back, left to its left, right to its right), normalized so a diagonal is a unit
+    vector too, or 0 when none is held (or opposite keys cancel). The direction is in GOAL_X/GOAL_Y;
+    the caller places the goal from it every step. Key sensitivities don't matter, and the yaw keys
+    are ignored. The binary keys are as in `Keyboard`."""
+
+    def advance(self) -> torch.Tensor:
+        """The full (len(CommandIndex),) command, holding the heading-frame goal direction and the
+        binary keys, with no velocity command."""
+        command = super().advance()
+
+        # Isaac Lab's Se2Keyboard maps up -> +v_x and left -> +v_y, already the heading frame's +X/+Y
+        direction = torch.sign(command[[CommandIndex.LIN_X, CommandIndex.LIN_Y]])
+        norm = torch.linalg.vector_norm(direction)
+        if norm > 0:
+            direction = direction / norm
+
+        command[list(_SE2_COMMANDS)] = 0.0
+        command[CommandIndex.GOAL_X] = direction[0]
+        command[CommandIndex.GOAL_Y] = direction[1]
+
+        return command

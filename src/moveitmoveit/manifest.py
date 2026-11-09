@@ -17,8 +17,14 @@ class CommandIndex(IntEnum):
 
 COMMAND_DIM = len(CommandIndex)
 COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex)
-MOTION_KEYS = frozenset({"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing"})
+MOTION_KEYS = frozenset(
+    {"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing", "nearby_goal"}
+)
 STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "pose", "rewards"})
+NEARBY_GOAL_KEYS = frozenset({"distance", "idle_prob", "switch_prob"})
+
+# m; play's nearby_goal joystick mode falls back to it for a checkpoint whose manifest declares none
+DEFAULT_NEARBY_GOAL_DISTANCE = 1.0
 
 
 @dataclass(frozen=True)
@@ -40,6 +46,20 @@ class StandingSpec:
 
 
 @dataclass(frozen=True)
+class NearbyGoalSpec:
+    """A motion's nearby, heading-relative goal: instead of a fixed world point, the goal is placed
+    `distance` m from the root, in the root's heading frame, along a direction held like an arrow key
+    (forward/back/left/right or a normalized diagonal), and recomputed from the root's current
+    position and heading every step. No direction puts the goal at the root, i.e. stand still."""
+
+    distance: float
+    idle_prob: float
+    """Probability that a sampled direction is none."""
+    switch_prob: float
+    """Per-step probability of a new direction between the regular command resamples."""
+
+
+@dataclass(frozen=True)
 class MotionSpec:
     name: str
     file: str
@@ -50,6 +70,7 @@ class MotionSpec:
     rewards: dict[str, RewardSpec]
     terminations: tuple[str, ...]
     standing: StandingSpec | None = None
+    nearby_goal: NearbyGoalSpec | None = None
 
 
 def load_manifest(path: str) -> list[MotionSpec]:
@@ -84,15 +105,27 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
     if not 0.0 <= zero_command_prob <= 1.0:
         raise ValueError(f"{name}: zero_command_prob must be in [0, 1], got {zero_command_prob}.")
 
+    commands = _parse_commands(motion.get("commands"), name)
+    standing = _parse_standing(motion["standing"], name) if "standing" in motion else None
+    nearby_goal = None
+    if "nearby_goal" in motion:
+        if any(key in commands for key in ("goal_x", "goal_y")):
+            raise ValueError(
+                f"{name}: declare either commands.goal_x/goal_y (a fixed world-space goal) or nearby_goal"
+                " (a goal placed relative to the root every step), not both."
+            )
+        nearby_goal = _parse_nearby_goal(motion["nearby_goal"], name, standing)
+
     return MotionSpec(
         name=name,
         file=motion["file"],
         sample_prob=sample_prob,
-        commands=_parse_commands(motion.get("commands"), name),
+        commands=commands,
         zero_command_prob=zero_command_prob,
         rewards=_parse_rewards(motion.get("rewards"), name),
         terminations=_parse_terminations(motion.get("termination", "unhealthy"), name),
-        standing=_parse_standing(motion["standing"], name) if "standing" in motion else None,
+        standing=standing,
+        nearby_goal=nearby_goal,
     )
 
 
@@ -149,6 +182,32 @@ def _parse_standing(standing: Any, motion: str) -> StandingSpec:
     pose = {joint: _number(value, f"{motion}.standing.pose.{joint}") for joint, value in pose.items()}
 
     return StandingSpec(**thresholds, rewards=_parse_rewards(standing.get("rewards"), f"{motion}.standing"), pose=pose)
+
+
+def _parse_nearby_goal(nearby_goal: Any, motion: str, standing: StandingSpec | None) -> NearbyGoalSpec:
+    """A declared `nearby_goal` block, even an empty one, turns the nearby goal on with these defaults."""
+    nearby_goal = _mapping(nearby_goal, f"{motion}.nearby_goal")
+    check_known(nearby_goal, NEARBY_GOAL_KEYS, f"{motion}.nearby_goal")
+
+    distance = _number(nearby_goal.get("distance", DEFAULT_NEARBY_GOAL_DISTANCE), f"{motion}.nearby_goal.distance")
+    check_nearby_goal_distance(distance, standing.goal_radius if standing is not None else 0.0, f"{motion}.nearby_goal")
+
+    probs = {}
+    for key, default in (("idle_prob", 0.25), ("switch_prob", 0.0)):
+        probs[key] = _number(nearby_goal.get(key, default), f"{motion}.nearby_goal.{key}")
+        if not 0.0 <= probs[key] <= 1.0:
+            raise ValueError(f"{motion}.nearby_goal: {key} must be in [0, 1], got {probs[key]}.")
+
+    return NearbyGoalSpec(distance=distance, **probs)
+
+
+def check_nearby_goal_distance(distance: float, goal_radius: float, where: str) -> None:
+    """A held direction must put the goal outside the standing radius, or it would still mean "stand"."""
+    if not distance > goal_radius:
+        raise ValueError(
+            f"{where}: the nearby goal distance ({distance} m) must exceed the standing goal_radius"
+            f" ({goal_radius} m), or a held direction would still read as standing still."
+        )
 
 
 def _parse_terminations(terminations: Any, motion: str) -> tuple[str, ...]:

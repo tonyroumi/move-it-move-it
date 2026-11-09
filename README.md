@@ -49,6 +49,47 @@ puts it back there:
 A policy only walks to goals like those it trained on, so goals far outside the sampled range,
 or behind obstacles, may not be reached.
 
+### Nearby goal
+
+A motion with a `nearby_goal` block, in place of `goal_x`/`goal_y` commands, ties the goal to the
+robot. A direction is held, the way an arrow key is held: forward, back, left, right, or a
+diagonal normalized to unit length. Every step the env re-places the goal `distance` m away along
+that direction, in the robot's current heading frame (yaw only). So the goal follows the robot as
+it moves and turns, and the policy always observes the offset `distance * direction`. With no
+direction held, the goal is at the root, and a motion with a `standing` block stands.
+
+```yaml
+nearby_goal:
+  distance: 1.0     # m; must exceed standing.goal_radius, or loading fails (default 1.0)
+  idle_prob: 0.25   # chance a sampled direction is none (default 0.25)
+  switch_prob: 0.02 # per-step chance of a new direction between resamples (default 0)
+```
+
+In training, the direction is sampled on reset and every `command_resample_steps`, uniformly
+over the eight directions or none at `idle_prob`, and switches in between at `switch_prob`, so
+episodes see standing, every direction, and the transitions between them. `progress` measures
+each step from where it started, which for a nearby goal is the distance covered along the held
+direction. `configs/nearby_goal_manifest.yaml` is a starting point with untuned weights:
+
+```bash
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/nearby_goal_manifest.yaml
+```
+
+Drive it from the keyboard with `--joystick-mode nearby_goal`. The held arrow keys set the
+direction (up is forward, left the robot's own left), and the red sphere shows the goal:
+
+```bash
+./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick --joystick-mode nearby_goal
+```
+
+The goal moves as soon as a key is pressed or released. The policy sees it on its next
+observation, and how the robot actually moves is still up to the policy and physics. Play uses
+the same code path as training, at the distance the checkpoint trained with; for a fixed-goal
+checkpoint the distance defaults to 1.0 m. `--nearby-goal-distance` overrides it, and is also
+checked against `goal_radius`. The goal turns with the robot and never arrives, so left/right
+and back ask for sidestepping or walking backwards. A policy trained on forward-walking clips
+may only manage those clumsily, or by curving.
+
 ## Standing mode
 
 A motion that declares a `standing` block trains a second, per-environment mode: when the
