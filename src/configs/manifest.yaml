@@ -4,12 +4,12 @@ motions:
     sample_prob: 1.0
 
     commands:
-      lin_x: [0.0, 1.0]
-      lin_y: [0.0, 0.8]
+      lin_x: [1.5, 1.5]
+      lin_y: [-0.75, 0.75]
       yaw: [-1.5, 1.5]
       binary_key_0: 0.0
 
-    zero_command_prob: 0.5
+    zero_command_prob: 0.0
 
     rewards:
       lin_vel_tracking:

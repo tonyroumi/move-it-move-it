@@ -18,7 +18,6 @@ class MotionLearningEnv(DirectRLEnv):
     cfg: MotionLearningEnvCfg
 
     def __init__(self, cfg: MotionLearningEnvCfg, render_mode: str | None = None, **kwargs):
-        # DirectRLEnv builds its gym spaces from these during __init__
         cfg.observation_space = observation_dim(cfg.policy_obs) + COMMAND_DIM
         cfg.amp_observation_space = observation_dim(cfg.style_obs)
         super().__init__(cfg, render_mode, **kwargs)

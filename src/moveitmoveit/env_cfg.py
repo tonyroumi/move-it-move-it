@@ -61,10 +61,8 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     state_space: int = 0
     num_amp_observations = 2
 
-    # which observation terms each consumer reads, in order. Part of a policy's input layout, so
-    # these live here: train.py dumps them to env.yaml and play.py restores them with the checkpoint.
-    policy_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_orientation", "root_lin_vel", "root_ang_vel", "key_body_offsets")
-    style_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_orientation", "root_lin_vel", "root_ang_vel", "key_body_offsets")
+    policy_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_lin_vel", "root_ang_vel", "key_body_offsets")
+    style_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_lin_vel", "root_ang_vel", "key_body_offsets")
 
     # derived from the selections above when the env is built
     observation_space: int = 0
