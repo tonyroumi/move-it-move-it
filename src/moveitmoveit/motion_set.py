@@ -19,6 +19,7 @@ class MotionSet:
         self.library = MotionLibrary([spec.file for spec in specs], device)
 
         self._build_command_tables(specs)
+        self._build_standing_tables(specs)
         self._build_sample_prob_table(specs)
 
     @classmethod
@@ -43,6 +44,19 @@ class MotionSet:
                 index = CommandIndex[key.upper()]
                 self.command_low[motion_id, index] = low
                 self.command_high[motion_id, index] = high
+
+    def _build_standing_tables(self, specs: list[MotionSpec]):
+        # motions that declare a standing mode, and the command thresholds below which it is on
+        self.can_stand = torch.tensor([spec.standing is not None for spec in specs], dtype=torch.bool, device=self.device)
+        self.standing_lin_vel_threshold = torch.tensor(
+            [spec.standing.lin_vel_threshold if spec.standing else 0.0 for spec in specs], device=self.device
+        )
+        self.standing_yaw_vel_threshold = torch.tensor(
+            [spec.standing.yaw_vel_threshold if spec.standing else 0.0 for spec in specs], device=self.device
+        )
+        self.standing_goal_radius = torch.tensor(
+            [spec.standing.goal_radius if spec.standing else 0.0 for spec in specs], device=self.device
+        )
 
     def _build_sample_prob_table(self, specs: list[MotionSpec]):
         weights = torch.zeros(self.num_motions, device=self.device)
@@ -75,3 +89,21 @@ class MotionSet:
             commands[has_goal, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy[has_goal]
 
         return commands
+
+    def standing(self, motion_ids: torch.Tensor, observed_commands: torch.Tensor) -> torch.Tensor:
+        """Which envs' commands ask them to stand still, (N,) bool. See `StandingSpec`.
+
+        Reads the commands as the policy observes them (`policy_commands`, shape (N, COMMAND_DIM)),
+        whose goal slots hold the goal's offset from the root, so the mode is a function of the
+        policy's own input: the goal offset's norm is the same in the heading and the world frame.
+        Key slots don't count as motion. Always False for motions without a standing block.
+        """
+        lin_vel = torch.linalg.vector_norm(observed_commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1], dim=-1)
+        yaw_vel = observed_commands[:, CommandIndex.YAW].abs()
+        goal_distance = torch.linalg.vector_norm(observed_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1], dim=-1)
+        return (
+            self.can_stand[motion_ids]
+            & (lin_vel <= self.standing_lin_vel_threshold[motion_ids])
+            & (yaw_vel <= self.standing_yaw_vel_threshold[motion_ids])
+            & (goal_distance <= self.standing_goal_radius[motion_ids])
+        )

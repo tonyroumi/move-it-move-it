@@ -223,6 +223,10 @@ def test_registries_hold_every_term_the_old_modules_named():
         "joint_acc",
         "joint_vel",
         "progress",
+        "root_lin_vel_l2",
+        "root_ang_vel_l2",
+        "upright",
+        "support_centered",
     ]
     assert {name: term.defaults for name, term in REWARDS.items()} == {
         "motion_tracking": {"dof_scale": 2.0, "key_body_scale": 5.0},
@@ -234,5 +238,9 @@ def test_registries_hold_every_term_the_old_modules_named():
         "joint_acc": {"scale": 1.0e-4},
         "joint_vel": {"scale": 1.0e-2},
         "progress": {"scale": 1.0},
+        "root_lin_vel_l2": {"scale": 4.0},
+        "root_ang_vel_l2": {"scale": 2.0},
+        "upright": {"scale": 10.0},
+        "support_centered": {"scale": 20.0},
     }
     assert list(TERMINATIONS) == ["deviation_from_motion", "unhealthy"]

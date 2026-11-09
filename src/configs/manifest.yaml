@@ -19,4 +19,27 @@ motions:
         weight: 3.0
         scale: 2.0
 
+    # A (near-)zero command asks the robot to stand still: these rewards then replace the ones
+    # above and the AMP style reward is off. Weights are untuned starting points, summing to the
+    # 6.0 the walking rewards can reach.
+    standing:
+      lin_vel_threshold: 0.1
+      yaw_vel_threshold: 0.1
+      rewards:
+        root_lin_vel_l2:
+          weight: 2.0
+          scale: 4.0
+        root_ang_vel_l2:
+          weight: 1.0
+          scale: 2.0
+        joint_vel:
+          weight: 1.0
+          scale: 5.0e-2
+        upright:
+          weight: 1.0
+          scale: 10.0
+        support_centered:
+          weight: 1.0
+          scale: 20.0
+
     termination: unhealthy

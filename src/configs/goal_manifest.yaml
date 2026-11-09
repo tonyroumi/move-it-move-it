@@ -22,4 +22,31 @@ motions:
         weight: 0.5
         scale: 0.5
 
+    # Within goal_radius of the goal (a zeroed command, or once it arrives) the robot is asked to
+    # stand still: these rewards replace the ones above and the AMP style reward is off. A goal
+    # farther away asks it to walk there, though its velocity commands are 0. Weights are untuned:
+    # their sum (3.5) is meant to beat the style reward of walking in place just outside the
+    # radius, so that arriving pays.
+    standing:
+      goal_radius: 0.3
+      rewards:
+        target_hit:
+          weight: 0.5
+          scale: 0.5
+        root_lin_vel_l2:
+          weight: 1.0
+          scale: 4.0
+        root_ang_vel_l2:
+          weight: 0.5
+          scale: 2.0
+        joint_vel:
+          weight: 0.5
+          scale: 5.0e-2
+        upright:
+          weight: 0.5
+          scale: 10.0
+        support_centered:
+          weight: 0.5
+          scale: 20.0
+
     termination: unhealthy
