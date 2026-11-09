@@ -123,10 +123,39 @@ def test_point_goal_starts_ahead_and_up_pushes_it_the_way_the_robot_faces(play, 
     back = goal.update(keyboard_offset(keyboard), rotation)[0]
     assert back.tolist() == pytest.approx(start.tolist(), abs=1e-5)
 
-    # left arrow keeps PointGoalKeyboard's lateral sign (its -Y), now in the robot's heading frame
-    keyboard.held[:] = torch.tensor([0.0, 2.0, 0.0])
+    keyboard.held[:] = torch.tensor([0.0, 2.0, 0.0])  # left arrow
     side = goal.update(keyboard_offset(keyboard), rotation)[0]
-    assert (side - back).tolist() == pytest.approx((-left_of(yaw)).tolist(), abs=1e-5)
+    assert (side - back).tolist() == pytest.approx(left_of(yaw).tolist(), abs=1e-5)
+
+
+@pytest.mark.parametrize("yaw", HEADINGS)
+def test_left_and_right_arrows_move_the_point_goal_to_the_robots_own_left_and_right(play, point_goal_keyboard, yaw):
+    keyboard = point_goal_keyboard
+    rotation = yaw_quat(yaw)
+    goal = play.HeadingRelativeGoal(torch.zeros(1, 2), rotation)
+    start = goal.update(keyboard_offset(keyboard), rotation)[0].clone()
+
+    # Se2Keyboard: left arrow -> +v_y, right arrow -> -v_y
+    keyboard.held[:] = torch.tensor([0.0, 2.0, 0.0])
+    left = goal.update(keyboard_offset(keyboard), rotation)[0].clone()
+    assert (left - start).tolist() == pytest.approx(left_of(yaw).tolist(), abs=1e-5)
+
+    keyboard.held[:] = torch.tensor([0.0, -2.0, 0.0])
+    goal.update(keyboard_offset(keyboard), rotation)
+    right = goal.update(keyboard_offset(keyboard), rotation)[0]
+    assert (right - left).tolist() == pytest.approx((-2.0 * left_of(yaw)).tolist(), abs=1e-5)
+
+
+def test_left_arrow_follows_the_robots_left_while_turning(play, point_goal_keyboard):
+    keyboard = point_goal_keyboard
+    goal = play.HeadingRelativeGoal(torch.zeros(1, 2), yaw_quat(0.0))
+    expected = goal.update(keyboard_offset(keyboard), yaw_quat(0.0))[0].clone()
+
+    keyboard.held[:] = torch.tensor([0.0, 0.2, 0.0])  # left arrow while turning 0 -> 180 degrees
+    for yaw in torch.linspace(20.0, 180.0, 9).tolist():
+        expected += 0.1 * left_of(yaw)
+        actual = goal.update(keyboard_offset(keyboard), yaw_quat(yaw))[0]
+        assert actual.tolist() == pytest.approx(expected.tolist(), abs=1e-5)
 
 
 def test_point_goal_follows_the_live_heading_while_turning(play, point_goal_keyboard):

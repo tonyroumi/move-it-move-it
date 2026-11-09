@@ -69,7 +69,7 @@ parser.add_argument(
         " or 'point_goal' for a world-space goal point that starts 1 m ahead of each env's start"
         " position along its start heading, stays put while the robot walks, and is moved with the"
         " same up/down/left/right keys relative to the robot's current heading (up pushes it the way"
-        " the robot faces). Needs a checkpoint whose manifest declares goal_x/goal_y."
+        " the robot faces, left/right to its own left/right). Needs a checkpoint whose manifest declares goal_x/goal_y."
     ),
 )
 parser.add_argument(
@@ -100,7 +100,8 @@ class HeadingRelativeGoal:
 
     `PointGoalKeyboard` integrates the arrow keys into an XY offset; each step's change in that
     offset is rotated by the robot's current yaw before it moves the goal, so up always pushes the
-    goal ahead of where the robot faces. The goal stays fixed in world space while no key is held.
+    goal ahead of where the robot faces and left/right to the robot's own left/right. The goal stays
+    fixed in world space while no key is held.
     """
 
     def __init__(self, anchor_xy: torch.Tensor, anchor_rotations: torch.Tensor):
@@ -115,6 +116,8 @@ class HeadingRelativeGoal:
 
     def update(self, offset_xy: torch.Tensor, root_rotations: torch.Tensor) -> torch.Tensor:
         """(N, 2) world-space goal for the keyboard's (N, 2) offset and the (N, 4) root rotations."""
+        # PointGoalKeyboard maps left -> -y; flip it so left is the robot's left (+y in its heading frame)
+        offset_xy = torch.stack((offset_xy[:, 0], -offset_xy[:, 1]), dim=-1)
         if self._goal_xy is None:
             self._goal_xy = self._anchor_xy + self._heading_to_world_xy(self._anchor_rotations, offset_xy)
         else:
