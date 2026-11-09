@@ -10,18 +10,20 @@ from moveitmoveit.manifest import CommandIndex
 
 _SE2_COMMANDS = (CommandIndex.LIN_X, CommandIndex.LIN_Y, CommandIndex.YAW)
 
-# commands that aren't driven by a key binding (e.g. point-goal position); left at 0 during teleop
-_NON_TELEOP_COMMANDS = (CommandIndex.GOAL_X, CommandIndex.GOAL_Y)
+# commands that aren't driven by a key binding (e.g. point-goal position, or the behavior phase the
+# env fills in); left at 0 during teleop
+_NON_TELEOP_COMMANDS = (CommandIndex.GOAL_X, CommandIndex.GOAL_Y, CommandIndex.BEHAVIOR_PHASE)
 
 
 class Keyboard(Se2Keyboard):
     """Isaac Lab's SE(2) keyboard plus binary commands, 1.0 while held and on the first `advance`
-    after a press (so a tap between two calls isn't lost): Left Shift drives binary_key_0 and
-    Space binary_key_1."""
+    after a press (so a tap between two calls isn't lost): Left Shift drives binary_key_0, Space
+    binary_key_1 and C binary_key_2."""
 
     EXTRA_KEY_MAPPING = {
         "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
         "SPACE": CommandIndex.BINARY_KEY_1,
+        "C": CommandIndex.BINARY_KEY_2,
     }
 
     # derived from CommandIndex, so the extra command set/order stays in sync with it
@@ -73,7 +75,7 @@ class Keyboard(Se2Keyboard):
         return msg
 
     def advance(self) -> torch.Tensor:
-        """The full (len(CommandIndex),) command, e.g. [v_x, v_y, omega_z, key_0, key_1, 0, 0];
+        """The full (len(CommandIndex),) command, e.g. [v_x, v_y, omega_z, key_0, key_1, 0, 0, key_2, 0];
         commands without a key binding (`_NON_TELEOP_COMMANDS`) stay 0."""
         se2_command = super().advance()
 

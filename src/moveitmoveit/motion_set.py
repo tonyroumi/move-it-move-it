@@ -5,7 +5,8 @@ from .motion.library import MotionLibrary
 
 
 class MotionSet:
-    """The motions a manifest declares: their clips, plus per-motion command and selection tables."""
+    """The motions a manifest declares: their clips, plus per-motion command and selection tables.
+    Motions with a `trigger` are behaviors, numbered by key slot; the rest are locomotion motions."""
 
     def __init__(self, specs: list[MotionSpec], device: torch.device | str):
         self.device = device
@@ -19,6 +20,7 @@ class MotionSet:
         self._build_command_tables(specs)
         self._build_standing_tables(specs)
         self._build_sample_prob_table(specs)
+        self._build_behavior_tables(specs)
 
     @classmethod
     def from_manifest(cls, path: str, device: torch.device | str) -> "MotionSet":
@@ -64,9 +66,61 @@ class MotionSet:
 
         self.sample_prob = weights / weights.sum()
 
+    def _build_behavior_tables(self, specs: list[MotionSpec]):
+        behaviors = sorted((CommandIndex[spec.trigger.upper()], motion_id) for motion_id, spec in enumerate(specs) if spec.trigger)
+        self.num_behaviors = len(behaviors)
+        self.behavior_keys = [int(key) for key, _ in behaviors]
+        """The key slot of each behavior."""
+        self.behavior_motion_ids = torch.tensor([motion_id for _, motion_id in behaviors], dtype=torch.long, device=self.device)
+        self.motion_behavior = torch.full((self.num_motions,), -1, dtype=torch.long, device=self.device)
+        """Each motion's behavior index, or -1 for a locomotion motion."""
+        self.motion_behavior[self.behavior_motion_ids] = torch.arange(self.num_behaviors, device=self.device)
+
+        is_locomotion = self.motion_behavior < 0
+        self.locomotion_sample_prob = torch.where(is_locomotion, self.sample_prob, torch.zeros_like(self.sample_prob))
+        self.locomotion_sample_prob /= self.locomotion_sample_prob.sum()
+
+        # stable-posture completion; behaviors that don't declare it never settle
+        self.settle_min_phase = torch.full((self.num_motions,), float("inf"), device=self.device)
+        self.settle_max_dof_speed = torch.zeros(self.num_motions, device=self.device)
+        for motion_id, spec in enumerate(specs):
+            if spec.settle is not None:
+                self.settle_min_phase[motion_id] = spec.settle.min_phase
+                self.settle_max_dof_speed[motion_id] = spec.settle.max_dof_speed
+
+        self._build_trigger_rate()
+
+    def _build_trigger_rate(self):
+        """How often training presses each behavior's key, chosen so the agent spends about as much of
+        its time in each behavior as the reference motion the discriminator sees does.
+
+        Discriminator batches draw motion m with probability p_m and a time uniform within its clip,
+        so behavior b fills a share p_b of them. An agent pressing at rate `trigger_rate` while in
+        locomotion, picking b with probability q_b, spends a share
+        rate * q_b * d_b / (1 + rate * sum_j q_j * d_j) of its time in b, d_b being b's duration.
+        Equating the two gives q_b proportional to p_b / d_b, and the rate below.
+        """
+        if self.num_behaviors == 0:
+            self.trigger_rate = 0.0
+            self.trigger_weights = torch.zeros(0, device=self.device)
+            return
+        p = self.sample_prob[self.behavior_motion_ids]
+        d = self.library.duration[self.behavior_motion_ids].clamp_min(self.library.dt)
+        self.trigger_weights = (p / d) / (p / d).sum()
+        """Probability that a training press is for each behavior."""
+        behavior_share = float(p.sum())
+        mean_duration = float((self.trigger_weights * d).sum())
+        self.trigger_rate = behavior_share / ((1.0 - behavior_share) * mean_duration)
+        """Training presses per second while in locomotion."""
+
     def sample_ids(self, num_samples: int) -> torch.Tensor:
         """The one clip-selection distribution, shared by env resets and discriminator batches."""
         return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
+
+    def sample_locomotion_ids(self, num_samples: int) -> torch.Tensor:
+        """The selection distribution restricted to locomotion motions, for an env that resets into a
+        behavior and needs a motion to return to."""
+        return torch.multinomial(self.locomotion_sample_prob, num_samples=num_samples, replacement=True)
 
     def sample_commands(self, motion_ids: torch.Tensor, root_positions_xy: torch.Tensor | None = None) -> torch.Tensor:
         """Sample each motion's declared command ranges. Goals are offsets from `root_positions_xy`."""

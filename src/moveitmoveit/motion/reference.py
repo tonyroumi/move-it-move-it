@@ -33,6 +33,7 @@ class TrackingTargets(NamedTuple):
     dof_positions: torch.Tensor
     root_positions: torch.Tensor
     key_body_positions: torch.Tensor
+    root_rotations: torch.Tensor
 
 
 class ReferenceMotions:
@@ -74,6 +75,7 @@ class ReferenceMotions:
             frames.dof_positions[:, self._skeleton.dof_indexes],
             frames.body_positions[:, self._skeleton.root_body_index],
             frames.body_positions[:, self._skeleton.key_body_indexes],
+            frames.body_rotations[:, self._skeleton.root_body_index],
         )
 
     def amp_seed(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
