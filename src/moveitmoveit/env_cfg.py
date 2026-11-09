@@ -71,6 +71,8 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     random_reset: bool = True
     command_resample_steps: int = 150
     resample_commands: bool = True
+    # longest a training key press is held, in seconds; presses last 1 step up to this
+    trigger_max_hold_s: float = 2.0
 
     # rendering
     camera_type: Literal["facing", "third-person", "none"] = "none"

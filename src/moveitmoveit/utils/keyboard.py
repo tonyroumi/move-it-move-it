@@ -28,6 +28,7 @@ MOTION_KEYS: dict[str, tuple[float, float, float]] = {
 BINARY_KEYS: dict[str, CommandIndex] = {
     "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
     "SPACE": CommandIndex.BINARY_KEY_1,
+    "C": CommandIndex.BINARY_KEY_2,
 }
 RESET_KEY = "L"
 MODES = ("velocity", "point_goal")
@@ -43,9 +44,9 @@ class Keyboard:
       `sensitivity` m/s in the robot's current heading frame: up pushes it the way the robot
       faces, left/right to the robot's own left/right. Z/X do nothing.
 
-    In both modes Left Shift drives binary_key_0 and Space binary_key_1: 1.0 while held and on the
-    first `advance` after a press, so a tap between two calls isn't lost. L releases every key and,
-    in ``point_goal`` mode, puts the goal back `goal_offset` ahead of the start pose.
+    In both modes Left Shift drives binary_key_0, Space binary_key_1 and C binary_key_2: 1.0 while
+    held and on the first `advance` after a press, so a tap between two calls isn't lost. L releases
+    every key and, in ``point_goal`` mode, puts the goal back `goal_offset` ahead of the start pose.
     """
 
     def __init__(
