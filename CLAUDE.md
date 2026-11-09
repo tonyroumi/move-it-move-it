@@ -28,7 +28,7 @@ hardcoded per-behavior.
 
 ## Motion Manifest
 
-The manifest YAML (`src/configs/manifest.yaml`) declares each motion's clip,
+The manifest YAML (`configs/manifest.yaml`) declares each motion's clip,
 selection weight, commands, reward composition and termination condition.
 # Coding Conventions
 

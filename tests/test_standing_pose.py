@@ -15,7 +15,7 @@ from moveitmoveit.mdp import BodyState, ComposedMDP, StepContext  # noqa: E402
 
 OBS = ("root_height",)
 # Humanoid28's joints as the clips name them, in a different order than the robot reports them
-CLIP_JOINTS = np.load(REPO_ROOT / "src/data/walk.npz")["dof_names"].tolist()
+CLIP_JOINTS = np.load(REPO_ROOT / "data/walk.npz")["dof_names"].tolist()
 ROBOT_JOINTS = CLIP_JOINTS[::2] + CLIP_JOINTS[1::2]
 
 
@@ -174,7 +174,7 @@ MIRRORED_SIGN = {"x": -1.0, "y": 1.0, "z": -1.0}  # mirroring left/right flips r
 
 @pytest.mark.parametrize("manifest", ["manifest.yaml", "goal_manifest.yaml"])
 def test_shipped_manifests_ask_for_a_symmetric_pose_on_humanoid28_joints(manifest):
-    (spec,) = load_manifest(str(REPO_ROOT / "src/configs" / manifest))
+    (spec,) = load_manifest(str(REPO_ROOT / "configs" / manifest))
     mdp = ComposedMDP([spec], OBS, OBS, "cpu", joint_names=ROBOT_JOINTS)
 
     pose = dict(zip(ROBOT_JOINTS, target(mdp).tolist()))

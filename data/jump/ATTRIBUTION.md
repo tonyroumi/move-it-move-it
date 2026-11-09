@@ -16,7 +16,7 @@ data. Hand orientation and fingers are not represented.
 [Creative Commons Attribution 3.0 Unported](https://creativecommons.org/licenses/by/3.0/).
 Source: <https://accad.osu.edu/research/motion-lab/mocap-system-and-data>, archive `Male2_bvh.zip` (BVH, 30 fps).
 
-| Clip (under `src/data/`) | Seconds | Source take | Source crop | Mirrored |
+| Clip (under `data/`) | Seconds | Source take | Source crop | Mirrored |
 |---|---:|---|---|---|
 | `jump/running_jump.npz` | 2.52 | `Male2_C19_RunToJumpToWalk.bvh` ("Run to jump to walk") | full | no |
 
@@ -28,7 +28,7 @@ home page also says the data may be included in commercially sold products, but 
 directly, even in converted form". Both pages were read on 2026-11-08. Follow the stricter wording. CMU also asks
 anyone publishing results from this data to send it the citation and to use the acknowledgment text above.
 
-| Clip (under `src/data/`) | Seconds | Source take | Source crop | Mirrored |
+| Clip (under `data/`) | Seconds | Source take | Source crop | Mirrored |
 |---|---:|---|---|---|
 | `jump/standing_broad_jump.npz` | 2.93 | `16_10.amc` ("forward jump", subject 16, 120 Hz) | 0.9 s–end | no |
 
