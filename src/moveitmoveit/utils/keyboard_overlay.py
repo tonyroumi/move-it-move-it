@@ -9,8 +9,8 @@ import omni.appwindow
 import omni.ui as ui
 
 
-# groups mirror isaaclab.devices.Se2Keyboard._create_key_bindings: each command axis is
-# driven by either its numpad or arrow-key binding, so both keys light up the same cell
+# groups mirror moveitmoveit.utils.keyboard.MOTION_KEYS: each command axis is driven by either
+# its numpad or arrow-key binding, so both keys light up the same cell
 _KEY_GROUPS: dict[str, tuple[str, ...]] = {
     "fwd": ("NUMPAD_8", "UP"),
     "back": ("NUMPAD_2", "DOWN"),
