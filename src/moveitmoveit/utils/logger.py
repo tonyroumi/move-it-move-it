@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional
 import collections
 import time
 
-import numpy as np
-import torch
-
 
 class Logger:
-    """ RL logger with optional TensorBoard and/or Weights & Biases backends. """
+    """RL logger with optional TensorBoard and/or Weights & Biases backends."""
 
     # Training diagnostics considered "core" enough to print to the screen.
     _CORE_TRAIN_KEYS = ("Total Loss", "Policy Loss", "Value Loss", "Discriminator Loss")
@@ -61,16 +58,15 @@ class Logger:
 
         self._best_mean_episode_reward = float("-inf")
 
-        # Per-update training diagnostics staged by `add_info`/`add_info`,
-        # averaged and flushed by `log`.
+        # Per-update training diagnostics staged by `add_info`, averaged and flushed by `log`.
         self._update_diagnostics: Dict[str, list] = collections.defaultdict(list)
-        self._step_tracker : Dict[str, int] = collections.defaultdict(int)
+        self._step_tracker: Dict[str, int] = collections.defaultdict(int)
 
         # Named wall-clock timings recorded by `timing`, e.g. "Collection Time".
         self._start_time = time.time()
         self._diagnostics: Dict[str, float] = {}
 
-        # Curated values shown by `log`, refreshed by `set_core_performance`/`set_core_rewards` / `log`.
+        # Curated values shown by `log`, refreshed by `set_core_performance`/`set_core_rewards`/`log`.
         self._core_performance: Dict[str, float] = {}
         self._core_train: Dict[str, float] = {}
         self._core_rewards: Dict[str, float] = {}
@@ -96,17 +92,16 @@ class Logger:
             self.track_data(f"Performance/{name} [s]", elapsed, self.timestep)
 
     def track_data(self, tag: str, value: float, step: int):
+        """Stage a tagged value at `step` for the next `write_data`."""
         self._tracking_data[tag] = value
         self._tracking_step[tag] = step
 
     def set_core_performance(self, data: Dict[str, float]) -> None:
-        """Set the curated episode reward/length stats shown by `log`. Owned by the
-        agent, which tracks episode reward/length (see `BaseAgent._track_episode_stats`)."""
+        """Set the curated episode reward/length stats shown by `log`, tracked by the agent."""
         self._core_performance = data
 
     def set_core_rewards(self, data: Dict[str, float]) -> None:
-        """Set the curated per-reward-term stats shown by `log`. Owned by the agent,
-        which tracks episode reward terms (see `BaseAgent._track_episode_stats`)."""
+        """Set the curated per-reward-term stats shown by `log`, tracked by the agent."""
         self._core_rewards = data
 
     def add_info(self, name: str, value, grad_num: int = 0) -> None:
@@ -118,6 +113,7 @@ class Logger:
         self._step_tracker[name] = grad_num
 
     def _flush_update_diagnostics(self) -> None:
+        """Average each staged diagnostic into a `Train/*` tag and refresh the core train stats."""
         core = {}
         for name, values in self._update_diagnostics.items():
             value = sum(values) / len(values)
@@ -137,11 +133,7 @@ class Logger:
         mean_episode_reward: Optional[float] = None,
     ) -> None:
         """Flush diagnostics, checkpoint if warranted, and print the core summary to stdout.
-
-        `mean_episode_reward` is owned/tracked by the agent (see
-        `BaseAgent._track_episode_stats`); pass its current value in to drive the
-        best-checkpoint decision below.
-        """
+        `mean_episode_reward`, tracked by the agent, drives the best-checkpoint decision."""
         self._flush_update_diagnostics()
         self._iteration += 1
 
@@ -188,6 +180,7 @@ class Logger:
         print("\n".join(lines), flush=True)
 
     def _eta(self) -> str:
+        """Estimated time left, extrapolated from the elapsed time and progress."""
         if not self.total_timesteps or self.timestep <= 0:
             return "n/a"
 

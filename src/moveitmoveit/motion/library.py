@@ -30,26 +30,11 @@ class MotionFrames(NamedTuple):
 
 
 class MotionLibrary:
-    """
-    Stores the frames of one or more NumPy-file format motion clips and samples them by motion id
-    and time. A motion's id is its clip's position in ``motion_files``.
-
-    All motion data is stored in single tensors shared across clips, with an added leading "clip"
-    dimension, e.g. ``dof_positions`` has shape ``(num_clips, max_num_frames, num_dofs)``. Clips
-    shorter than the longest clip are zero-padded along the frame dimension; the padded region is
-    never sampled, since frame indexing for a given clip is always clamped to that clip's own
-    ``num_frames``.
-
-    All clips must share the same DOF names, body names, and frame rate (``dt``).
-    """
+    """Motion clips (.npz) zero-padded into shared (num_clips, max_frames, ...) tensors, sampled by
+    motion id (position in ``motion_files``) and time. Clips must share DOFs, bodies and ``dt``."""
 
     def __init__(self, motion_files: list[str], device: torch.device) -> None:
-        """Load one or more motion files and initialize the internal variables.
-
-        Args:
-            motion_files: Motion file paths to load.
-            device: The device to which to load the data.
-        """
+        """Load the motion files onto `device`."""
         assert len(motion_files) > 0, "MotionLibrary requires at least one motion file."
         for motion_file in motion_files:
             assert os.path.isfile(motion_file), f"Invalid file path: {motion_file}"
@@ -123,18 +108,7 @@ class MotionLibrary:
         index_1: torch.Tensor,
         blend: torch.Tensor,
     ) -> torch.Tensor:
-        """Linear interpolation between consecutive frames, gathered from the clip tensor.
-
-        Args:
-            data: Motion data tensor. Shape is (num_clips, max_frames, X) or (num_clips, max_frames, M, X).
-            motion_ids: Motion id per sample. Shape is (N,).
-            index_0: First frame index per sample (within its clip). Shape is (N,).
-            index_1: Second frame index per sample (within its clip). Shape is (N,).
-            blend: Interpolation coefficient between 0 (index_0) and 1 (index_1). Shape is (N,).
-
-        Returns:
-            Interpolated values. Shape is (N, X) or (N, M, X).
-        """
+        """Lerp each sample's frames `index_0` -> `index_1` by `blend`, (N, X) or (N, M, X)."""
         a = data[motion_ids, index_0]
         b = data[motion_ids, index_1]
         if a.ndim >= 2:
@@ -152,20 +126,7 @@ class MotionLibrary:
         index_1: torch.Tensor,
         blend: torch.Tensor,
     ) -> torch.Tensor:
-        """Interpolation between consecutive rotations (Spherical Linear Interpolation), gathered
-        from the clip tensor.
-
-        Args:
-            data: Motion data tensor (xyzw quaternions). Shape is (num_clips, max_frames, 4) or
-                (num_clips, max_frames, M, 4).
-            motion_ids: Motion id per sample. Shape is (N,).
-            index_0: First frame index per sample (within its clip). Shape is (N,).
-            index_1: Second frame index per sample (within its clip). Shape is (N,).
-            blend: Interpolation coefficient between 0 (index_0) and 1 (index_1). Shape is (N,).
-
-        Returns:
-            Interpolated quaternions. Shape is (N, 4) or (N, M, 4).
-        """
+        """Slerp each sample's xyzw rotations `index_0` -> `index_1` by `blend`, (N, 4) or (N, M, 4)."""
         q0 = data[motion_ids, index_0]
         q1 = data[motion_ids, index_1]
         if q0.ndim >= 2:
@@ -206,17 +167,7 @@ class MotionLibrary:
     def _compute_frame_blend(
         self, times: torch.Tensor, motion_ids: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Compute the indexes of the first and second values, as well as the blending time
-        to interpolate between them and the given times.
-
-        Args:
-            times: Times, between 0 and each sample's clip duration, to sample motion values.
-                Specified times will be clipped to fall within the range of that clip's duration.
-            motion_ids: Which motion each sample is drawn from. Shape is (N,).
-
-        Returns:
-            First value indexes, Second value indexes, and blending time between 0 (first value) and 1 (second value).
-        """
+        """The two frame indexes around each time, clamped to its clip, and the blend between them."""
         duration = self.duration[motion_ids]
         num_frames = self.num_frames[motion_ids]
         phase = torch.clamp(times / duration, 0.0, 1.0)
@@ -226,27 +177,12 @@ class MotionLibrary:
         return index_0, index_1, blend
 
     def sample_times(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        """Sample random motion times uniformly within each sample's clip duration.
-
-        Args:
-            motion_ids: Which motion each sample is drawn from. Shape is (N,).
-
-        Returns:
-            Time samples, between 0 and each sample's clip duration. Shape is (N,).
-        """
+        """Uniform random times within each sample's clip duration, (N,)."""
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         return self.duration[motion_ids] * torch.rand(motion_ids.shape[0], device=self.device)
 
     def frames(self, motion_ids: torch.Tensor, times: torch.Tensor) -> MotionFrames:
-        """Sample motion data, drawing each sample from its assigned motion.
-
-        Args:
-            motion_ids: Which motion each sample is drawn from. Shape is (N,).
-            times: Motion time used for sampling, per sample. Shape is (N,).
-
-        Returns:
-            The sampled motion data.
-        """
+        """Each sample's motion state at its time, interpolated between frames."""
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         index_0, index_1, blend = self._compute_frame_blend(times, motion_ids)
@@ -265,19 +201,8 @@ class MotionLibrary:
         )
 
     def history(self, motion_ids: torch.Tensor, times: torch.Tensor, num_steps: int) -> MotionFrames:
-        """Sample a history of motion states, ``num_steps`` apart in time, ending at each sample's time.
-
-        Args:
-            motion_ids: Which motion each sample is drawn from. Shape is (N,).
-            times: Motion time used for sampling, per sample (the most recent time in each
-                sample's history). Shape is (N,).
-            num_steps: Number of historical steps to sample per sample, spaced ``dt`` apart,
-                going backwards in time from ``times``.
-
-        Returns:
-            The sampled motion data, flattened over samples and steps, i.e. with shape
-            (N * num_steps, ...).
-        """
+        """``num_steps`` states, ``dt`` apart, ending at each sample's time, newest first.
+        Flattened over samples and steps to (N * num_steps, ...)."""
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         # step back num_steps times, dt apart, from each sample's time -> (N * num_steps,)
@@ -286,17 +211,7 @@ class MotionLibrary:
         return self.frames(motion_ids.repeat_interleave(num_steps), history_times)
 
     def get_dof_index(self, dof_names: list[str]) -> list[int]:
-        """Get skeleton DOFs indexes by DOFs names.
-
-        Args:
-            dof_names: List of DOFs names.
-
-        Raises:
-            AssertionError: If the specified DOFs name doesn't exist.
-
-        Returns:
-            List of DOFs indexes.
-        """
+        """Clip DOF index of each name; asserts every name exists."""
         indexes = []
         for name in dof_names:
             assert name in self._dof_names, f"The specified DOF name ({name}) doesn't exist: {self._dof_names}"
@@ -304,17 +219,7 @@ class MotionLibrary:
         return indexes
 
     def get_body_index(self, body_names: list[str]) -> list[int]:
-        """Get skeleton body indexes by body names.
-
-        Args:
-            dof_names: List of body names.
-
-        Raises:
-            AssertionError: If the specified body name doesn't exist.
-
-        Returns:
-            List of body indexes.
-        """
+        """Clip body index of each name; asserts every name exists."""
         indexes = []
         for name in body_names:
             assert name in self._body_names, f"The specified body name ({name}) doesn't exist: {self._body_names}"

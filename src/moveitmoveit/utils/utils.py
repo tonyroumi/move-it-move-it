@@ -6,13 +6,8 @@ def explained_variance(
     targets: torch.Tensor,
     eps: float = 1e-8,
 ) -> torch.Tensor:
-    """Compute the explained variance of predictions with respect to targets.
-
-    Returns:
-        1.0: perfect predictions
-        0.0: no better than predicting the target mean
-        <0.0: worse than predicting the target mean
-    """
+    """Explained variance of `predictions` w.r.t. `targets`: 1 is perfect, 0 no better than the
+    target mean, below 0 worse; NaN when the targets barely vary."""
     target_var = torch.var(targets, unbiased=False)
 
     if target_var < eps:
@@ -21,6 +16,7 @@ def explained_variance(
     residual_var = torch.var(targets - predictions, unbiased=False)
 
     return 1.0 - residual_var / target_var
+
 
 def fraction_outside_bounds(
     values: torch.Tensor,

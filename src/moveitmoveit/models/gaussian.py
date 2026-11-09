@@ -1,14 +1,14 @@
 from typing import List, Optional
 
-import torch.nn as nn
 import torch
+import torch.nn as nn
 from torch.distributions import Normal
 
 from .base import MLP
 
 
 class GaussianMLP(MLP):
-    """ Gaussian MLP. """
+    """MLP policy whose output is the mean of a diagonal Gaussian action distribution."""
 
     def __init__(
         self,
@@ -16,11 +16,10 @@ class GaussianMLP(MLP):
         out_channels: int,
         hidden_layers: List[int] = [256, 256],
         activation: str = "relu",
-        init_noise_std = 1.0,
+        init_noise_std=1.0,
         noise_std_type="scalar",
         weight_init: Optional[dict] = None,
-        ):
-
+    ):
         super().__init__(
             in_channels,
             out_channels,
@@ -40,9 +39,9 @@ class GaussianMLP(MLP):
         else:
             raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}. Should be 'scalar' or 'log'")
 
-        #Action Distribution (populated in update_distribution)
+        # action distribution, populated in update_distribution
         self.distribution = None
-        #disable args validation for speedup
+        # disable args validation for speedup
         Normal.set_default_validate_args(False)
 
     def update_distribution(self, obs: torch.Tensor):
@@ -66,12 +65,12 @@ class GaussianMLP(MLP):
         return action
 
     def get_actions_log_prob(self, actions: torch.Tensor) -> torch.Tensor:
-        """ Get log probabilities of actions. """
+        """Log probabilities of `actions` under the current distribution."""
         return self.distribution.log_prob(actions).sum(dim=-1)
 
     @property
     def dist(self) -> torch.distributions:
-        """ Return the action distribution """
+        """The action distribution."""
         return self.distribution
 
     @property
@@ -88,4 +87,3 @@ class GaussianMLP(MLP):
     def entropy(self) -> torch.Tensor:
         """Entropy of the action distribution."""
         return self.distribution.entropy().sum(dim=-1)
-

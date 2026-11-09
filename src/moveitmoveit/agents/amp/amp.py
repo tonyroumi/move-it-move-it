@@ -19,7 +19,7 @@ from ..ppo import PPO
 
 
 class AMP(PPO):
-    """Adversarial Motion Priors (AMP) algorithm. """
+    """Adversarial Motion Priors (AMP) algorithm."""
     cfg: AMPCfg
 
     def __init__(self, cfg: AMPCfg, logger: Logger):
@@ -56,7 +56,7 @@ class AMP(PPO):
 
     def _initialize_storage(self, env: DirectRLEnv) -> None:
         super()._initialize_storage(env)
-        self._amp_observations_buf = CircularBuffer(
+        self._amp_observation_buffer = CircularBuffer(
             capacity=self.cfg.discriminator_buffer_capacity,
             sample_shape=(self.amp_obs_dim,),
             device=env.unwrapped.device,
@@ -70,7 +70,6 @@ class AMP(PPO):
         truncated: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
-
         with torch.no_grad():
             disc_logits = self.discriminator(
                 self._disc_obs_preprocessor(infos["amp_obs"])
@@ -79,14 +78,13 @@ class AMP(PPO):
                 torch.maximum(1 - 1 / (1 + torch.exp(-disc_logits)), torch.tensor(0.0001, device=rewards.device))
             ).view(rewards.shape)
 
-        self._amp_observations_buf.append(infos["amp_obs"])
+        self._amp_observation_buffer.append(infos["amp_obs"])
 
         weighted_style_reward = style_reward * self.cfg.style_reward_lambda
         style_reward_off = infos.get("style_reward_off")
         if style_reward_off is not None:
-            # Envs the env flags (e.g. standing-mode envs) aren't asked to move like the clips, so
-            # they earn no style reward. Their AMP observations still reach the discriminator's
-            # buffer above, as before. Without the flag every env earns style.
+            # flagged envs (e.g. standing) earn no style reward, but their AMP observations still
+            # reach the discriminator's buffer above; without the mask every env earns style
             weighted_style_reward = torch.where(
                 style_reward_off.view(rewards.shape), torch.zeros_like(weighted_style_reward), weighted_style_reward
             )
@@ -107,7 +105,7 @@ class AMP(PPO):
         """Run one round of discriminator gradient updates."""
         for _ in range(self.cfg.disc_num_updates):
             ref_motion = self.style_batch(self.cfg.disc_batch_size)
-            agent_motion = self._amp_observations_buf.sample(self.cfg.disc_batch_size)
+            agent_motion = self._amp_observation_buffer.sample(self.cfg.disc_batch_size)
 
             ref_motion = self._disc_obs_preprocessor(ref_motion, train=True)
             agent_motion = self._disc_obs_preprocessor(agent_motion, train=True)
@@ -117,9 +115,9 @@ class AMP(PPO):
             ref_logits = self.discriminator(ref_motion)
 
             discriminator_loss = 0.5 * (
-                    nn.BCEWithLogitsLoss()(agent_logits, torch.zeros_like(agent_logits))
-                    + torch.nn.BCEWithLogitsLoss()(ref_logits, torch.ones_like(ref_logits))
-                )
+                nn.BCEWithLogitsLoss()(agent_logits, torch.zeros_like(agent_logits))
+                + nn.BCEWithLogitsLoss()(ref_logits, torch.ones_like(ref_logits))
+            )
 
             if self.cfg.disc_logit_reg:
                 logit_weights = torch.flatten(self.discriminator.get_logit_weights())

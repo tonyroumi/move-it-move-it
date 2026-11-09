@@ -5,18 +5,8 @@ import torch.nn as nn
 
 
 class RunningStandardScaler(nn.Module):
-    """Normalizes values using running mean/variance statistics, updated batch-by-batch
-    via Chan et al.'s parallel variance algorithm for numerically stable combination of
-    running and batch statistics.
-
-    The last `unscaled_dims` elements of the final dimension are left untouched (never
-    tracked, never normalized) and passed through as-is, for values that are already in
-    a known range (e.g. one-hot ids, pre-scaled commands) and shouldn't be normalized.
-
-    `mean`/`variance` seed the running statistics at construction (broadcast to the
-    scaled shape) instead of the zeros/ones default. Combined with never calling
-    `forward(..., train=True)`, this freezes the scaler at a known fixed mean/variance
-    rather than one learned from data."""
+    """Normalizes by running mean/variance (Chan et al.), passing the last `unscaled_dims` through.
+    `mean`/`variance` seed the statistics; never training on them freezes the scaler there."""
 
     def __init__(
         self,
@@ -48,8 +38,7 @@ class RunningStandardScaler(nn.Module):
         self.register_buffer("count", torch.tensor(1e-4, dtype=torch.float64))
 
     def _update(self, x: torch.Tensor) -> None:
-        # reduce over every dim but the last, so a (batch, ..., features) input is treated
-        # as a flat batch of feature vectors regardless of how many leading dims it has
+        """Fold a batch into the running statistics, reducing over every dim but the last."""
         reduce_dims = tuple(range(x.dim() - 1))
         batch_mean = torch.mean(x.double(), dim=reduce_dims)
         batch_variance = torch.var(x.double(), dim=reduce_dims, unbiased=False)
@@ -69,6 +58,7 @@ class RunningStandardScaler(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: torch.Tensor, train: bool = False, inverse: bool = False) -> torch.Tensor:
+        """Normalize `x` (or undo it with `inverse`), updating the statistics first when `train`."""
         if self.unscaled_dims:
             x, unscaled = x[..., : -self.unscaled_dims], x[..., -self.unscaled_dims :]
         else:

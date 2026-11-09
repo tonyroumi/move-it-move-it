@@ -19,9 +19,7 @@ except ImportError:
 
 
 class MotionViewer:
-    """
-    Helper class to visualize motion data from NumPy-file format.
-    """
+    """Matplotlib viewer for a NumPy-file format motion clip."""
 
     def __init__(
         self,
@@ -30,19 +28,8 @@ class MotionViewer:
         render_scene: bool = False,
         root_body: str | None = None,
     ) -> None:
-        """Load a motion file and initialize the internal variables.
-
-        Args:
-            motion_file: Motion file path to load.
-            device: The device to which to load the data.
-            render_scene: Whether the scene (space occupied by the skeleton during movement)
-                is rendered instead of a reduced view of the skeleton.
-            root_body: Body used to compute the nominal locomotion velocity.
-                If None, the first body in the motion data is used.
-
-        Raises:
-            AssertionError: If the specified motion file doesn't exist.
-        """
+        """Load `motion_file`. `render_scene` frames the whole space the skeleton covers;
+        `root_body` (default: the first body) is used for the velocity statistics."""
         self._figure = None
         self._figure_axes = None
         self._render_scene = render_scene
@@ -96,15 +83,7 @@ class MotionViewer:
         self._print_velocity_statistics()
 
     def _compute_nominal_velocity(self) -> tuple[np.ndarray, float]:
-        """Compute the nominal linear velocity of the motion clip.
-
-        The nominal velocity is defined as the net displacement of the root
-        body divided by the duration of the clip.
-
-        Returns:
-            nominal_velocity: Average XYZ velocity in m/s.
-            nominal_horizontal_speed: Magnitude of the XY velocity in m/s.
-        """
+        """The root's net displacement over the clip duration (m/s), and its XY speed."""
         root_positions = self._body_positions[:, self._root_body_index]
 
         # N frames contain N - 1 time intervals.

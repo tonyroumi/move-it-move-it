@@ -347,7 +347,7 @@ def amp(monkeypatch):
     logits = torch.tensor([[0.0], [1.0], [-1.0], [2.0]])
     agent.discriminator = lambda amp_obs: logits
     agent._disc_obs_preprocessor = lambda amp_obs: amp_obs
-    agent._amp_observations_buf = SimpleNamespace(append=appended.append)
+    agent._amp_observation_buffer = SimpleNamespace(append=appended.append)
     style = -torch.log(1 - torch.sigmoid(logits)).view(-1)
 
     def step(infos):

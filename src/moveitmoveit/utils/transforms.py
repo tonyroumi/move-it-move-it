@@ -15,6 +15,7 @@ from isaaclab.utils.math import (
 
 @torch.jit.script
 def quaternion_to_tangent_and_normal(q: torch.Tensor) -> torch.Tensor:
+    """The rotated x (tangent) and z (normal) axes, concatenated: (..., 6)."""
     ref_tangent = torch.zeros_like(q[..., :3])
     ref_normal = torch.zeros_like(q[..., :3])
     ref_tangent[..., 0] = 1
@@ -23,17 +24,10 @@ def quaternion_to_tangent_and_normal(q: torch.Tensor) -> torch.Tensor:
     normal = quat_apply(q, ref_normal)
     return torch.cat([tangent, normal], dim=len(tangent.shape) - 1)
 
+
 def world_to_heading_frame_xy(rotations: torch.Tensor, vectors_xy: torch.Tensor) -> torch.Tensor:
-    """Rotate world-frame XY vectors into each body's heading frame: yaw only, so a tilted body
-    still sees a vector ahead of it along +X and one to its left along +Y.
-
-    Args:
-        rotations: Body orientations. Shape is (N, 4).
-        vectors_xy: World-frame XY vectors. Shape is (N, 2).
-
-    Returns:
-        The vectors in the heading frame. Shape is (N, 2).
-    """
+    """Rotate (N, 2) world-frame XY vectors into each body's yaw-only heading frame, so a tilted
+    body still sees a vector ahead of it along +X and one to its left along +Y."""
     x_axis = torch.zeros_like(rotations[:, :3])
     x_axis[:, 0] = 1.0
     heading = quat_apply(rotations, x_axis)
@@ -42,9 +36,12 @@ def world_to_heading_frame_xy(rotations: torch.Tensor, vectors_xy: torch.Tensor)
     x, y = vectors_xy[:, 0], vectors_xy[:, 1]
     return torch.stack((cos * x + sin * y, -sin * x + cos * y), dim=-1)
 
+
 @torch.jit.script
 def normalize_angle(x: torch.Tensor) -> torch.Tensor:
+    """Wrap angles to [-pi, pi]."""
     return torch.atan2(torch.sin(x), torch.cos(x))
+
 
 @torch.jit.script
 def compute_heading_and_up(
@@ -66,6 +63,7 @@ def compute_heading_and_up(
     heading_proj = torch.bmm(heading_vec.view(num_envs, 1, 3), target_dirs.view(num_envs, 3, 1)).view(num_envs)
 
     return torso_quat, up_proj, heading_proj, up_vec, heading_vec
+
 
 def apply_random_yaw(
     quat: torch.Tensor,
@@ -89,22 +87,15 @@ def apply_random_yaw(
 
     # Rotate the offsets, then translate back to the root.
     # The resulting positions are still world-frame positions.
-    body_positions = (
-        root_position.unsqueeze(1)
-        + quat_apply(quat, body_offsets)
-    )
+    body_positions = root_position.unsqueeze(1) + quat_apply(quat, body_offsets)
 
     # Rotate world-frame orientations and velocities.
     body_rotations = quat_mul(quat, body_rotations)
     body_linear_velocities = quat_apply(quat, body_linear_velocities)
     body_angular_velocities = quat_apply(quat, body_angular_velocities)
 
-    return (
-        body_positions,
-        body_rotations,
-        body_linear_velocities,
-        body_angular_velocities,
-    )
+    return body_positions, body_rotations, body_linear_velocities, body_angular_velocities
+
 
 @torch.jit.script
 def compute_rot(

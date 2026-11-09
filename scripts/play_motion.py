@@ -1,4 +1,4 @@
-""" Script to kinematically play back a single motion clip on the humanoid in Isaac Sim. """
+"""Script to kinematically play back a single motion clip on the humanoid in Isaac Sim."""
 
 import argparse
 import contextlib
@@ -48,6 +48,7 @@ if args_cli.record:
 
 
 def main():
+    """Play the clip back on a single env, optionally recording it."""
     env_cfg, _ = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
     motion_file = os.path.abspath(args_cli.motion)

@@ -29,8 +29,8 @@ class RewardSpec:
 
 @dataclass(frozen=True)
 class StandingSpec:
-    """A motion's standing mode: which commands ask the robot to stand still, and the rewards that
-    replace the motion's own `rewards` while one does. The AMP style reward is off meanwhile."""
+    """A motion's standing mode: the commands that ask the robot to stand still, and the rewards
+    that replace the motion's own `rewards` (with the AMP style reward off) while they do."""
 
     lin_vel_threshold: float
     yaw_vel_threshold: float
@@ -70,6 +70,7 @@ def load_manifest(path: str) -> list[MotionSpec]:
 
 
 def _parse_motion(name: str, motion: Any) -> MotionSpec:
+    """Validate one motion entry."""
     motion = _mapping(motion, name)
     check_known(motion, MOTION_KEYS, name)
     if not isinstance(motion.get("file"), str):
@@ -96,6 +97,7 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
 
 
 def _parse_commands(commands: Any, motion: str) -> dict[str, tuple[float, float]]:
+    """Each command as a (low, high) range; a scalar is a fixed value."""
     commands = _mapping(commands, f"{motion}.commands")
     check_known(commands, COMMAND_KEYS, f"{motion}.commands")
 
@@ -115,6 +117,7 @@ def _parse_commands(commands: Any, motion: str) -> dict[str, tuple[float, float]
 
 
 def _parse_rewards(rewards: Any, motion: str) -> dict[str, RewardSpec]:
+    """Each reward as a weight plus kwargs; a scalar is the weight alone."""
     rewards = _mapping(rewards, f"{motion}.rewards")
 
     parsed = {}
@@ -149,6 +152,7 @@ def _parse_standing(standing: Any, motion: str) -> StandingSpec:
 
 
 def _parse_terminations(terminations: Any, motion: str) -> tuple[str, ...]:
+    """A termination name or list of names."""
     if isinstance(terminations, str):
         terminations = [terminations]
     if not isinstance(terminations, list):
@@ -168,12 +172,14 @@ def _mapping(value: Any, where: str) -> dict:
 
 
 def _number(value: Any, where: str) -> float:
+    """`value` as a float, or a ValueError naming `where`."""
     if not isinstance(value, (int, float)):
         raise ValueError(f"{where}: expected a number, got {value!r}.")
     return float(value)
 
 
 def check_known(names: Any, known: Any, where: str) -> None:
+    """Raise a ValueError naming `where` if any of `names` is not in `known`."""
     unknown = [name for name in names if name not in known]
     if unknown:
         raise ValueError(f"{where}: unknown {unknown}. Known: {sorted(known)}.")

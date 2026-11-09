@@ -4,10 +4,9 @@ import torch
 
 from isaaclab.envs import DirectRLEnv
 
-from .env_cfg import MotionLearningEnvCfg
-
 from moveitmoveit.utils import transforms
 
+from .env_cfg import MotionLearningEnvCfg
 from .manifest import COMMAND_DIM
 from .mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
 from .motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
@@ -74,7 +73,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         self.extras = {}
 
-        # per-env random yaw applied at reset 
+        # per-env random yaw applied at reset
         self.random_yaw_quat = torch.zeros(self.num_envs, 4, device=self.device)
         self.random_yaw_quat[:, -1] = 1.0
 
@@ -85,11 +84,7 @@ class MotionLearningEnv(DirectRLEnv):
         )
 
         self.command_dim = COMMAND_DIM
-        self.commands = torch.zeros(
-            self.num_envs,
-            self.command_dim,
-            device=self.device,
-        )
+        self.commands = torch.zeros(self.num_envs, self.command_dim, device=self.device)
 
         # per-env standing mode (see StandingSpec), set from the commands each observation carries.
         # Rewards and the AMP style gate read the mode of the observation the policy acted on.
@@ -189,15 +184,7 @@ class MotionLearningEnv(DirectRLEnv):
             self.random_yaw_quat[env_ids] = yaw
         root_state, dof_pos, dof_vel = self._compute_robot_state(env_ids, frames, yaw)
 
-        self._write_robot_state(
-            env_ids,
-            root_state,
-            dof_pos,
-            dof_vel,
-        )
-
-        done_envs = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        done_envs[env_ids] = True
+        self._write_robot_state(env_ids, root_state, dof_pos, dof_vel)
 
         self.amp_observation_buffer[env_ids] = self.reference.amp_seed(
             self.motion_ids[env_ids], times, self.random_yaw_quat[env_ids]
@@ -234,9 +221,8 @@ class MotionLearningEnv(DirectRLEnv):
         return total
 
     def _style_reward_off(self) -> torch.Tensor:
-        """(N,) bool: envs that earn no AMP style reward this step. Standing envs are the only
-        condition today; OR another per-env mask in here to turn style off for it too, without
-        putting those envs in standing mode (their task rewards stay the motion's `rewards`)."""
+        """(N,) bool: envs that earn no AMP style reward this step, today the standing envs.
+        OR another per-env mask in here to turn style off without entering standing mode."""
         return self.standing
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -262,10 +248,8 @@ class MotionLearningEnv(DirectRLEnv):
         return self.reference.tracking_targets(self.motion_ids, current_times, self.random_yaw_quat)
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
-        """Resample commands for envs that have gone `command_resample_steps` steps since their
-        last command sample or whose `dones` flag is set. Goals are placed relative to where each
-        env's root is now, then stay fixed in world space."""
-
+        """Resample commands every `command_resample_steps` steps or where `dones` is set.
+        Goals are placed relative to each env's current root, then stay fixed in world space."""
         if not self.cfg.resample_commands:
             return
 
@@ -290,7 +274,7 @@ class MotionLearningEnv(DirectRLEnv):
         frames: ResetFrames,
         yaw: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        
+        """Root state, DOF positions and DOF velocities to write for `frames`, optionally yawed."""
         root_state = self.default_root_state[env_ids].clone()
         root_state[:, 0:3] = frames.root_positions + self.scene.env_origins[env_ids]
         root_state[:, 2] += 0.1  # lift the humanoid slightly to avoid collisions with the ground
@@ -299,7 +283,7 @@ class MotionLearningEnv(DirectRLEnv):
         root_state[:, 10:13] = frames.root_angular_velocities
 
         if yaw is not None:
-            root_state[:, 0:3] =  transforms.quat_apply(yaw, root_state[:, 0:3])
+            root_state[:, 0:3] = transforms.quat_apply(yaw, root_state[:, 0:3])
             root_state[:, 3:7] = transforms.quat_mul(yaw, root_state[:, 3:7])
             root_state[:, 7:10] = transforms.quat_apply(yaw, root_state[:, 7:10])
             root_state[:, 10:13] = transforms.quat_apply(yaw, root_state[:, 10:13])

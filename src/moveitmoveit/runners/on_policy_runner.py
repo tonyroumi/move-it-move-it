@@ -1,19 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
-from typing import Optional
-import os
-import time
 
-import torch
-import torch.optim as optim
 import tqdm
 
 from isaaclab.envs import DirectRLEnv
 
 from moveitmoveit.agents import resolve_agent
 from moveitmoveit.utils.logger import Logger
+
 
 @dataclass(kw_only=True)
 class OnPolicyRunnerCfg:
@@ -22,8 +17,9 @@ class OnPolicyRunnerCfg:
 
     use_pbar: bool = False
 
+
 class OnPolicyRunner:
-    """Generic on-policy training loop. """
+    """Generic on-policy training loop."""
 
     def __init__(
         self,
@@ -38,10 +34,7 @@ class OnPolicyRunner:
 
         agent_cls, cfg_cls = resolve_agent(cfg["agent"]["class_type"])
 
-        self.agent = agent_cls(
-            cfg = cfg_cls(**cfg["agent"]),
-            logger = self.logger
-        )
+        self.agent = agent_cls(cfg=cfg_cls(**cfg["agent"]), logger=self.logger)
         self.agent.init(self.env, cfg)
 
     def learn(self) -> None:

@@ -69,7 +69,7 @@ class MotionSet:
         return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
 
     def sample_commands(self, motion_ids: torch.Tensor, root_positions_xy: torch.Tensor | None = None) -> torch.Tensor:
-        """Sample each motion's declared command ranges. A goal command is declared as an offset;."""
+        """Sample each motion's declared command ranges. Goals are offsets from `root_positions_xy`."""
         low = self.command_low[motion_ids]
         high = self.command_high[motion_ids]
 
@@ -86,7 +86,7 @@ class MotionSet:
         return commands
 
     def standing(self, motion_ids: torch.Tensor, observed_commands: torch.Tensor) -> torch.Tensor:
-        """Which envs' commands ask them to stand still, (N,) bool"""
+        """Which envs' commands ask them to stand still, (N,) bool."""
         lin_vel = torch.linalg.vector_norm(observed_commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1], dim=-1)
         yaw_vel = observed_commands[:, CommandIndex.YAW].abs()
         goal_distance = torch.linalg.vector_norm(observed_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1], dim=-1)

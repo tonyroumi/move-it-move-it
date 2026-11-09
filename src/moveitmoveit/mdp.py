@@ -37,7 +37,6 @@ class StepContext:
     previous_actions: torch.Tensor
     sample_targets: Callable[[], TrackingTargets]
     memory: dict[str, torch.Tensor] = field(default_factory=dict)
-
     standing_pose: torch.Tensor | None = None
 
     @cached_property
@@ -103,7 +102,6 @@ def reward(**defaults: float):
 def termination(fn):
     TERMINATIONS[fn.__name__] = fn
     return fn
-
 
 
 @observation(dim=28)
@@ -257,8 +255,7 @@ def support_centered(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
 
 @reward(scale=2.0, tolerance=0.05)
 def standing_pose(c: StepContext, scale: torch.Tensor, tolerance: torch.Tensor) -> torch.Tensor:
-    """Joint positions vs. the motion's `standing.pose` target. Each joint may deviate up to
-    `tolerance` rad for free, room to balance; the squared excess beyond it is summed over joints.
+    """Joint positions vs. the motion's `standing.pose`, ignoring up to `tolerance` rad per joint.
     Only allowed in `standing.rewards`."""
     excess = ((c.state.dof_positions - c.standing_pose).abs() - tolerance.unsqueeze(-1)).clamp_min(0.0)
     return torch.exp(-scale * torch.sum(excess**2, dim=-1))
@@ -285,12 +282,8 @@ def unhealthy(c: StepContext, height_threshold: float = 0.65) -> torch.Tensor:
 def policy_commands(
     state: BodyState, commands: torch.Tensor, has_goal: torch.Tensor, local_frame: bool
 ) -> torch.Tensor:
-    """The commands as the policy observes them.
-
-    The goal command is a world-space XY position, which a policy can't use as is, so it becomes
-    the goal's offset from the root: in the root's heading frame when `local_frame`, else along the
-    world axes. Envs whose motion has no goal (`has_goal`, shape (N,)) observe 0 there.
-    """
+    """The commands as the policy observes them: the world-space goal becomes an offset from the
+    root (heading frame when `local_frame`), and 0 for envs whose motion has no goal."""
     goal = slice(CommandIndex.GOAL_X, CommandIndex.GOAL_Y + 1)
     offset = commands[:, goal] - state.root_positions[:, :2]
     if local_frame:
@@ -307,8 +300,7 @@ def policy_commands(
 def velocity_tracking_metrics(
     name: str, actual: torch.Tensor, commanded: torch.Tensor, tracked: torch.Tensor, unit: str
 ) -> dict[str, torch.Tensor]:
-    """Tracking error and commanded vs. actual velocity, split by whether the command is zero.
-    """
+    """Tracking error and commanded vs. actual velocity, split by whether the command is zero."""
     error = torch.linalg.vector_norm(actual - commanded, dim=-1)
     commanded_speed = torch.linalg.vector_norm(commanded, dim=-1)
     along = torch.sum(actual * commanded, dim=-1) / commanded_speed.clamp_min(1e-12)
@@ -323,6 +315,7 @@ def velocity_tracking_metrics(
         f"{name}_actual_along_cmd (nonzero cmd) [{unit}]": torch.where(nonzero, along, missing),
     }
 
+
 # --- composition ------------------------------------------------------------------------------
 
 
@@ -334,8 +327,7 @@ def observation_dim(names: Iterable[str]) -> int:
 
 
 class ComposedMDP:
-    """The rewards, terminations and observations one run selected, as the env asks for them.
-    """
+    """The rewards, terminations and observations one run selected, as the env asks for them."""
 
     def __init__(
         self,
