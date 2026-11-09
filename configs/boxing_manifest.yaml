@@ -1,0 +1,105 @@
+# Boxing: orthodox-stance footwork toward a world-space goal, plus a jab, a right hook and a combo
+# that a key press triggers once each. Paths are relative: run from the repo root. data/ isn't
+# tracked; the clips and their sources are listed in the README's "Boxing clips and attribution".
+# Weights are untuned starting points; nothing here has been trained or run in Isaac Lab.
+#
+# Locomotion motions (no `trigger`) take goal commands, as in goal_manifest.yaml. A motion with a
+# `trigger` is a behavior: pressing that key slot's key runs it once, to the end of its clip or
+# until it settles, then the env returns to locomotion. Releasing or holding the key changes
+# nothing. The policy observes the running behavior as a one-hot in the trigger slots and its
+# progress in [0, 1], not the key. Play's keyboard binds binary_key_0 to Left Shift,
+# binary_key_1 to Space and binary_key_2 to C.
+#
+# sample_prob also sets how often training presses each behavior's key, so that the agent spends
+# about the same share of its time in each behavior as the discriminator's reference motion does.
+motions:
+  stance_bounce:
+    file: data/boxing/orthodox_bounce.npz
+    sample_prob: 0.2
+    commands: {goal_x: [-3.0, 3.0], goal_y: [-3.0, 3.0]}
+    # a zeroed command puts the goal where the root already is: hold the guard in place
+    zero_command_prob: 0.5
+    rewards: &goal_rewards
+      # meters closer per step, times 30 = 1 / step_dt: roughly speed toward the goal in m/s
+      progress: {weight: 1.0, scale: 30.0}
+      target_hit: {weight: 0.5, scale: 0.5}
+    termination: unhealthy
+
+  stance_advance:
+    file: data/boxing/orthodox_advance.npz
+    sample_prob: 0.1
+    commands: {goal_x: [-3.0, 3.0], goal_y: [-3.0, 3.0]}
+    zero_command_prob: 0.1
+    rewards: *goal_rewards
+    termination: unhealthy
+
+  stance_quick_advance:
+    file: data/boxing/orthodox_quick_advance.npz
+    sample_prob: 0.05
+    commands: {goal_x: [-3.0, 3.0], goal_y: [-3.0, 3.0]}
+    zero_command_prob: 0.1
+    rewards: *goal_rewards
+    termination: unhealthy
+
+  stance_retreat:
+    file: data/boxing/orthodox_retreat.npz
+    sample_prob: 0.1
+    commands: {goal_x: [-3.0, 3.0], goal_y: [-3.0, 3.0]}
+    zero_command_prob: 0.1
+    rewards: *goal_rewards
+    termination: unhealthy
+
+  stance_quick_retreat:
+    file: data/boxing/orthodox_quick_retreat.npz
+    sample_prob: 0.05
+    commands: {goal_x: [-3.0, 3.0], goal_y: [-3.0, 3.0]}
+    zero_command_prob: 0.1
+    rewards: *goal_rewards
+    termination: unhealthy
+
+  stance_side_step_left:
+    file: data/boxing/orthodox_side_step_left.npz
+    sample_prob: 0.075
+    commands: {goal_x: [-3.0, 3.0], goal_y: [-3.0, 3.0]}
+    zero_command_prob: 0.1
+    rewards: *goal_rewards
+    termination: unhealthy
+
+  stance_side_step_right:
+    file: data/boxing/orthodox_side_step_right.npz
+    sample_prob: 0.075
+    commands: {goal_x: [-3.0, 3.0], goal_y: [-3.0, 3.0]}
+    zero_command_prob: 0.1
+    rewards: *goal_rewards
+    termination: unhealthy
+
+  # settle: the behavior also completes once it is min_phase through and the RMS joint speed is
+  # below max_dof_speed (rad/s). The robot is as still in its guard before the punch, so min_phase
+  # is set after the clip's last hand speed above 1 m/s (jab: phase 0.58, right hook: 0.74).
+  jab:
+    file: data/boxing/orthodox_jab_left_crop.npz
+    trigger: binary_key_0
+    sample_prob: 0.12
+    settle: {min_phase: 0.8, max_dof_speed: 0.6}
+    rewards:
+      heading_motion_tracking: {weight: 2.0}
+    termination: unhealthy
+
+  right_hook:
+    file: data/boxing/orthodox_hook_right_crop.npz
+    trigger: binary_key_1
+    sample_prob: 0.12
+    settle: {min_phase: 0.85, max_dof_speed: 0.6}
+    rewards:
+      heading_motion_tracking: {weight: 2.0}
+    termination: unhealthy
+
+  # A candidate jab, cross, lead hook cut from free sparring, by hand-speed peaks only; nobody has
+  # checked the labels by eye. Its hands keep moving to the end of the clip, so it does not settle.
+  combo:
+    file: data/boxing/orthodox_combo_123_crop.npz
+    trigger: binary_key_2
+    sample_prob: 0.11
+    rewards:
+      heading_motion_tracking: {weight: 2.0}
+    termination: unhealthy

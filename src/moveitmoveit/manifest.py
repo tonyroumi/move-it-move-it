@@ -13,12 +13,16 @@ class CommandIndex(IntEnum):
     BINARY_KEY_1 = 4
     GOAL_X = 5
     GOAL_Y = 6
+    BINARY_KEY_2 = 7
+    BEHAVIOR_PHASE = 8
+    """Progress through the running behavior, which the env fills in. No motion declares it."""
 
 
 COMMAND_DIM = len(CommandIndex)
-COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex)
+COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex if command != CommandIndex.BEHAVIOR_PHASE)
+TRIGGER_KEYS = frozenset(key for key in COMMAND_KEYS if key.startswith("binary_key_"))
 MOTION_KEYS = frozenset(
-    {"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing", "style_condition"}
+    {"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing", "style_condition", "trigger", "settle"}
 )
 
 STYLE_CONDITION_COMMAND = CommandIndex.BINARY_KEY_0
@@ -26,6 +30,7 @@ STYLE_CONDITION_COMMAND = CommandIndex.BINARY_KEY_0
 NUM_STYLE_CONDITIONS = 2
 """Key off (0, e.g. walk) and key on (1, e.g. run)."""
 STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "pose", "rewards"})
+SETTLE_KEYS = frozenset({"min_phase", "max_dof_speed"})
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,15 @@ class StandingSpec:
 
 
 @dataclass(frozen=True)
+class SettleSpec:
+    """When a behavior counts as complete before its clip ends: once it is `min_phase` of the way
+    through and the robot's RMS joint speed is below `max_dof_speed` (rad/s)."""
+
+    min_phase: float
+    max_dof_speed: float
+
+
+@dataclass(frozen=True)
 class MotionSpec:
     name: str
     file: str
@@ -60,6 +74,11 @@ class MotionSpec:
     style_condition: int | None = None
     """The behavior condition this clip's frames are real examples of, for a conditional
     discriminator (0 or 1, the value of its binary key). None in an unconditional manifest."""
+    trigger: str | None = None
+    """The key slot (`binary_key_N`) whose press runs this motion once, as a behavior. None for a
+    locomotion motion, which an env returns to when its behavior completes."""
+    settle: SettleSpec | None = None
+    """A behavior's stable-posture completion. None: it completes only when its clip ends."""
 
 
 def load_manifest(path: str) -> list[MotionSpec]:
@@ -77,6 +96,7 @@ def load_manifest(path: str) -> list[MotionSpec]:
     if not sum(spec.sample_prob for spec in specs) > 0:
         raise ValueError(f"{path}: at least one motion needs a positive sample_prob.")
     check_style_conditions(specs, path)
+    _check_triggers(specs, path)
     return specs
 
 
@@ -123,6 +143,30 @@ def check_style_conditions(specs: list[MotionSpec], where: str) -> None:
                 )
 
 
+def _check_triggers(specs: list[MotionSpec], path: str) -> None:
+    behaviors = [spec for spec in specs if spec.trigger is not None]
+    if not behaviors:
+        return
+    if any(spec.style_condition is not None for spec in specs):
+        raise ValueError(
+            f"{path}: triggered behaviors can't be combined with style_condition. A running behavior is"
+            " observed in the binary key slots, which a conditional discriminator reads its labels from."
+        )
+
+    triggers = [spec.trigger for spec in behaviors]
+    duplicates = sorted({key for key in triggers if triggers.count(key) > 1})
+    if duplicates:
+        raise ValueError(f"{path}: {duplicates} each trigger more than one motion.")
+
+    for spec in specs:
+        driven = sorted(set(spec.commands) & set(triggers))
+        if driven:
+            raise ValueError(f"{spec.name}.commands: {driven} trigger behaviors, so no motion may declare them.")
+
+    if not any(spec.trigger is None and spec.sample_prob > 0 for spec in specs):
+        raise ValueError(f"{path}: behaviors need a locomotion motion (no trigger) with a positive sample_prob.")
+
+
 def _parse_motion(name: str, motion: Any) -> MotionSpec:
     """Validate one motion entry."""
     motion = _mapping(motion, name)
@@ -138,16 +182,37 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
     if not 0.0 <= zero_command_prob <= 1.0:
         raise ValueError(f"{name}: zero_command_prob must be in [0, 1], got {zero_command_prob}.")
 
+    commands = _parse_commands(motion.get("commands"), name)
+
+    trigger = motion.get("trigger")
+    if trigger is not None:
+        if not isinstance(trigger, str) or trigger not in TRIGGER_KEYS:
+            raise ValueError(f"{name}.trigger: expected one of {sorted(TRIGGER_KEYS)}, got {trigger!r}.")
+        if commands:
+            raise ValueError(f"{name}: a triggered behavior keeps its locomotion motion's commands; declare none.")
+        if not sample_prob > 0:
+            raise ValueError(f"{name}: a triggered behavior needs a positive sample_prob, which sets how often training triggers it.")
+        if "standing" in motion:
+            raise ValueError(f"{name}.standing: a triggered behavior runs to completion, so it has no standing mode.")
+
+    settle = motion.get("settle")
+    if settle is not None:
+        if trigger is None:
+            raise ValueError(f"{name}.settle: only a triggered behavior can settle.")
+        settle = _parse_settle(settle, name)
+
     return MotionSpec(
         name=name,
         file=motion["file"],
         sample_prob=sample_prob,
-        commands=_parse_commands(motion.get("commands"), name),
+        commands=commands,
         zero_command_prob=zero_command_prob,
         rewards=_parse_rewards(motion.get("rewards"), name),
         terminations=_parse_terminations(motion.get("termination", "unhealthy"), name),
         standing=_parse_standing(motion["standing"], name) if "standing" in motion else None,
         style_condition=_parse_style_condition(motion["style_condition"], name) if "style_condition" in motion else None,
+        trigger=trigger,
+        settle=settle,
     )
 
 
@@ -156,6 +221,22 @@ def _parse_style_condition(value: Any, motion: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value not in range(NUM_STYLE_CONDITIONS):
         raise ValueError(f"{motion}.style_condition: expected one of {list(range(NUM_STYLE_CONDITIONS))}, got {value!r}.")
     return value
+
+
+def _parse_settle(settle: Any, motion: str) -> SettleSpec:
+    settle = _mapping(settle, f"{motion}.settle")
+    check_known(settle, SETTLE_KEYS, f"{motion}.settle")
+    missing = sorted(SETTLE_KEYS - set(settle))
+    if missing:
+        raise ValueError(f"{motion}.settle: missing {missing}.")
+
+    min_phase = _number(settle["min_phase"], f"{motion}.settle.min_phase")
+    max_dof_speed = _number(settle["max_dof_speed"], f"{motion}.settle.max_dof_speed")
+    if not 0.0 < min_phase <= 1.0:
+        raise ValueError(f"{motion}.settle.min_phase: must be in (0, 1], got {min_phase}.")
+    if not max_dof_speed > 0.0:
+        raise ValueError(f"{motion}.settle.max_dof_speed: must be positive, got {max_dof_speed}.")
+    return SettleSpec(min_phase, max_dof_speed)
 
 
 def _parse_commands(commands: Any, motion: str) -> dict[str, tuple[float, float]]:

@@ -174,3 +174,89 @@ standing:
 - **Compatibility.** `standing.pose` and `standing_pose` are optional. A manifest without them
   scores standing as before, and the observation and action layouts don't change. A policy trained
   without the term won't stand differently until it is retrained with it.
+
+## Key-triggered boxing behaviors
+
+`configs/boxing_manifest.yaml` trains orthodox-stance footwork toward a world-space goal, as
+above, plus three one-shot behaviors: a jab, a right hook and a combo. A manifest motion with
+`trigger: binary_key_N` is a behavior. Pressing that key starts it once, and the env goes back to
+locomotion when the behavior completes. Releasing, holding or pressing keys while it runs changes
+nothing, and a key held past its end does not start it again.
+
+- **What the policy observes**: its state, the goal as an offset in its heading frame, the
+  running behavior z(t) as a one-hot in the trigger slots (all 0 during locomotion), and its
+  progress phi(t) = min(1, (t - t_start) / duration) in `BEHAVIOR_PHASE`. It never sees the raw
+  key.
+- **When a behavior completes**: at phi >= 1, or earlier at a stable posture if the motion
+  declares `settle: {min_phase, max_dof_speed}`. That means phi >= min_phase with an RMS joint
+  speed below max_dof_speed. The robot stands just as still in its guard before the punch, so
+  min_phase is set past the end of each clip's punch.
+- **What is rewarded**: while a behavior runs, the env follows that behavior's clip from t_start.
+  Its rewards (`heading_motion_tracking`, which compares poses in each root's heading frame) and
+  its terminations apply. The goal rewards resume when it completes.
+- **How training triggers behaviors**: training presses the trigger keys at random, with random
+  hold lengths, into the same command slots the keyboard writes. Training and play therefore run
+  the same latching code (`moveitmoveit/behavior.py`). The press rate is derived from
+  `sample_prob`, so the agent spends about as much of its time in each behavior as the
+  discriminator's reference data does. An episode that resets into a behavior clip starts that
+  behavior part-way through.
+- **Standing mode**: a behavior can't declare `standing`, so an env running one is never in
+  standing mode and earns AMP's style reward. When the behavior completes, the locomotion motion's
+  own standing mode, if it declares one, applies again. The boxing manifest declares none, so a
+  zero command there still imitates the bounce clip's guard, with style reward on.
+
+```bash
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/boxing_manifest.yaml
+./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick --joystick-mode point_goal
+```
+
+In play, the arrow keys move the goal, Left Shift throws the jab, Space the right hook and C the
+combo. Run both commands from the repo root, because the manifest's clip paths are relative.
+
+Triggered behaviors can't be combined with `style_condition` in one manifest. A running behavior is
+observed in the binary key slots, and the conditional discriminator reads its labels from
+`binary_key_0`, so the manifest rejects the combination.
+
+### Boxing clips and attribution
+
+`data/` isn't tracked, so put the clips at the paths in the table below before training. They
+are adaptations of "Open Motion Project" by ACCAD/The Ohio State University, performer set
+"Male 2", licensed under
+[Creative Commons Attribution 3.0 Unported](https://creativecommons.org/licenses/by/3.0/).
+Source: <https://accad.osu.edu/research/motion-lab/mocap-system-and-data>, archive
+`Male2_bvh.zip` (terms read on 2026-11-06). The source's terms apply to the clips, and no source
+endorses this project or these adaptations.
+
+Changes made: each take was retargeted from its joint positions to the IsaacLab Humanoid28 with the
+`humanoid28_pyroki` solver at default weights, resampled from 30 to 60 fps, rotated to face +X at
+the start, and centred on the origin in XY. Clips marked "Mirrored" were reflected left-to-right,
+which turns the source's southpaw stance into orthodox (left foot forward). The three `_crop` clips
+were then cut from those retargeted clips to the window below and translated in XY so the torso
+starts at the origin. These are new kinematic trajectories on a different body, not the original
+capture data. Hand orientation and fingers are not represented.
+
+| Clip | Seconds | Source take | Source crop | Mirrored |
+|---|---:|---|---|---|
+| `data/boxing/orthodox_advance.npz` | 5.65 | `Male2_E3_Advance.bvh` | 0–5.7 s | yes |
+| `data/boxing/orthodox_quick_advance.npz` | 3.72 | `Male2_E4_QuickAdvance.bvh` | full | yes |
+| `data/boxing/orthodox_retreat.npz` | 7.68 | `Male2_E5_Retreat.bvh` | full | yes |
+| `data/boxing/orthodox_quick_retreat.npz` | 4.15 | `Male2_E6_QuickRetreat.bvh` | 1.2 s–end | yes |
+| `data/boxing/orthodox_bounce.npz` | 6.95 | `Male2_E8_Bounce.bvh` | 0–7.0 s | yes |
+| `data/boxing/orthodox_side_step_right.npz` | 2.25 | `Male2_E9_SideStepLeft.bvh` | full | yes |
+| `data/boxing/orthodox_side_step_left.npz` | 1.92 | `Male2_E10_SideStepRight.bvh` | full | yes |
+| `data/boxing/orthodox_jab_left_crop.npz` | 0.80 | `Male2_E1_JabLeft.bvh` | 0.85–1.65 s of the full retargeted take | no |
+| `data/boxing/orthodox_hook_right_crop.npz` | 1.50 | `Male2_E5_HookLeft.bvh` | 0.50–2.00 s of the full retargeted take | yes |
+| `data/boxing/orthodox_combo_123_crop.npz` | 1.30 | `Male2_Extended_1.bvh` | 1.55–2.85 s of the retargeted 0–13.5 s crop | yes |
+
+The right hook is mirrored from a take whose source stance is weak (about 0.13 m of foot lead).
+The bounce clips exceeded the retarget's hand-speed check (1.9 against 1.1 m/s peak) and were
+kept as is.
+
+Nothing here has been trained or run in Isaac Lab, so whether a policy learns footwork, punches
+or the combo is untested. The combo clip is a candidate jab, cross and lead hook, picked out by
+hand-speed peaks and not checked by eye. The punch data is one repetition each, and nothing in it
+punches while moving.
+
+The command block grew from 7 to 9 slots (`BINARY_KEY_2`, `BEHAVIOR_PHASE`), so checkpoints
+trained before this change do not load. Manifests without triggers train as before; their
+`BEHAVIOR_PHASE` slot is always 0.

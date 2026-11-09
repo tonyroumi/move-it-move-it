@@ -37,6 +37,8 @@ class TrackingTargets(NamedTuple):
     """Shape is (N, 3)."""
     key_body_positions: torch.Tensor
     """Shape is (N, num_key_bodies, 3)."""
+    root_rotations: torch.Tensor
+    """Shape is (N, 4), as xyzw quaternion."""
 
 
 class ReferenceMotions:
@@ -83,6 +85,7 @@ class ReferenceMotions:
             frames.dof_positions[:, self._skeleton.dof_indexes],
             frames.body_positions[:, self._skeleton.root_body_index],
             frames.body_positions[:, self._skeleton.key_body_indexes],
+            frames.body_rotations[:, self._skeleton.root_body_index],
         )
 
     def amp_seed(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:

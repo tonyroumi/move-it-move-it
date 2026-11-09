@@ -261,6 +261,26 @@ def standing_pose(c: StepContext, scale: torch.Tensor, tolerance: torch.Tensor) 
     return torch.exp(-scale * torch.sum(excess**2, dim=-1))
 
 
+@reward(dof_scale=2.0, key_body_scale=5.0)
+def heading_motion_tracking(c: StepContext, dof_scale: torch.Tensor, key_body_scale: torch.Tensor) -> torch.Tensor:
+    """motion_tracking with the robot's and the reference's key-body offsets each in its own root's
+    heading frame, so a motion started at any heading and place is scored the same."""
+    dof_error = torch.sum((c.state.dof_positions - c.targets.dof_positions) ** 2, dim=-1)
+    offsets = _heading_frame_offsets(c.state.key_body_positions, c.state.root_positions, c.state.root_rotations)
+    ref_offsets = _heading_frame_offsets(c.targets.key_body_positions, c.targets.root_positions, c.targets.root_rotations)
+    key_body_error = torch.sum((offsets - ref_offsets).flatten(1) ** 2, dim=-1)
+    return torch.exp(-dof_scale * dof_error - key_body_scale * key_body_error)
+
+
+def _heading_frame_offsets(body_positions: torch.Tensor, root_positions: torch.Tensor, root_rotations: torch.Tensor) -> torch.Tensor:
+    """Bodies' (N, B, 3) offsets from the root, with XY in the root's heading frame."""
+    offsets = body_positions - root_positions.unsqueeze(1)
+    num_bodies = offsets.shape[1]
+    rotations = root_rotations.unsqueeze(1).expand(-1, num_bodies, -1).reshape(-1, 4)
+    xy = transforms.world_to_heading_frame_xy(rotations, offsets[..., :2].reshape(-1, 2)).view(-1, num_bodies, 2)
+    return torch.cat((xy, offsets[..., 2:]), dim=-1)
+
+
 # --- terminations -----------------------------------------------------------------------------
 
 
