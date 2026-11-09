@@ -1,9 +1,5 @@
-"""A faint on-screen keyboard overlay that highlights the keys bound by ``moveitmoveit.utils.keyboard.Keyboard``.
-
-Subscribes to raw keyboard events independently of the control device, so it only
-visualizes which of the bound keys are currently held -- it does not drive the command
-itself.
-"""
+"""A faint on-screen overlay highlighting the held keys bound by ``moveitmoveit.utils.keyboard``.
+It only listens to raw keyboard events; it does not drive the command itself."""
 
 from __future__ import annotations
 
@@ -85,6 +81,7 @@ class KeyboardOverlay:
         self.close()
 
     def _on_keyboard_event(self, event, *args, **kwargs):
+        """Track which keys are held."""
         name = event.input.name
         if event.type == carb.input.KeyboardEventType.KEY_PRESS:
             self._pressed.add(name)
@@ -93,6 +90,7 @@ class KeyboardOverlay:
         return True
 
     def _build_ui(self):
+        """Lay out one key cap per bound key group."""
         with self._window.frame:
             with ui.VStack(spacing=4, style={"margin": 4}):
                 for row in _LAYOUT:

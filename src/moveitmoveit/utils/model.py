@@ -9,6 +9,7 @@ ACTIVATIONS = {
     "selu": nn.SELU,
 }
 
+
 def get_activation(name: str) -> nn.Module:
     """Resolve an activation function by name."""
     if name not in ACTIVATIONS:

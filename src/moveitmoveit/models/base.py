@@ -7,6 +7,8 @@ from moveitmoveit.utils.model import get_activation
 
 
 class MLP(nn.Module):
+    """Fully connected trunk with a linear output head."""
+
     def __init__(
         self,
         in_channels,
@@ -61,7 +63,7 @@ class MLP(nn.Module):
             init_fn(self.output_head, output_config.get("gain", 1.0))
         if output_config.get("zero_bias", False):
             self._init_linear_bias_zeros(self.output_head)
-    
+
     def trainable_parameters(self) -> List[nn.Parameter]:
         return [p for p in self.parameters() if p.requires_grad]
 

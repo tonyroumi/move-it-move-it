@@ -1,4 +1,4 @@
-""" Script to train an RL agent. """
+"""Script to train an RL agent."""
 
 import argparse
 import contextlib
@@ -37,7 +37,7 @@ parser = argparse.ArgumentParser(description="Train an agent to MOVE in IsaacLab
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint to resume training.")
 parser.add_argument("--algo", type=str, required=True, choices=["PPO", "AMP"], help="RL algorithm.")
-parser.add_argument("--manifest", type=str, required=True, help="Manifest file",)
+parser.add_argument("--manifest", type=str, required=True, help="Manifest file")
 
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
@@ -46,7 +46,6 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 def main():
     """Train an agent."""
-
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
@@ -119,7 +118,6 @@ def main():
             env.close()
         except KeyboardInterrupt:
             env.close()
-            pass
 
 
 if __name__ == "__main__":

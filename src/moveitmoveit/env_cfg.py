@@ -1,4 +1,3 @@
-from dataclasses import MISSING
 from typing import Literal
 
 import isaaclab.sim as sim_utils

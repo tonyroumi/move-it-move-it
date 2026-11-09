@@ -15,35 +15,15 @@ _NON_TELEOP_COMMANDS = (CommandIndex.GOAL_X, CommandIndex.GOAL_Y)
 
 
 class Keyboard(Se2Keyboard):
-    """
-    Extends Isaac Lab's SE(2) keyboard controller with additional binary
-    command inputs.
-
-    Output:
-        [v_x, v_y, omega_z, *extra_commands]
-
-    Standard SE(2) keys:
-        Forward:        Up Arrow / Numpad 8
-        Backward:       Down Arrow / Numpad 2
-        Left/Right:     Arrow keys / Numpad 4, 6
-        Yaw:            Z / X or Numpad 7, 9
-
-    Additional binary keys:
-        Left Shift:     binary_key_0
-        Space:          binary_key_1
-
-    Binary controls are:
-        0.0 when released
-        1.0 while held
-    """
+    """Isaac Lab's SE(2) keyboard plus binary commands, 1.0 while held: Left Shift drives
+    binary_key_0 and Space binary_key_1."""
 
     EXTRA_KEY_MAPPING = {
         "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
         "SPACE": CommandIndex.BINARY_KEY_1,
     }
 
-    # Derived from CommandIndex rather than hand-maintained, so the extra
-    # command set/order stays in sync with CommandIndex automatically.
+    # derived from CommandIndex, so the extra command set/order stays in sync with it
     EXTRA_COMMAND_ORDER = tuple(
         sorted(
             (
@@ -79,6 +59,7 @@ class Keyboard(Se2Keyboard):
             self._extra_commands[command_name] = 0.0
 
     def __str__(self) -> str:
+        """The SE(2) bindings followed by the binary ones."""
         msg = super().__str__()
         msg += "\n\t----------------------------------------------\n"
         msg += "\n".join(
@@ -88,16 +69,8 @@ class Keyboard(Se2Keyboard):
         return msg
 
     def advance(self) -> torch.Tensor:
-        """
-        Return the complete keyboard command.
-
-        Returns:
-            Tensor with shape (len(CommandIndex),), indexed by CommandIndex. Commands not driven
-            by a key binding (see `_NON_TELEOP_COMMANDS`) are left at 0.
-
-            Example:
-                [v_x, v_y, omega_z, binary_key_0, binary_key_1, 0.0, 0.0]
-        """
+        """The full (len(CommandIndex),) command, e.g. [v_x, v_y, omega_z, key_0, key_1, 0, 0];
+        commands without a key binding (`_NON_TELEOP_COMMANDS`) stay 0."""
         se2_command = super().advance()
 
         command = torch.zeros(len(CommandIndex), dtype=se2_command.dtype, device=se2_command.device)
@@ -108,10 +81,7 @@ class Keyboard(Se2Keyboard):
         return command
 
     def _on_keyboard_event(self, event, *args, **kwargs):
-        """
-        Handle standard SE(2) commands and additional binary commands.
-        """
-
+        """Handle the standard SE(2) commands and the binary ones."""
         raw_input = event.input
         key = raw_input.name if hasattr(raw_input, "name") else None
 
@@ -134,32 +104,8 @@ class Keyboard(Se2Keyboard):
 
 
 class PointGoalKeyboard(Se2Keyboard):
-    """
-    Drives the point-goal command (GOAL_X, GOAL_Y) from the keyboard instead of a velocity command.
-
-    Reuses Isaac Lab's standard SE(2) arrow/numpad bindings, but integrates them into a persistent
-    2D offset that grows while a key is held, rather than emitting an instantaneous velocity -- i.e.
-    a point that walks away from its starting position as you steer it. The offset is in world-frame
-    meters, not rotated by the robot's heading (matching how goal commands are sampled in
-    `MotionSet`/`MotionLearningEnv`); the caller adds it to a fixed world anchor (play.py uses each
-    env's start position) before writing it into the env's `commands` buffer, so the goal stays put
-    while the robot walks toward it.
-
-    Keys:
-        Forward/Backward:  Up Arrow / Numpad 8, Down Arrow / Numpad 2  -> +X / -X
-        Left/Right:        Arrow keys / Numpad 4, 6                    -> -Y / +Y
-        Reset:             L                                            -> back to `initial_offset` from the anchor
-
-    Yaw keys (Z / X, Numpad 7 / 9) have no effect in this mode.
-
-    Args:
-        cfg: SE(2) keyboard sensitivities; `v_x_sensitivity`/`v_y_sensitivity` are treated as
-            meters/second, matching their usual velocity-command meaning.
-        dt: Seconds of sim time per `advance()` call (the env's `step_dt`), used to convert the
-            per-call sensitivity into a per-call distance so the point moves at a fixed real-world
-            speed regardless of how fast `advance()` is polled.
-        initial_offset: Starting world-frame offset from the robot, in meters.
-    """
+    """Drives the GOAL_X/GOAL_Y command: the SE(2) arrow keys move a world-frame goal offset at
+    their sensitivity in m/s (integrated over `dt` per `advance`), and L resets it."""
 
     def __init__(self, cfg: Se2KeyboardCfg, dt: float, initial_offset: tuple[float, float] = (1.0, 0.0)):
         super().__init__(cfg)
@@ -173,14 +119,8 @@ class PointGoalKeyboard(Se2Keyboard):
         self._goal_offset = self._initial_offset.clone()
 
     def advance(self) -> torch.Tensor:
-        """
-        Return the complete keyboard command.
-
-        Returns:
-            Tensor with shape (len(CommandIndex),), indexed by CommandIndex. Only GOAL_X/GOAL_Y are
-            non-zero, holding the accumulated world-frame offset (not yet anchored to the robot's
-            position).
-        """
+        """The full (len(CommandIndex),) command, holding only the world-frame goal offset;
+        the caller anchors it to a world position."""
         se2_command = super().advance()
 
         # Isaac Lab's Se2Keyboard maps left -> +v_y, right -> -v_y; negate to get left -> -y, right -> +y.

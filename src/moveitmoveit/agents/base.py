@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
 import collections
 
-import torch
-import torch.optim
 import numpy as np
+import torch
 
 from isaaclab.envs import DirectRLEnv
 
@@ -21,7 +19,7 @@ class BaseCfg(ABC):
 
 
 class BaseAgent(ABC):
-    """ Abstract base class for a learning agent. """
+    """Abstract base class for a learning agent."""
 
     def __init__(
         self,
@@ -63,18 +61,18 @@ class BaseAgent(ABC):
 
     def init(self, env: DirectRLEnv, cfg: dict) -> None:
         """Initialize the agent with the environment and configuration."""
-        self._step_dt = env.unwrapped.step_dt # policy frequency
+        self._step_dt = env.unwrapped.step_dt  # policy step period
         self._cmd_dim = env.unwrapped.command_dim
 
-        self._obs_preprocessor = self._build_observations_preprocessor(env)
+        self._obs_preprocessor = self._build_observation_preprocessor(env)
         self._action_preprocessor = self._build_action_preprocessor(env)
 
         self._initialize_models(env, cfg["models"])
         self._initialize_optimizer()
         self._initialize_storage(env)
 
-    def _build_observations_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
-        """Normalizes the environment's raw observation via running statistics."""
+    def _build_observation_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
+        """Normalizes the raw observation via running statistics, leaving the commands unscaled."""
         obs_size = env.observation_space.shape[-1]
         return RunningStandardScaler(
             size=obs_size, unscaled_dims=self._cmd_dim
@@ -108,7 +106,7 @@ class BaseAgent(ABC):
 
     @abstractmethod
     def act(self, observations: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
-        """Sample actions for the current observations. """
+        """Sample actions for the current observations."""
         pass
 
     @abstractmethod
@@ -121,7 +119,7 @@ class BaseAgent(ABC):
         infos: dict | None = None,
     ) -> None:
         """Record reward, done flags, and optional step info, then flush the
-        current transition into the rollout buffer. """
+        current transition into the rollout buffer."""
         self._track_episode_stats(rewards, terminated | truncated, infos or {})
 
     def _track_episode_stats(
@@ -317,11 +315,11 @@ class BaseAgent(ABC):
 
     @abstractmethod
     def inference(self) -> None:
-        """Inference Mode """
+        """Inference mode."""
 
     @abstractmethod
     def train(self) -> None:
-        """Train mode"""
+        """Train mode."""
 
     @abstractmethod
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:

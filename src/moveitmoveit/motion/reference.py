@@ -85,28 +85,21 @@ class ReferenceMotions:
 
     def amp_seed(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
         """AMP observation history ending at each env's reset time, at that env's yaw.
-
-        Returns:
-            Shape is (N, num_amp_steps, amp_obs_dim), newest first.
-        """
+        Shape is (N, num_amp_steps, amp_obs_dim), newest first."""
         observations = self._amp_observations(motion_ids, times, yaw if self._random_yaw else None)
         return observations.view(motion_ids.shape[0], self._num_amp_steps, -1)
 
     def style_batch(self, num_samples: int) -> torch.Tensor:
         """A batch of real motion for the discriminator.
-
-        Returns:
-            Shape is (num_samples, num_amp_steps * amp_obs_dim), newest first.
-        """
+        Shape is (num_samples, num_amp_steps * amp_obs_dim), newest first."""
         motion_ids = self._pick(num_samples)
         times = self._library.sample_times(motion_ids)
-        # samples are an arbitrary discriminator batch, unrelated to any environment:
-        # rotate by an independent random yaw per sample so the discriminator also sees
-        # real motion at randomized headings, not just each clip's original heading.
+        # an independent random yaw per sample, so the discriminator sees real motion at any heading
         yaw = transforms.random_yaw_orientation(num_samples, self._library.device) if self._random_yaw else None
         return self._amp_observations(motion_ids, times, yaw).view(num_samples, -1)
 
     def _amp_observations(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor | None) -> torch.Tensor:
+        """Style observations of the clip history ending at `times`, optionally yawed."""
         frames = self._library.history(motion_ids, times, self._num_amp_steps)
         if yaw is not None:
             frames = self._apply_yaw(frames, yaw.repeat_interleave(self._num_amp_steps, dim=0))
@@ -124,6 +117,7 @@ class ReferenceMotions:
         return self._style_obs(state, self._random_yaw)
 
     def _apply_yaw(self, frames: MotionFrames, yaw: torch.Tensor) -> MotionFrames:
+        """`frames` rotated by `yaw` about the root body."""
         body_positions, body_rotations, body_linear_velocities, body_angular_velocities = transforms.apply_random_yaw(
             yaw,
             self._skeleton.root_body_index,

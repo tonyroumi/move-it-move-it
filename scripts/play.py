@@ -1,4 +1,4 @@
-""" Script to play a checkpoint of an RL agent. """
+"""Script to play a checkpoint of an RL agent."""
 
 import argparse
 import contextlib
@@ -93,7 +93,7 @@ if args_cli.record:
 
 
 def main():
-    """Play with skrl agent."""
+    """Play a trained agent checkpoint."""
     env_cfg, _ = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
     with launch_simulation(env_cfg, args_cli):

@@ -15,7 +15,7 @@ MOTIONS_DIR = MOVEITMOVEIT_DATA_DIR
 
 
 def _dir_mtime(path: str) -> float:
-    """'last written to' time for a directory. """
+    """Latest mtime of a directory and its direct entries, or -1 if it can't be read."""
     try:
         latest = os.path.getmtime(path)
     except OSError:
@@ -27,6 +27,7 @@ def _dir_mtime(path: str) -> float:
     except OSError:
         pass
     return latest
+
 
 def _find_most_recent_run_dir(log_root_path: str) -> str:
     """Return the run directory under `log_root_path` most recently written to."""
@@ -47,6 +48,7 @@ def _find_most_recent_run_dir(log_root_path: str) -> str:
 
     return max(run_dirs, key=run_key)
 
+
 def _checkpoint_in_run_dir(run_dir: str, step: int = None) -> str:
     """Resolve checkpoints/{step}.pt or checkpoints/best_agent.pt within a single run directory."""
     if step is not None:
@@ -60,32 +62,20 @@ def _checkpoint_in_run_dir(run_dir: str, step: int = None) -> str:
         raise FileNotFoundError(f"No best_agent.pt found in run: {checkpoint_path}")
     return os.path.abspath(checkpoint_path)
 
-def resolve_checkpoint(log_root_path: str, checkpoint: str = None, step: int = None) -> str:
-    """Resolve the checkpoint path to play.
 
-    - If `checkpoint` is given, it is used as-is.
-    - Otherwise, the most recently written-to run directory under
-      `log_root_path` is used, and:
-        - if `step` is given, checkpoints/{step}.pt is used (error if missing)
-        - otherwise, checkpoints/best_agent.pt is used
-    """
+def resolve_checkpoint(log_root_path: str, checkpoint: str = None, step: int = None) -> str:
+    """`checkpoint` if given, else the {step}.pt or best_agent.pt checkpoint of the most
+    recently written run under `log_root_path`."""
     if checkpoint:
         return os.path.abspath(checkpoint)
 
     most_recent_run_dir = _find_most_recent_run_dir(log_root_path)
     return _checkpoint_in_run_dir(most_recent_run_dir, step)
 
+
 def resolve_checkpoint_from_run_dir(run_dir: str, checkpoint: str = None, step: int = None) -> str:
-    """Resolve the checkpoint path to play from a single, specific run directory.
-
-    Unlike `resolve_checkpoint`, `run_dir` is used directly rather than being treated as an
-    experiment root to search for the most recently written-to run within.
-
-    - If `checkpoint` is given, it is used as-is.
-    - Otherwise:
-        - if `step` is given, `<run_dir>/checkpoints/{step}.pt` is used (error if missing)
-        - otherwise, `<run_dir>/checkpoints/best_agent.pt` is used
-    """
+    """`checkpoint` if given, else the {step}.pt or best_agent.pt checkpoint of `run_dir` itself
+    (unlike `resolve_checkpoint`, no search for the most recent run)."""
     if checkpoint:
         return os.path.abspath(checkpoint)
 
