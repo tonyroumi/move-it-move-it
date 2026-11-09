@@ -3,3 +3,4 @@ __pycache__/
 logs
 data/*
 *.egg-info
+CLAUDE.md
