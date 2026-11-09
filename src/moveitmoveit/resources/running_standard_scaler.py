@@ -5,8 +5,17 @@ import torch.nn as nn
 
 
 class RunningStandardScaler(nn.Module):
-    """Normalizes by running mean/variance (Chan et al.), passing the last `unscaled_dims` through.
-    `mean`/`variance` seed the statistics; never training on them freezes the scaler there."""
+    """
+    Normalizes inputs using running mean and variance (Chan et al., 1979),
+    passing the last `unscaled_dims` through unchanged.
+    `mean` and `variance` initialize the statistics; disabling updates keeps them fixed.
+
+    Reference:
+        Chan, T. F., Golub, G. H., & LeVeque, R. J. (1979).
+        Updating Formulae and a Pairwise Algorithm for Computing Sample Variances.
+        Stanford University, Department of Computer Science, Technical Report STAN-CS-79-773.
+        https://i.stanford.edu/pub/cstr/reports/cs/tr/79/773/CS-TR-79-773.pdf
+    """
 
     def __init__(
         self,
