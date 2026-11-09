@@ -82,12 +82,13 @@ class AMP(PPO):
         self._amp_observations_buf.append(infos["amp_obs"])
 
         weighted_style_reward = style_reward * self.cfg.style_reward_lambda
-        standing = infos.get("standing")
-        if standing is not None:
-            # Standing-mode envs aren't asked to move like the clips, so they earn no style reward.
-            # Their AMP observations still reach the discriminator's buffer above, as before.
+        style_reward_off = infos.get("style_reward_off")
+        if style_reward_off is not None:
+            # Envs the env flags (e.g. standing-mode envs) aren't asked to move like the clips, so
+            # they earn no style reward. Their AMP observations still reach the discriminator's
+            # buffer above, as before. Without the flag every env earns style.
             weighted_style_reward = torch.where(
-                standing.view(rewards.shape), torch.zeros_like(weighted_style_reward), weighted_style_reward
+                style_reward_off.view(rewards.shape), torch.zeros_like(weighted_style_reward), weighted_style_reward
             )
         rewards = self.cfg.goal_reward_lambda * rewards + weighted_style_reward
 
