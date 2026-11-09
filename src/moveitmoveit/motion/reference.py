@@ -12,13 +12,12 @@ class SkeletonMap(NamedTuple):
     """Where the robot's DOFs and bodies live in the clips' tensors."""
 
     dof_indexes: list[int]
-    """Clip DOF index of each robot DOF, in robot order."""
     root_body_index: int
     key_body_indexes: list[int]
 
 
 class ResetFrames(NamedTuple):
-    """Robot state to reset to, in robot DOF order, before any yaw. All shapes are (N, X)."""
+    """Reference Robot state to reset to."""
 
     dof_positions: torch.Tensor
     dof_velocities: torch.Tensor
@@ -32,17 +31,11 @@ class TrackingTargets(NamedTuple):
     """Pose the tracking reward and termination compare the robot against."""
 
     dof_positions: torch.Tensor
-    """In robot DOF order. Shape is (N, num_dofs)."""
     root_positions: torch.Tensor
-    """Shape is (N, 3)."""
     key_body_positions: torch.Tensor
-    """Shape is (N, num_key_bodies, 3)."""
 
 
 class ReferenceMotions:
-    """Reference motion, by what each consumer asks of it. Per-env state stays on the env, which
-    passes in the motion ids, times and yaw it owns."""
-
     def __init__(
         self,
         picker: Callable[[int], torch.Tensor],
@@ -84,17 +77,14 @@ class ReferenceMotions:
         )
 
     def amp_seed(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
-        """AMP observation history ending at each env's reset time, at that env's yaw.
-        Shape is (N, num_amp_steps, amp_obs_dim), newest first."""
         observations = self._amp_observations(motion_ids, times, yaw if self._random_yaw else None)
         return observations.view(motion_ids.shape[0], self._num_amp_steps, -1)
 
     def style_batch(self, num_samples: int) -> torch.Tensor:
-        """A batch of real motion for the discriminator.
-        Shape is (num_samples, num_amp_steps * amp_obs_dim), newest first."""
+        """A batch of real motion for the discriminator"""
         motion_ids = self._pick(num_samples)
         times = self._library.sample_times(motion_ids)
-        # an independent random yaw per sample, so the discriminator sees real motion at any heading
+
         yaw = transforms.random_yaw_orientation(num_samples, self._library.device) if self._random_yaw else None
         return self._amp_observations(motion_ids, times, yaw).view(num_samples, -1)
 
@@ -117,7 +107,6 @@ class ReferenceMotions:
         return self._style_obs(state, self._random_yaw)
 
     def _apply_yaw(self, frames: MotionFrames, yaw: torch.Tensor) -> MotionFrames:
-        """`frames` rotated by `yaw` about the root body."""
         body_positions, body_rotations, body_linear_velocities, body_angular_velocities = transforms.apply_random_yaw(
             yaw,
             self._skeleton.root_body_index,

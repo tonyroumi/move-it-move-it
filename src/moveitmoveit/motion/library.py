@@ -13,25 +13,17 @@ import torch
 
 
 class MotionFrames(NamedTuple):
-    """Motion data sampled from a :class:`MotionLibrary`, in the clips' DOF and body order."""
-
     dof_positions: torch.Tensor
-    """Shape is (N, num_dofs)."""
     dof_velocities: torch.Tensor
-    """Shape is (N, num_dofs)."""
     body_positions: torch.Tensor
-    """Shape is (N, num_bodies, 3)."""
     body_rotations: torch.Tensor
-    """Shape is (N, num_bodies, 4), as xyzw quaternion."""
     body_linear_velocities: torch.Tensor
-    """Shape is (N, num_bodies, 3)."""
     body_angular_velocities: torch.Tensor
-    """Shape is (N, num_bodies, 3)."""
 
 
 class MotionLibrary:
     """Motion clips (.npz) zero-padded into shared (num_clips, max_frames, ...) tensors, sampled by
-    motion id (position in ``motion_files``) and time. Clips must share DOFs, bodies and ``dt``."""
+    motion id (position in ``motion_files``) and time."""
 
     def __init__(self, motion_files: list[str], device: torch.device) -> None:
         """Load the motion files onto `device`."""

@@ -15,7 +15,7 @@ import torch
 try:
     from .library import MotionLibrary
 except ImportError:
-    from library import MotionLibrary
+    from .library import MotionLibrary
 
 
 class MotionViewer:
