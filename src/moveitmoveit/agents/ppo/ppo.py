@@ -26,7 +26,6 @@ def compute_gae(
     gae_lambda: float,
     discount: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Generalized advantage estimates and the returns they imply, both shaped like `rewards`."""
     advantage = 0
     advantages = torch.zeros_like(rewards)
     steps = rewards.shape[0]
@@ -46,7 +45,16 @@ def compute_gae(
 
 
 class PPO(BaseAgent):
-    """Proximal Policy Optimization (PPO) algorithm."""
+    """
+    Proximal Policy Optimization (PPO) algorithm.
+
+    Reference:
+        Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017).
+        Proximal Policy Optimization Algorithms.
+        arXiv preprint arXiv:1707.06347.
+        https://arxiv.org/abs/1707.06347
+    """
+
     cfg: PPOCfg
 
     def __init__(self, cfg: dict, logger: Logger):
@@ -69,7 +77,6 @@ class PPO(BaseAgent):
         self._value_preprocessor = RunningStandardScaler(size=1).to(env.unwrapped.device)
 
     def _preprocess_observations(self, observations: torch.Tensor, train: bool = False) -> torch.Tensor:
-        """Normalizes the proprioceptive prefix, passing the trailing command block through unscaled."""
         return self._obs_preprocessor(observations, train=train)
 
     def _initialize_storage(self, env: DirectRLEnv) -> None:
@@ -140,7 +147,7 @@ class PPO(BaseAgent):
             self.cfg.gae_lambda,
             self.cfg.discount,
         )
-        # Advantages are tracked after every rollout.
+
         self.logger.add_info("Advantage", advantages.mean().item(), 1)
         self.logger.step_metric(1)
 
@@ -184,7 +191,7 @@ class PPO(BaseAgent):
                     )
                 value_loss = self.cfg.value_loss_coef * F.mse_loss(values, batch.returns)
 
-                loss = policy_loss + value_loss  # - self.cfg.entropy_coef * self.actor.entropy
+                loss = policy_loss + value_loss
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -219,17 +226,14 @@ class PPO(BaseAgent):
         self.storage.clear()
 
     def train(self) -> None:
-        """Train mode."""
         self.actor.train()
         self.critic.train()
 
     def inference(self) -> None:
-        """Inference mode."""
         self.actor.eval()
         self.critic.eval()
 
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:
-        """Save the agent's models to the specified path."""
         path = os.path.join(self.logger.log_dir, "checkpoints")
         os.makedirs(path, exist_ok=True)
 
@@ -242,7 +246,6 @@ class PPO(BaseAgent):
         }, f"{path}/{filename}")
 
     def load_checkpoint(self, path: str, device: torch.device) -> None:
-        """Load the agent's models from the specified path."""
         checkpoint = torch.load(path, map_location=device)
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])

@@ -72,7 +72,6 @@ class BaseAgent(ABC):
         self._initialize_storage(env)
 
     def _build_observation_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
-        """Normalizes the raw observation via running statistics, leaving the commands unscaled."""
         obs_size = env.observation_space.shape[-1]
         return RunningStandardScaler(
             size=obs_size, unscaled_dims=self._cmd_dim
@@ -118,8 +117,6 @@ class BaseAgent(ABC):
         truncated: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
-        """Record reward, done flags, and optional step info, then flush the
-        current transition into the rollout buffer."""
         self._track_episode_stats(rewards, terminated | truncated, infos or {})
 
     def _track_episode_stats(

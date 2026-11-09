@@ -19,7 +19,16 @@ from ..ppo import PPO
 
 
 class AMP(PPO):
-    """Adversarial Motion Priors (AMP) algorithm."""
+    """
+    Adversarial Motion Priors (AMP) algorithm.
+
+    Reference:
+        Peng, X. B., Ma, Z., Abbeel, P., Levine, S., & Kanazawa, A. (2021).
+        AMP: Adversarial Motion Priors for Stylized Physics-Based Character Control.
+        ACM Transactions on Graphics, 40(4), Article 144.
+        https://doi.org/10.1145/3450626.3459670
+    """
+    
     cfg: AMPCfg
 
     def __init__(self, cfg: AMPCfg, logger: Logger):
@@ -47,6 +56,7 @@ class AMP(PPO):
 
     def _initialize_optimizer(self) -> None:
         super()._initialize_optimizer()
+
         self.disc_optimizer = torch.optim.Adam(
             itertools.chain(
                 self.discriminator.parameters()
@@ -56,6 +66,7 @@ class AMP(PPO):
 
     def _initialize_storage(self, env: DirectRLEnv) -> None:
         super()._initialize_storage(env)
+
         self._amp_observation_buffer = CircularBuffer(
             capacity=self.cfg.discriminator_buffer_capacity,
             sample_shape=(self.amp_obs_dim,),
@@ -83,8 +94,6 @@ class AMP(PPO):
         weighted_style_reward = style_reward * self.cfg.style_reward_lambda
         style_reward_off = infos.get("style_reward_off")
         if style_reward_off is not None:
-            # flagged envs (e.g. standing) earn no style reward, but their AMP observations still
-            # reach the discriminator's buffer above; without the mask every env earns style
             weighted_style_reward = torch.where(
                 style_reward_off.view(rewards.shape), torch.zeros_like(weighted_style_reward), weighted_style_reward
             )
@@ -102,7 +111,6 @@ class AMP(PPO):
             self._update_discriminator()
 
     def _update_discriminator(self) -> None:
-        """Run one round of discriminator gradient updates."""
         for _ in range(self.cfg.disc_num_updates):
             ref_motion = self.style_batch(self.cfg.disc_batch_size)
             agent_motion = self._amp_observation_buffer.sample(self.cfg.disc_batch_size)
@@ -168,7 +176,6 @@ class AMP(PPO):
             self.logger.step_metric(2)
 
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:
-        """Save the agent's models to the specified path."""
         path = os.path.join(self.logger.log_dir, "checkpoints")
         os.makedirs(path, exist_ok=True)
 
@@ -184,7 +191,6 @@ class AMP(PPO):
         }, f"{path}/{filename}")
 
     def load_checkpoint(self, path: str, device: torch.device) -> None:
-        """Load the agent's models from the specified path."""
         checkpoint = torch.load(path, map_location=device)
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
