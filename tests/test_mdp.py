@@ -203,8 +203,8 @@ def test_unknown_term_names_are_rejected_when_composing(specs, motion, message):
 
 
 def test_shipped_manifest_composes():
-    specs = load_manifest(str(REPO_ROOT / "src/configs/manifest.yaml"))
-    joint_names = np.load(REPO_ROOT / "src/data/walk.npz")["dof_names"].tolist()  # the robot's joints
+    specs = load_manifest(str(REPO_ROOT / "configs/manifest.yaml"))
+    joint_names = np.load(REPO_ROOT / "data/walk.npz")["dof_names"].tolist()  # the robot's joints
     assert ComposedMDP(specs, DEFAULT_OBS, DEFAULT_OBS, "cpu", joint_names=joint_names).reward_names
 
 

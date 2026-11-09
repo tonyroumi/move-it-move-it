@@ -56,7 +56,7 @@ def test_invalid_standing_blocks_are_rejected(write_manifest, standing, message)
 
 @pytest.mark.parametrize("manifest", ["manifest.yaml", "goal_manifest.yaml"])
 def test_shipped_manifests_declare_standing(manifest):
-    (spec,) = load_manifest(str(REPO_ROOT / "src/configs" / manifest))
+    (spec,) = load_manifest(str(REPO_ROOT / "configs" / manifest))
 
     assert spec.standing is not None and spec.standing.rewards
     assert spec.zero_command_prob > 0.0  # resamples train both modes and the switches between them
