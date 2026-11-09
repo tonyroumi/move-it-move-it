@@ -162,7 +162,7 @@ nothing, and a key held past its end does not start it again.
 
 ```bash
 ./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/boxing_manifest.yaml
-./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick --joystick-mode point_goal
+./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick-mode point_goal
 ```
 
 In play, the arrow keys move the goal, Left Shift throws the jab, Space the right hook and C the

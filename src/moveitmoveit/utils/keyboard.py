@@ -6,38 +6,77 @@ import carb
 import omni.appwindow
 import torch
 
-from isaaclab.devices import Se2Keyboard, Se2KeyboardCfg
+from isaaclab.utils.math import quat_apply_yaw
 
-from moveitmoveit.manifest import CommandIndex
+from moveitmoveit.manifest import COMMAND_DIM, CommandIndex
+
+# key -> (forward, left, yaw) direction; each key and its numpad twin drive the same axis
+MOTION_KEYS: dict[str, tuple[float, float, float]] = {
+    "UP": (1.0, 0.0, 0.0),
+    "NUMPAD_8": (1.0, 0.0, 0.0),
+    "DOWN": (-1.0, 0.0, 0.0),
+    "NUMPAD_2": (-1.0, 0.0, 0.0),
+    "LEFT": (0.0, 1.0, 0.0),
+    "NUMPAD_4": (0.0, 1.0, 0.0),
+    "RIGHT": (0.0, -1.0, 0.0),
+    "NUMPAD_6": (0.0, -1.0, 0.0),
+    "Z": (0.0, 0.0, 1.0),
+    "NUMPAD_7": (0.0, 0.0, 1.0),
+    "X": (0.0, 0.0, -1.0),
+    "NUMPAD_9": (0.0, 0.0, -1.0),
+}
+BINARY_KEYS: dict[str, CommandIndex] = {
+    "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
+    "SPACE": CommandIndex.BINARY_KEY_1,
+    "C": CommandIndex.BINARY_KEY_2,
+}
+RESET_KEY = "L"
+MODES = ("velocity", "point_goal")
 
 
-_SE2_COMMANDS = (CommandIndex.LIN_X, CommandIndex.LIN_Y, CommandIndex.YAW)
+class Keyboard:
+    """Drives the env's full command from the keyboard, in one of two modes.
 
-# commands that aren't driven by a key binding (e.g. point-goal position, or the behavior phase the
-# env fills in); left at 0 during teleop
-_NON_TELEOP_COMMANDS = (CommandIndex.GOAL_X, CommandIndex.GOAL_Y, CommandIndex.BEHAVIOR_PHASE)
+    - ``velocity``: the arrow keys (or numpad 8/2/4/6) set the body-frame lin_x/lin_y command and
+      Z/X (numpad 7/9) the yaw command, at `sensitivity` while held.
+    - ``point_goal``: the goal starts `goal_offset` ahead of each env's root on the first
+      `advance`, in its heading, and stays fixed in world space. The arrow keys move it at
+      `sensitivity` m/s in the robot's current heading frame: up pushes it the way the robot
+      faces, left/right to the robot's own left/right. Z/X do nothing.
 
+    In both modes Left Shift drives binary_key_0, Space binary_key_1 and C binary_key_2: 1.0 while
+    held and on the first `advance` after a press, so a tap between two calls isn't lost. L releases
+    every key and, in ``point_goal`` mode, puts the goal back `goal_offset` ahead of the start pose.
+    """
 
-class Keyboard(Se2Keyboard):
-    """Isaac Lab's SE(2) keyboard plus binary commands, 1.0 while held and on the first `advance`
-    after a press (so a tap between two calls isn't lost): Left Shift drives binary_key_0, Space
-    binary_key_1 and C binary_key_2."""
+    def __init__(
+        self,
+        mode: str,
+        dt: float,
+        device: str | torch.device,
+        sensitivity: tuple[float, float, float] = (1.5, 1.0, 1.0),
+        goal_offset: tuple[float, float] = (1.0, 0.0),
+    ):
+        if mode not in MODES:
+            raise ValueError(f"Unknown keyboard mode '{mode}'; expected one of {MODES}.")
+        self.mode = mode
+        self._dt = dt
+        self._device = device
+        self._sensitivity = torch.tensor(sensitivity, device=device)
+        self._goal_offset = torch.tensor((*goal_offset, 0.0), device=device)
 
-    EXTRA_KEY_MAPPING = {
-        "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
-        "SPACE": CommandIndex.BINARY_KEY_1,
-        "C": CommandIndex.BINARY_KEY_2,
-    }
+        self._held: set[str] = set()
+        # binary keys pressed since the last advance()
+        self._tapped: set[str] = set()
+        self._start_xy: torch.Tensor | None = None
+        self._start_quat: torch.Tensor | None = None
+        self._goal_xy: torch.Tensor | None = None
 
-    # derived from CommandIndex, so the extra command set/order stays in sync with it
-    EXTRA_COMMAND_ORDER = tuple(
-        sorted(
-            (
-                command
-                for command in CommandIndex
-                if command not in _SE2_COMMANDS and command not in _NON_TELEOP_COMMANDS
-            ),
-            key=int,
+        self._input = carb.input.acquire_input_interface()
+        self._keyboard = omni.appwindow.get_default_app_window().get_keyboard()
+        # a weak proxy keeps the subscription from holding this object alive
+        self._sub = self._input.subscribe_to_keyboard_events(
+            self._keyboard, lambda event, *args, obj=weakref.proxy(self): obj._on_keyboard_event(event)
         )
 
     def __del__(self):
@@ -46,25 +85,20 @@ class Keyboard(Se2Keyboard):
             self._input.unsubscribe_to_keyboard_events(self._keyboard, self._sub)
 
     def __str__(self) -> str:
-        """The SE(2) bindings followed by the binary ones."""
-        msg = super().__str__()
-        msg += "\n\t----------------------------------------------\n"
-        msg += "\n".join(
-            f"\t{command_name.name}: {key}"
-            for key, command_name in self.EXTRA_KEY_MAPPING.items()
-        )
-        return msg
-
-    def advance(self) -> torch.Tensor:
-        """The full (len(CommandIndex),) command, e.g. [v_x, v_y, omega_z, key_0, key_1, 0, 0, key_2, 0];
-        commands without a key binding (`_NON_TELEOP_COMMANDS`) stay 0."""
-        se2_command = super().advance()
-
-        command = torch.zeros(len(CommandIndex), dtype=se2_command.dtype, device=se2_command.device)
-        command[list(_SE2_COMMANDS)] = se2_command
-        for name in self.EXTRA_COMMAND_ORDER:
-            command[name] = 1.0 if name in self._pressed else self._extra_commands[name]
-        self._pressed.clear()
+        lines = [f"Keyboard ({self.mode})", f"\tReset: {RESET_KEY}"]
+        if self.mode == "velocity":
+            lines += [
+                "\tForward / backward: Up / Down (Numpad 8 / 2)",
+                "\tLeft / right: Left / Right (Numpad 4 / 6)",
+                "\tYaw left / right: Z / X (Numpad 7 / 9)",
+            ]
+        else:
+            lines += [
+                "\tGoal ahead / behind: Up / Down (Numpad 8 / 2)",
+                "\tGoal left / right: Left / Right (Numpad 4 / 6)",
+            ]
+        lines += [f"\t{command.name}: {key}" for key, command in BINARY_KEYS.items()]
+        return "\n".join(lines)
 
     def reset(self):
         """Release every key and, in point_goal mode, put the goal back ahead of the start pose."""
