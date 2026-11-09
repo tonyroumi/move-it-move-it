@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
-from .manifest import CommandIndex, MotionSpec, check_known
+from .manifest import CommandIndex, MotionSpec, RewardSpec, check_known
 from .utils import transforms
 
 if TYPE_CHECKING:
@@ -232,6 +232,39 @@ def progress(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     return scale * (previous - distance)
 
 
+# Standing terms. Bounded in [0, 1] and 1 for a still, upright robot over its feet; meant for a
+# motion's `standing.rewards`, together with e.g. joint_vel and action_rate_l2.
+
+
+@reward(scale=4.0)
+def root_lin_vel_l2(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
+    """Root linear speed, all three axes."""
+    return torch.exp(-scale * torch.sum(c.state.root_linear_velocities**2, dim=-1))
+
+
+@reward(scale=2.0)
+def root_ang_vel_l2(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
+    """Root angular speed, all three axes."""
+    return torch.exp(-scale * torch.sum(c.state.root_angular_velocities**2, dim=-1))
+
+
+@reward(scale=10.0)
+def upright(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
+    """Root tilt, as 1 minus the world-Z component of its up axis (0 upright, 1 lying flat)."""
+    up_axis = torch.zeros_like(c.state.root_positions)
+    up_axis[:, 2] = 1.0
+    tilt = 1.0 - transforms.quat_apply(c.state.root_rotations, up_axis)[:, 2]
+    return torch.exp(-scale * tilt)
+
+
+@reward(scale=20.0)
+def support_centered(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
+    """XY distance from the root to the midpoint of the feet, the last two key bodies in the env's
+    order (right_hand, left_hand, right_foot, left_foot): the root held over its support."""
+    feet_midpoint = c.state.key_body_positions[:, -2:, :2].mean(dim=1)
+    return torch.exp(-scale * torch.sum((c.root_positions_xy - feet_midpoint) ** 2, dim=-1))
+
+
 # --- terminations -----------------------------------------------------------------------------
 
 
@@ -315,8 +348,9 @@ def observation_dim(names: Iterable[str]) -> int:
 class ComposedMDP:
     """The rewards, terminations and observations one run selected, as the env asks for them.
 
-    A reward or termination runs if any motion declares it, and motions that don't declare it
-    weigh it 0. `weight: 0` therefore keeps a term running for its logs alone.
+    A reward or termination runs if any motion declares it (a reward in its `rewards` or its
+    `standing.rewards`), and motions that don't declare it weigh it 0. `weight: 0` therefore
+    keeps a term running for its logs alone.
     """
 
     def __init__(
@@ -330,30 +364,27 @@ class ComposedMDP:
         self._style_obs = list(style_obs)
         check_known(self._policy_obs + self._style_obs, OBSERVATIONS, "observations")
 
-        for spec in specs:
+        # Each motion's standing-mode rewards. A motion without a standing block never has an env in
+        # standing mode; it keeps its own rewards there anyway, so the standing tables can't change it.
+        standing_rewards = [spec.standing.rewards if spec.standing is not None else spec.rewards for spec in specs]
+
+        for spec, standing in zip(specs, standing_rewards):
             check_known(spec.rewards, REWARDS, f"{spec.name}.rewards")
+            check_known(standing, REWARDS, f"{spec.name}.standing.rewards")
             check_known(spec.terminations, TERMINATIONS, f"{spec.name}.termination")
             for name, declared in spec.rewards.items():
                 check_known(declared.kwargs, REWARDS[name].defaults, f"{spec.name}.rewards.{name}")
+            for name, declared in standing.items():
+                check_known(declared.kwargs, REWARDS[name].defaults, f"{spec.name}.standing.rewards.{name}")
 
         # Registry order, so logs and table columns don't depend on the order a manifest lists terms.
-        self.reward_names = [name for name in REWARDS if any(name in spec.rewards for spec in specs)]
+        self.reward_names = [
+            name for name in REWARDS if any(name in spec.rewards or name in standing for spec, standing in zip(specs, standing_rewards))
+        ]
         self.termination_names = [name for name in TERMINATIONS if any(name in spec.terminations for spec in specs)]
 
-        self.reward_weights = torch.tensor(
-            [[spec.rewards[name].weight if name in spec.rewards else 0.0 for name in self.reward_names] for spec in specs],
-            device=device,
-        ).reshape(len(specs), len(self.reward_names))
-        self.reward_kwargs = {
-            name: {
-                kwarg: torch.tensor(
-                    [spec.rewards[name].kwargs.get(kwarg, default) if name in spec.rewards else default for spec in specs],
-                    device=device,
-                )
-                for kwarg, default in REWARDS[name].defaults.items()
-            }
-            for name in self.reward_names
-        }
+        self.reward_weights, self.reward_kwargs = self._reward_tables([spec.rewards for spec in specs], device)
+        self.standing_reward_weights, self.standing_reward_kwargs = self._reward_tables(standing_rewards, device)
         self.termination_flags = torch.tensor(
             [[name in spec.terminations for name in self.termination_names] for spec in specs],
             device=device,
@@ -367,15 +398,48 @@ class ComposedMDP:
 
         self._memory: dict[str, torch.Tensor] = {}
 
-    def rewards(self, c: StepContext, motion_ids: torch.Tensor) -> tuple[torch.Tensor, dict, dict]:
-        """The total reward, then the raw and the weighted per-term values for logging."""
-        c.memory = self._memory
-        raw = {
-            name: REWARDS[name].fn(c, **{kwarg: values[motion_ids] for kwarg, values in self.reward_kwargs[name].items()})
+    def _reward_tables(
+        self, declared: list[dict[str, RewardSpec]], device: torch.device | str
+    ) -> tuple[torch.Tensor, dict[str, dict[str, torch.Tensor]]]:
+        """Per-motion weights (M, T) and per-term kwargs (M,) of the rewards each motion declares."""
+        weights = torch.tensor(
+            [[rewards[name].weight if name in rewards else 0.0 for name in self.reward_names] for rewards in declared],
+            device=device,
+        ).reshape(len(declared), len(self.reward_names))
+        kwargs = {
+            name: {
+                kwarg: torch.tensor(
+                    [rewards[name].kwargs.get(kwarg, default) if name in rewards else default for rewards in declared],
+                    device=device,
+                )
+                for kwarg, default in REWARDS[name].defaults.items()
+            }
             for name in self.reward_names
         }
+        return weights, kwargs
+
+    def rewards(
+        self, c: StepContext, motion_ids: torch.Tensor, standing: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, dict, dict]:
+        """The total reward, then the raw and the weighted per-term values for logging.
+
+        `standing` (N,) bool scores those envs with their motion's standing-mode rewards (weights
+        and kwargs) instead of its own `rewards`; None scores every env with its own.
+        """
+        c.memory = self._memory
+
+        def kwargs(name: str) -> dict[str, torch.Tensor]:
+            values = {kwarg: table[motion_ids] for kwarg, table in self.reward_kwargs[name].items()}
+            if standing is not None:
+                for kwarg, table in self.standing_reward_kwargs[name].items():
+                    values[kwarg] = torch.where(standing, table[motion_ids], values[kwarg])
+            return values
+
+        raw = {name: REWARDS[name].fn(c, **kwargs(name)) for name in self.reward_names}
 
         weights = self.reward_weights[motion_ids]
+        if standing is not None:
+            weights = torch.where(standing.unsqueeze(-1), self.standing_reward_weights[motion_ids], weights)
         weighted = weights * (torch.stack(list(raw.values()), dim=-1) if raw else weights)
         total = weighted.sum(dim=-1)
 

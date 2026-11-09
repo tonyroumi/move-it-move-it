@@ -19,13 +19,32 @@ class CommandIndex(IntEnum):
 
 COMMAND_DIM = len(CommandIndex)
 COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex)
-MOTION_KEYS = frozenset({"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination"})
+MOTION_KEYS = frozenset({"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing"})
+STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "rewards"})
 
 
 @dataclass(frozen=True)
 class RewardSpec:
     weight: float
     kwargs: dict[str, float]
+
+
+@dataclass(frozen=True)
+class StandingSpec:
+    """A motion's standing mode: which commands ask the robot to stand still, and the rewards that
+    replace the motion's own `rewards` while one does. The AMP style reward is off meanwhile.
+
+    A command asks to stand when, as the policy observes it, its lin_x/lin_y norm is at most
+    `lin_vel_threshold`, |yaw| is at most `yaw_vel_threshold` and the goal is at most
+    `goal_radius` from the root. Envs whose motion has no goal observe a zero goal offset, so only
+    the velocity thresholds apply to them; a goal farther than `goal_radius` asks to walk to it
+    even though its velocity slots are 0.
+    """
+
+    lin_vel_threshold: float
+    yaw_vel_threshold: float
+    goal_radius: float
+    rewards: dict[str, RewardSpec]
 
 
 @dataclass(frozen=True)
@@ -38,6 +57,9 @@ class MotionSpec:
     zero_command_prob: float
     rewards: dict[str, RewardSpec]
     terminations: tuple[str, ...]
+    standing: StandingSpec | None = None
+    """None, the default, when the motion declares no `standing` block: no env of it is ever in
+    standing mode."""
 
 
 def load_manifest(path: str) -> list[MotionSpec]:
@@ -83,6 +105,7 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
         zero_command_prob=zero_command_prob,
         rewards=_parse_rewards(motion.get("rewards"), name),
         terminations=_parse_terminations(motion.get("termination", "unhealthy"), name),
+        standing=_parse_standing(motion["standing"], name) if "standing" in motion else None,
     )
 
 
@@ -120,6 +143,20 @@ def _parse_rewards(rewards: Any, motion: str) -> dict[str, RewardSpec]:
         else:
             parsed[name] = RewardSpec(weight=_number(spec, where), kwargs={})
     return parsed
+
+
+def _parse_standing(standing: Any, motion: str) -> StandingSpec:
+    """A declared `standing` block, even an empty one, turns standing mode on with these defaults."""
+    standing = _mapping(standing, f"{motion}.standing")
+    check_known(standing, STANDING_KEYS, f"{motion}.standing")
+
+    thresholds = {}
+    for key, default in (("lin_vel_threshold", 0.1), ("yaw_vel_threshold", 0.1), ("goal_radius", 0.3)):
+        thresholds[key] = _number(standing.get(key, default), f"{motion}.standing.{key}")
+        if thresholds[key] < 0.0:
+            raise ValueError(f"{motion}.standing: {key} must not be negative, got {thresholds[key]}.")
+
+    return StandingSpec(**thresholds, rewards=_parse_rewards(standing.get("rewards"), f"{motion}.standing"))
 
 
 def _parse_terminations(terminations: Any, motion: str) -> tuple[str, ...]:

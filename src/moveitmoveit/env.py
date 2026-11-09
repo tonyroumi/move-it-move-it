@@ -90,6 +90,10 @@ class MotionLearningEnv(DirectRLEnv):
             device=self.device,
         )
 
+        # per-env standing mode (see StandingSpec), set from the commands each observation carries.
+        # Rewards and the AMP style gate read the mode of the observation the policy acted on.
+        self.standing = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+
         # current/previous action, tracked for the action-rate smoothness penalty
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.previous_actions = torch.zeros_like(self.actions)
@@ -205,6 +209,7 @@ class MotionLearningEnv(DirectRLEnv):
         state = self.current_state
         local_frame = self.cfg.random_reset or self.render_enabled
         commands = policy_commands(state, self.commands, self.motions.has_goal[self.motion_ids], local_frame)
+        self.standing = self.motions.standing(self.motion_ids, commands)
         policy_obs, style_obs = self.mdp.observations(state, commands, local_frame=local_frame)
 
         # update AMP observation history
@@ -217,8 +222,13 @@ class MotionLearningEnv(DirectRLEnv):
         return policy_obs
 
     def _get_rewards(self) -> torch.Tensor:
+        # runs before this step's _get_observations, so self.standing is still the mode the policy
+        # observed when it chose the action; AMP gates its style reward with the same mask
+        self.extras["standing"] = self.standing
         context = self._step_context()
-        total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(context, self.motion_ids)
+        total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
+            context, self.motion_ids, self.standing
+        )
         self.extras["command_tracking"] = self.mdp.command_tracking(context, self.motion_ids)
         return total
 
