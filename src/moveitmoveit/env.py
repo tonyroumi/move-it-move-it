@@ -198,7 +198,6 @@ class MotionLearningEnv(DirectRLEnv):
 
         done_envs = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         done_envs[env_ids] = True
-        # self._resample_commands(dones=done_envs)
 
         self.amp_observation_buffer[env_ids] = self.reference.amp_seed(
             self.motion_ids[env_ids], times, self.random_yaw_quat[env_ids]

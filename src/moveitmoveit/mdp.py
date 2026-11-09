@@ -1,9 +1,4 @@
-"""The env's MDP as named terms, and the wrapper that composes the ones a run selects.
-
-Adding a term means writing one decorated function here. Rewards and terminations are then
-selectable per motion in the manifest; observations are selectable per run in env_cfg, because
-every env feeds the same policy network.
-"""
+"""The env's MDP as named terms, and the wrapper that composes the ones a run selects."""
 
 from __future__ import annotations
 
@@ -22,9 +17,6 @@ if TYPE_CHECKING:
 
 
 class BodyState(NamedTuple):
-    """The kinematics observation terms read. The robot and a reference clip both produce one,
-    which is what lets the discriminator compare them. All shapes are (N, X)."""
-
     dof_positions: torch.Tensor
     dof_velocities: torch.Tensor
     root_positions: torch.Tensor
@@ -45,11 +37,8 @@ class StepContext:
     previous_actions: torch.Tensor
     sample_targets: Callable[[], TrackingTargets]
     memory: dict[str, torch.Tensor] = field(default_factory=dict)
-    """State a term keeps across steps. Owned by ComposedMDP. Rows the env resets
-    (`ComposedMDP.reset_memory`) read NaN, meaning that env has no previous step."""
+
     standing_pose: torch.Tensor | None = None
-    """(N, num_dofs) each env's motion's `standing.pose` target, in the robot's joint order. Set by
-    ComposedMDP when it was given the robot's joint names."""
 
     @cached_property
     def targets(self) -> TrackingTargets:
@@ -115,8 +104,6 @@ def termination(fn):
     TERMINATIONS[fn.__name__] = fn
     return fn
 
-
-# --- observations -----------------------------------------------------------------------------
 
 
 @observation(dim=28)
@@ -321,16 +308,6 @@ def velocity_tracking_metrics(
     name: str, actual: torch.Tensor, commanded: torch.Tensor, tracked: torch.Tensor, unit: str
 ) -> dict[str, torch.Tensor]:
     """Tracking error and commanded vs. actual velocity, split by whether the command is zero.
-
-    `actual` and `commanded` are (N, D): the velocity components one tracking reward compares
-    (forward/lateral for linear velocity, D=2; yaw rate, D=1). A command is zero when all D of
-    those components are exactly 0, so e.g. a turn-in-place command counts as zero linear and
-    nonzero yaw. Each returned value is (N,), NaN outside its bucket or where `tracked` is False:
-      - error: ‖actual - commanded‖, the distance the reward's exp(-scale·error²) kernel sees.
-        Under a zero command it is the actual speed.
-      - commanded: ‖commanded‖, nonzero commands only.
-      - actual along cmd: actual projected onto the commanded direction, nonzero commands only.
-        For yaw rate that is the actual rate signed so turning the commanded way is positive.
     """
     error = torch.linalg.vector_norm(actual - commanded, dim=-1)
     commanded_speed = torch.linalg.vector_norm(commanded, dim=-1)
@@ -346,7 +323,6 @@ def velocity_tracking_metrics(
         f"{name}_actual_along_cmd (nonzero cmd) [{unit}]": torch.where(nonzero, along, missing),
     }
 
-
 # --- composition ------------------------------------------------------------------------------
 
 
@@ -359,13 +335,6 @@ def observation_dim(names: Iterable[str]) -> int:
 
 class ComposedMDP:
     """The rewards, terminations and observations one run selected, as the env asks for them.
-
-    A reward or termination runs if any motion declares it (a reward in its `rewards` or its
-    `standing.rewards`), and motions that don't declare it weigh it 0. `weight: 0` therefore
-    keeps a term running for its logs alone.
-
-    `joint_names`, the robot's joints in the order its joint positions come in, places each
-    motion's `standing.pose` in that order. The `standing_pose` reward needs it.
     """
 
     def __init__(
@@ -458,11 +427,7 @@ class ComposedMDP:
     def rewards(
         self, c: StepContext, motion_ids: torch.Tensor, standing: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, dict, dict]:
-        """The total reward, then the raw and the weighted per-term values for logging.
-
-        `standing` (N,) bool scores those envs with their motion's standing-mode rewards (weights
-        and kwargs) instead of its own `rewards`; None scores every env with its own.
-        """
+        """The total reward, then the raw and the weighted per-term values for logging."""
         c.memory = self._memory
         if self.standing_pose_targets is not None:
             c.standing_pose = self.standing_pose_targets[motion_ids]
@@ -487,13 +452,7 @@ class ComposedMDP:
         return total, {name: value.detach() for name, value in raw.items()}, terms
 
     def command_tracking(self, c: StepContext, motion_ids: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Per-env velocity-command tracking diagnostics for logging, each of shape (N,).
-
-        Measured in the body frame the `lin_vel_tracking`/`yaw_vel_tracking` rewards use, only
-        for envs whose motion declares that reward, and only if some motion does. A value is NaN
-        where it doesn't apply, so a consumer averages the non-NaN values and treats none as no
-        data. See `velocity_tracking_metrics` for the zero/nonzero command split.
-        """
+        """Per-env velocity-command tracking diagnostics for logging, each of shape (N,)."""
         metrics = {}
         if "lin_vel_tracking" in self.reward_names:
             tracked = self.reward_declared[motion_ids, self.reward_names.index("lin_vel_tracking")]

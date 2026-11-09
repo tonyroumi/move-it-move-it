@@ -61,8 +61,8 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     state_space: int = 0
     num_amp_observations = 2
 
-    policy_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_lin_vel", "root_ang_vel", "key_body_offsets")
-    style_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_lin_vel", "root_ang_vel", "key_body_offsets")
+    policy_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_orientation", "root_lin_vel", "root_ang_vel", "key_body_offsets")
+    style_obs: tuple[str, ...] = ("dof_pos", "dof_vel", "root_height", "root_orientation", "root_lin_vel", "root_ang_vel", "key_body_offsets")
 
     # derived from the selections above when the env is built
     observation_space: int = 0

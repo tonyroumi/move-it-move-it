@@ -1,5 +1,3 @@
-"""Parses and validates a motion manifest. Deliberately has no torch dependency."""
-
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
@@ -32,22 +30,13 @@ class RewardSpec:
 @dataclass(frozen=True)
 class StandingSpec:
     """A motion's standing mode: which commands ask the robot to stand still, and the rewards that
-    replace the motion's own `rewards` while one does. The AMP style reward is off meanwhile.
-
-    A command asks to stand when, as the policy observes it, its lin_x/lin_y norm is at most
-    `lin_vel_threshold`, |yaw| is at most `yaw_vel_threshold` and the goal is at most
-    `goal_radius` from the root. Envs whose motion has no goal observe a zero goal offset, so only
-    the velocity thresholds apply to them; a goal farther than `goal_radius` asks to walk to it
-    even though its velocity slots are 0.
-    """
+    replace the motion's own `rewards` while one does. The AMP style reward is off meanwhile."""
 
     lin_vel_threshold: float
     yaw_vel_threshold: float
     goal_radius: float
     rewards: dict[str, RewardSpec]
     pose: dict[str, float] = field(default_factory=dict)
-    """The joint positions (rad, by joint name) the `standing_pose` reward asks for. Joints it
-    doesn't list target 0. Names are checked against the robot's joints when the MDP is built."""
 
 
 @dataclass(frozen=True)
@@ -61,16 +50,10 @@ class MotionSpec:
     rewards: dict[str, RewardSpec]
     terminations: tuple[str, ...]
     standing: StandingSpec | None = None
-    """None, the default, when the motion declares no `standing` block: no env of it is ever in
-    standing mode."""
 
 
 def load_manifest(path: str) -> list[MotionSpec]:
-    """Read a manifest. A motion's position in the returned list is its motion id.
-
-    Raises:
-        ValueError: If the manifest is malformed or names anything unknown.
-    """
+    """Read a manifest. A motion's position in the returned list is its motion id."""
     with open(path, "r") as f:
         document = yaml.safe_load(f)
 

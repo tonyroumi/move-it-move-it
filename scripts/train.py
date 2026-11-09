@@ -46,12 +46,9 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 def main():
     """Train an agent."""
-    # env_cfg is still resolved through the hydra/task machinery so `env.scene.*`
-    # style CLI overrides keep working, even though there's only one task now
+
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
-    # seed/experiment/logger/description are shared across algorithms, so they live in their
-    # own config rather than being duplicated in each agents/<algo>.yaml
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
         experiment_cfg = yaml.safe_load(f)
     agent_cfg["seed"] = experiment_cfg["seed"]
@@ -62,7 +59,6 @@ def main():
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.motion_manifest = args_cli.manifest
 
-        # specify directory for logging experiments: directory/experiment_name/algorithm/run
         log_root_path = os.path.join(
             "logs",
             agent_cfg["experiment"]["directory"],

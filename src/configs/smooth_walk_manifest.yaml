@@ -1,34 +1,16 @@
-# Smooth-walking experiment: manifest.yaml (the baseline) plus two smoothness rewards on walking.
-# Everything else, standing included, is copied unchanged so a run differs from the baseline only
-# by `action_rate_l2` and `joint_acc` in `walk.rewards`.
-#
-# Both terms are exp(-scale * x) kernels in [0, 1] (see mdp.py), so they pay a bonus for smooth
-# steps rather than subtracting a penalty. Weights and scales are untuned starting points, picked
-# so the walking reference clip (walk.npz) sits in the kernels' sensitive range instead of
-# saturating:
-#   - action_rate_l2: x = sum((a_t - a_{t-1})^2) over the 28 joint position targets, per 1/30 s
-#     policy step. The clip's own pose changes by ~0.11 per step, and the actor's fixed 0.055
-#     exploration noise adds ~0.17 the policy can't remove, so the default scale 1.0 gives ~0.75.
-#   - joint_acc: x = sum(qdd^2), qdd finite-differenced by IsaacLab over the last 1/60 s physics
-#     step. The clip already reaches ~1.45e6 (rad/s^2)^2, where the default scale 1e-4 gives
-#     exp(-145) = 0 and no gradient; 1e-7 gives ~0.87 there, ~0.23 at 10x that.
-# Each is weighted 0.5, so together they add at most 1.0 per step next to the walking task
-# rewards' 6.0 (before the AMP style reward), a gentle nudge.
-#
-# To log the same smoothness diagnostics for the baseline without changing its reward, train
-# manifest.yaml with these two terms added to walk.rewards at `weight: 0` and the same scales.
+
 motions:
   walk:
     file: /home/anthony/Dev/move-it-move-it/src/data/walk.npz
     sample_prob: 1.0
 
     commands:
-      lin_x: [0.0, 1.0]
-      lin_y: [0.0, 0.8]
+      lin_x: [1.3, 1.3]
+      lin_y: [0.0, 0.0]
       yaw: [-1.5, 1.5]
       binary_key_0: 0.0
 
-    zero_command_prob: 0.5
+    zero_command_prob: 0.35
 
     rewards:
       lin_vel_tracking:
@@ -37,16 +19,14 @@ motions:
       yaw_vel_tracking:
         weight: 3.0
         scale: 2.0
-      action_rate_l2:
-        weight: 0.5
-        scale: 1.0
-      joint_acc:
-        weight: 0.5
-        scale: 1.0e-7
+      # action_rate_l2:
+      #   weight: 0.5
+      #   scale: 0.5
+      # joint_acc:
+      #   weight: 0.5
+      #   scale: 1.0e-7
 
-    # A (near-)zero command asks the robot to stand still: these rewards then replace the ones
-    # above and the AMP style reward is off. Weights are untuned starting points, summing to the
-    # 6.0 the baseline's walking rewards can reach (kept as is, so walking can now reach 7.0).
+
     standing:
       lin_vel_threshold: 0.1
       yaw_vel_threshold: 0.1

@@ -5,9 +5,7 @@ from .motion.library import MotionLibrary
 
 
 class MotionSet:
-    """The motions a manifest declares: their clips, plus per-motion command and selection tables.
-    Built in one place, so a motion id means the same thing everywhere. Per-env motion state stays
-    on the env, and reward and termination tables on ComposedMDP."""
+    """The motions a manifest declares: their clips, plus per-motion command and selection tables."""
 
     def __init__(self, specs: list[MotionSpec], device: torch.device | str):
         self.device = device
@@ -71,10 +69,7 @@ class MotionSet:
         return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
 
     def sample_commands(self, motion_ids: torch.Tensor, root_positions_xy: torch.Tensor | None = None) -> torch.Tensor:
-        """Sample each motion's declared command ranges. A goal command is declared as an offset;
-        given the roots' world XY positions (N, 2), motions with a goal get it as the world-space
-        position root + offset, which stays put while the robot moves. A zeroed command therefore
-        puts the goal where the root already is."""
+        """Sample each motion's declared command ranges. A goal command is declared as an offset;."""
         low = self.command_low[motion_ids]
         high = self.command_high[motion_ids]
 
@@ -91,13 +86,7 @@ class MotionSet:
         return commands
 
     def standing(self, motion_ids: torch.Tensor, observed_commands: torch.Tensor) -> torch.Tensor:
-        """Which envs' commands ask them to stand still, (N,) bool. See `StandingSpec`.
-
-        Reads the commands as the policy observes them (`policy_commands`, shape (N, COMMAND_DIM)),
-        whose goal slots hold the goal's offset from the root, so the mode is a function of the
-        policy's own input: the goal offset's norm is the same in the heading and the world frame.
-        Key slots don't count as motion. Always False for motions without a standing block.
-        """
+        """Which envs' commands ask them to stand still, (N,) bool"""
         lin_vel = torch.linalg.vector_norm(observed_commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1], dim=-1)
         yaw_vel = observed_commands[:, CommandIndex.YAW].abs()
         goal_distance = torch.linalg.vector_norm(observed_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1], dim=-1)
