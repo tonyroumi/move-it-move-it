@@ -10,9 +10,6 @@ MOVEITMOVEIT_DATA_DIR = Path(os.environ.get(
 
 CONFIGS_DIR = _REPO_ROOT / "configs"
 
-MODEL_DESCRIPTIONS_DIR = MOVEITMOVEIT_DATA_DIR / "model_descriptions"
-MOTIONS_DIR = MOVEITMOVEIT_DATA_DIR
-
 
 def _dir_mtime(path: str) -> float:
     """Latest mtime of a directory and its direct entries, or -1 if it can't be read."""
