@@ -35,10 +35,6 @@ parser.add_argument(
     "--checkpoint",
     type=str,
     required=True,
-    help=(
-        "Path to a model checkpoint written by train.py (<run>/checkpoints/<name>.pt). The env and agent"
-        " configs are loaded from that run's params/{env,agent}.yaml."
-    ),
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument(
@@ -47,11 +43,7 @@ parser.add_argument(
     default="none",
     choices=["none", "velocity", "point_goal"],
     help=(
-        "Drive the policy's command live from the keyboard instead of the env's sampled commands:"
-        " 'velocity' for the body-frame lin/yaw command, or 'point_goal' for a world-space goal point"
-        " that starts 1 m ahead of each env's start pose, stays put while the robot walks, and is moved"
-        " with the arrow keys relative to the robot's current heading (needs a checkpoint whose manifest"
-        " declares goal_x/goal_y). 'none' keeps the env's sampled commands. Requires a renderer."
+        "Drive the policy's command live from the keyboard instead of the env's sampled commands"
     ),
 )
 parser.add_argument(
@@ -65,11 +57,6 @@ parser.add_argument(
     type=str,
     default=None,
     choices=["facing", "third-person", "none"],
-    help=(
-        "Scripted camera mode: 'facing' follows in front of the robot looking back at it,"
-        " 'third-person' follows behind and above it, 'none' disables scripted camera updates."
-        " Defaults to the task's configured camera_type."
-    ),
 )
 parser.add_argument("--record", action="store_true", default=False, help="Record a video of the rollout.")
 parser.add_argument(
@@ -84,15 +71,12 @@ if args_cli.record:
 
 
 def main():
-    """Play a trained agent checkpoint."""
     env_cfg, _ = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
     with launch_simulation(env_cfg, args_cli):
-        # train.py writes checkpoints to <run>/checkpoints/, next to the configs it ran with in <run>/params/
         resume_path = os.path.abspath(args_cli.checkpoint)
         log_dir = os.path.dirname(os.path.dirname(resume_path))
 
-        # load the env/agent configs as they were dumped by train.py
         params_dir = os.path.join(log_dir, "params")
 
         print(f"[INFO] Loading configs from run directory: {log_dir}")
@@ -104,7 +88,7 @@ def main():
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
         env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
         env_cfg.random_reset = False
-        # the keyboard owns the commands; the env's own resampling would overwrite them
+
         env_cfg.resample_commands = args_cli.joystick_mode == "none"
         args_cli.seed = agent_cfg["seed"]
 
