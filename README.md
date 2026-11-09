@@ -240,3 +240,72 @@ punches while moving.
 The command block grew from 7 to 9 slots (`BINARY_KEY_2`, `BEHAVIOR_PHASE`), so checkpoints
 trained before this change do not load. Manifests without triggers train as before; their
 `BEHAVIOR_PHASE` slot is always 0.
+
+## Goal tracking with a key-triggered jump
+
+`configs/manifests/goal_jump_manifest.yaml` is the goal manifest plus one behavior: a standing
+broad jump that Space runs once. Walking to the goal and standing once there keep
+`goal_manifest.yaml`'s commands, rewards and standing block. The jump uses the behavior machinery
+described under "Key-triggered boxing behaviors" above. A press starts it only while the robot is
+walking or standing. Holding Space or pressing it again mid-jump does nothing. When the jump
+completes, the robot walks to the goal again, or stands if the goal is within `goal_radius`.
+
+- **The jump**: 2.93 s. The robot stands for about 0.4 s, winds up, takes off at 1.45 s and lands
+  at 2.0 s about 2 m ahead along its heading, then stands. It completes at phase 1, or from phase
+  0.9 once the RMS joint speed is below 0.6 rad/s, after the landing is absorbed.
+- **Direction**: the jump goes along the robot's heading, not toward the goal. While it runs only
+  its pose is rewarded (`heading_motion_tracking`); goal progress is not.
+- **Training**: with `sample_prob` 0.2 for the jump, training presses Space about once every 12 s
+  of walking or standing, and the robot spends about 20% of its time jumping.
+
+```bash
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/goal_jump_manifest.yaml
+./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick-mode point_goal
+```
+
+In play, the arrow keys move the goal and Space jumps. Left Shift and C trigger nothing in this
+manifest, but they still reach the policy, which never saw them in training, so don't press them.
+Run both commands from the repo root, because the manifest's clip paths are relative.
+
+### Jump clip and attribution
+
+`data/` isn't tracked, so put these clips in place before training. Both were once tracked, so
+they can be restored from git history: run `mkdir -p data/locomotion data/jump` from the repo
+root, then the commands below. Neither clip needs cropping.
+
+| Clip | Seconds | Restore with |
+|---|---:|---|
+| `data/locomotion/walk.npz` | 2.55 | `git show 6563ad9:data/walk.npz > data/locomotion/walk.npz` |
+| `data/jump/standing_broad_jump.npz` | 2.93 | `git show 6563ad9:data/jump/standing_broad_jump.npz > data/jump/standing_broad_jump.npz` |
+
+`walk.npz` is the clip `goal_manifest.yaml` loads from `data/walk.npz`; only its path differs.
+
+The jump clip is an adaptation of CMU Graphics Lab Motion Capture Database trial `16_10.amc`
+("forward jump", subject 16, 120 Hz), from 0.9 s to the end. The data used in this clip was obtained
+from <http://mocap.cs.cmu.edu>. The database was created with funding from NSF EIA-0196217. The
+site's FAQ says the data "may be copied, modified, or redistributed without permission". Its home
+page also says the data may be included in commercially sold products, but "you may not resell this
+data directly, even in converted form". Both pages were read on 2026-11-08. Follow the stricter
+wording. CMU also asks anyone publishing results from this data to send it the citation and to
+use the acknowledgment text above. No source endorses this project or this adaptation.
+
+Changes made: the take was retargeted from its joint positions to the IsaacLab Humanoid28 with the
+`humanoid28_pyroki` solver at default weights, resampled to 60 fps, rotated to face +X at the
+start, centred on the origin in XY, and cropped as above. This is a new kinematic trajectory on a
+different body, not the original capture data. Hand orientation and fingers are not represented.
+
+The jump clip was checked against `walk.npz`: same joint and body names in the same order, same
+frame rate, and a lowest torso height (0.81 m, in the wind-up) above the `unhealthy` threshold of
+0.65 m. `data/jump/running_jump.npz` (ACCAD "Run to jump to walk") isn't used. It starts at a
+3.8 m/s run, and the walk clip moves at 1.5 m/s.
+
+Nothing here has been trained or run in Isaac Lab, so whether a policy learns the jump, or lands it
+and walks on, is untested. Takeoff comes 1.45 s after Space is pressed: a 0.4 s stand, then the wind-up.
+Trimming the stand from the clip would shorten that delay, but it would also leave less time to
+stop walking before the wind-up.
+
+This manifest keeps the 9-slot command block, so its checkpoints have the same observation and
+action shapes as `goal_manifest.yaml` checkpoints trained since that block grew. One of those can
+be loaded with `--checkpoint` to start training from, but it has never seen the jump slot or the
+phase set, so it won't jump until trained with this manifest. Checkpoints from before the 9-slot
+block don't load.
