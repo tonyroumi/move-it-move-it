@@ -1,6 +1,14 @@
 import torch
 
-from .manifest import COMMAND_DIM, CommandIndex, MotionSpec, load_manifest
+from .manifest import (
+    COMMAND_DIM,
+    NUM_STYLE_CONDITIONS,
+    STYLE_CONDITION_COMMAND,
+    CommandIndex,
+    MotionSpec,
+    check_style_conditions,
+    load_manifest,
+)
 from .motion.library import MotionLibrary
 
 
@@ -19,6 +27,7 @@ class MotionSet:
         self._build_command_tables(specs)
         self._build_standing_tables(specs)
         self._build_sample_prob_table(specs)
+        self._build_style_condition_tables(specs)
 
     @classmethod
     def from_manifest(cls, path: str, device: torch.device | str) -> "MotionSet":
@@ -64,9 +73,48 @@ class MotionSet:
 
         self.sample_prob = weights / weights.sum()
 
+    def _build_style_condition_tables(self, specs: list[MotionSpec]):
+        check_style_conditions(specs, "motions")
+        # 0 for an unconditional manifest (no motion declares style_condition): one discriminator for all
+        self.num_style_conditions = NUM_STYLE_CONDITIONS if specs[0].style_condition is not None else 0
+        if not self.num_style_conditions:
+            self.style_conditions = None
+            self.condition_sample_prob = None
+            return
+
+        # each clip's real-frame label, and per condition, sample_prob renormalized over its clips
+        self.style_conditions = torch.tensor([spec.style_condition for spec in specs], dtype=torch.long, device=self.device)
+        weights = torch.zeros(self.num_style_conditions, self.num_motions, device=self.device)
+        weights[self.style_conditions, torch.arange(self.num_motions, device=self.device)] = self.sample_prob
+        totals = weights.sum(dim=-1, keepdim=True)
+        # a condition no clip provides keeps zero weights; sample_ids_for_conditions refuses it
+        self.condition_sample_prob = torch.where(totals > 0, weights / totals.clamp_min(1e-12), weights)
+
     def sample_ids(self, num_samples: int) -> torch.Tensor:
-        """The one clip-selection distribution, shared by env resets and discriminator batches."""
+        """The one clip-selection distribution, shared by env resets and unconditional discriminator batches."""
         return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
+
+    def sample_ids_for_conditions(self, conditions: torch.Tensor) -> torch.Tensor:
+        """One clip per entry of `conditions` (N,), drawn among the clips labeled with that condition
+        by their sample_prob, so a real batch has exactly the condition mix of the batch it is paired with."""
+        if self.condition_sample_prob is None:
+            raise RuntimeError("sample_ids_for_conditions needs a manifest whose motions declare style_condition.")
+        if conditions.numel() == 0:
+            return conditions.clone()
+        if ((conditions < 0) | (conditions >= self.num_style_conditions)).any():
+            raise ValueError(f"style conditions must be in [0, {self.num_style_conditions}), got {conditions.unique().tolist()}.")
+        probs = self.condition_sample_prob[conditions]
+        unprovided = probs.sum(dim=-1) <= 0
+        if unprovided.any():
+            missing = sorted(set(conditions[unprovided].tolist()))
+            raise ValueError(f"No clip with a positive sample_prob is labeled with style_condition {missing}.")
+        return torch.multinomial(probs, num_samples=1).squeeze(-1)
+
+    def generated_style_conditions(self, observed_commands: torch.Tensor, standing: torch.Tensor) -> torch.Tensor:
+        """(N,) long: the condition the policy is asked for by the commands it observes, from its
+        binary key, or -1 where it is asked to stand, which belongs to no condition."""
+        conditions = (observed_commands[:, STYLE_CONDITION_COMMAND] > 0.5).long()
+        return torch.where(standing, torch.full_like(conditions, -1), conditions)
 
     def sample_commands(self, motion_ids: torch.Tensor, root_positions_xy: torch.Tensor | None = None) -> torch.Tensor:
         """Sample each motion's declared command ranges. Goals are offsets from `root_positions_xy`."""
