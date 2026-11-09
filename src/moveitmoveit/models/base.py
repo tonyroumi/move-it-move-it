@@ -18,6 +18,7 @@ class MLP(nn.Module):
         weight_init: Optional[dict] = None,
     ):
         super().__init__()
+        
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.hidden_layers = hidden_layers
