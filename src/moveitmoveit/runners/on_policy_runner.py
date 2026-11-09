@@ -13,8 +13,6 @@ from moveitmoveit.utils.logger import Logger
 @dataclass(kw_only=True)
 class OnPolicyRunnerCfg:
     timesteps: int = 100000
-    """Number of timesteps to train/evaluate for."""
-
     use_pbar: bool = False
 
 
