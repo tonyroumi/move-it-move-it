@@ -51,7 +51,6 @@ class MotionLearningEnv(DirectRLEnv):
         )
 
     def _setup_env(self):
-        # DOF and key body indexes
         key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
         self.ref_body_index = self.robot.data.body_names.index("torso")
         self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
@@ -86,11 +85,9 @@ class MotionLearningEnv(DirectRLEnv):
         self.command_dim = COMMAND_DIM
         self.commands = torch.zeros(self.num_envs, self.command_dim, device=self.device)
 
-        # per-env standing mode (see StandingSpec), set from the commands each observation carries.
         # Rewards and the AMP style gate read the mode of the observation the policy acted on.
         self.standing = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
-        # current/previous action, tracked for the action-rate smoothness penalty
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.previous_actions = torch.zeros_like(self.actions)
 
@@ -116,8 +113,6 @@ class MotionLearningEnv(DirectRLEnv):
         root_pos = self.robot.data.root_pos_w.torch[0]
 
         if self.cfg.camera_type == "third-person":
-            # stay behind the robot as it turns: rotate by its live heading, yaw only so
-            # body tilt never pitches or rolls the camera
             root_quat = self.robot.data.root_quat_w.torch[:1]
             target_offset = transforms.quat_apply_yaw(root_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
             eye_offset = transforms.quat_apply_yaw(root_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
@@ -216,8 +211,6 @@ class MotionLearningEnv(DirectRLEnv):
         return policy_obs
 
     def _get_rewards(self) -> torch.Tensor:
-        # runs before this step's _get_observations, so self.standing is still the mode the policy
-        # observed when it chose the action; AMP gates its style reward with a mask built from it
         self.extras["standing"] = self.standing
         self.extras["style_reward_off"] = self._style_reward_off()
         context = self._step_context()
@@ -228,8 +221,7 @@ class MotionLearningEnv(DirectRLEnv):
         return total
 
     def _style_reward_off(self) -> torch.Tensor:
-        """(N,) bool: envs that earn no AMP style reward this step, today the standing envs.
-        OR another per-env mask in here to turn style off without entering standing mode."""
+        """envs that earn no AMP style reward this step"""
         return self.standing
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -255,8 +247,7 @@ class MotionLearningEnv(DirectRLEnv):
         return self.reference.tracking_targets(self.motion_ids, current_times, self.random_yaw_quat)
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
-        """Resample commands every `command_resample_steps` steps or where `dones` is set.
-        Goals are placed relative to each env's current root, then stay fixed in world space."""
+        """Resample commands every `command_resample_steps` steps or where `dones` is set."""
         if not self.cfg.resample_commands:
             return
 

@@ -14,7 +14,6 @@ from isaaclab_assets import HUMANOID_28_CFG
 
 @configclass
 class HumanoidSceneCfg(InteractiveSceneCfg):
-    """Scene layout — ground, lighting, the one humanoid. No per-task variants."""
 
     robot: ArticulationCfg = HUMANOID_28_CFG.replace(prim_path="/World/envs/env_.*/Robot")
 
@@ -23,7 +22,6 @@ class HumanoidSceneCfg(InteractiveSceneCfg):
         prim_path="/World/ground",
         spawn=sim_utils.GroundPlaneCfg(),
     )
-
     # light
     dome_light = AssetBaseCfg(
         prim_path="/World/Light",
@@ -72,7 +70,6 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     # environment flags
     random_reset: bool = True
     command_resample_steps: int = 150
-    # off while play.py drives the commands from the keyboard
     resample_commands: bool = True
 
     # rendering
