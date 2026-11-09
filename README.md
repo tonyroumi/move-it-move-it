@@ -240,3 +240,84 @@ punches while moving.
 The command block grew from 7 to 9 slots (`BINARY_KEY_2`, `BEHAVIOR_PHASE`), so checkpoints
 trained before this change do not load. Manifests without triggers train as before; their
 `BEHAVIOR_PHASE` slot is always 0.
+
+## Key-triggered dance behaviors
+
+`configs/manifests/dance_manifest.yaml` uses the same behavior framework as boxing. One locomotion
+motion, `walk_to_goal`, walks toward a world-space goal and stands still within 0.3 m of it, as in
+`goal_manifest.yaml`. Three one-shot dances are triggered by keys:
+
+| Key in play | Command slot | Dance | Seconds |
+|---|---|---|---:|
+| Left Shift | `binary_key_0` | `disco` | 5.50 |
+| Space | `binary_key_1` | `step_touch` | 6.20 |
+| C | `binary_key_2` | `broadway` | 5.90 |
+
+- **During a dance**: the env tracks that dance's clip from the press, with
+  `heading_motion_tracking`. Key presses are ignored until the dance ends, as for the punches.
+  Standing mode is off and the style reward is on.
+- **When a dance ends**: at phase 1. No dance declares `settle`. The env goes back to
+  `walk_to_goal` under the same goal. If the goal is within 0.3 m it stands; otherwise it walks to
+  the goal.
+- **In play**: the arrow keys move the goal, as in goal tracking.
+
+```bash
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/dance_manifest.yaml
+./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick-mode point_goal
+```
+
+Run both commands from the repo root.
+
+### Dance clips and attribution
+
+The manifest loads `data/locomotion/walk.npz` and the three `_crop` clips below. `goal_manifest.yaml`
+reads the same walking clip from `data/walk.npz`.
+
+The dance clips are adaptations of "G1 Moves" by Experiential Technologies, performer Jasmine
+Coro, captured with MOVIN TRACIN, licensed under
+[Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/), per
+its dataset card. Source: <https://huggingface.co/datasets/exptech/g1-moves>, revision
+`895d064b2385725e6aabf540461c219afc3e0916`. Only the raw human BVH files were used. The source's
+terms apply to the clips, and no source endorses this project or these adaptations. The dataset
+describes the takes as dance choreography, and its license may not settle rights in the
+choreography itself. Check that before commercial use or public performance.
+
+Changes made: each take was retargeted from its joint positions to the IsaacLab Humanoid28 with the
+`humanoid28_pyroki` solver, using `joint_acceleration=5.0, joint_velocity=0.5` for disco and step
+touch and `joint_acceleration=2.0, joint_velocity=0.2` for broadway. It was resampled to 60 fps,
+rotated to face +X at the start, and centred on the origin in XY. Each `_crop` clip was then cut
+from that full clip, with the same `crop()` as the boxing clips above:
+
+| Clip | Cut from | Window | Source take |
+|---|---|---|---|
+| `data/dance/disco_crop.npz` | `data/dance/disco.npz` | 0.50–6.00 s | `dance/J_ShortDance14_Disco/capture/J_ShortDance14_Disco.bvh` |
+| `data/dance/step_touch_crop.npz` | `data/dance/step_touch.npz` | 6.00–12.20 s | `dance/J_Dance0_StepTouch/capture/J_Dance0_StepTouch.bvh` |
+| `data/dance/broadway_crop.npz` | `data/dance/broadway.npz` | 2.00–7.90 s | `dance/J_Dance4_Broadway/capture/J_Dance4_Broadway.bvh` |
+
+```python
+crop("data/dance/disco.npz", "data/dance/disco_crop.npz", 0.50, 6.00)
+crop("data/dance/step_touch.npz", "data/dance/step_touch_crop.npz", 6.00, 12.20)
+crop("data/dance/broadway.npz", "data/dance/broadway_crop.npz", 2.00, 7.90)
+```
+
+Each window starts in the take's opening rest pose, just before the dancer moves. It ends at a frame
+where the dancer passes back close to that pose: an RMS joint distance of 0.14, 0.11 and 0.20 rad,
+at RMS joint speeds of 0.71, 0.45 and 0.56 rad/s. Each crop stays within 0.21 m of where it starts
+in XY, ends within 9° of its starting heading and keeps the torso above 0.94 m.
+
+The other G1 Moves clips are not loaded:
+
+- `salsa` never returns to rest after it starts, so no cut ends near standing.
+- `modern` is slow and spread over 38 s.
+- `west_coast` travels up to 0.55 m per 2 s.
+- The full disco, step touch and broadway takes each hold still for seconds and last 14 to 32 s,
+  longer than a 10 s episode.
+
+Nothing here has been trained or run in Isaac Lab. Whether a policy learns the dances, and how
+smoothly it goes from walking into a dance that starts at rest, is untested. A dance ends near rest
+but still moving, so going back to standing is untested too. Nobody has watched the three windows
+for how they look.
+
+The command block and observation are the same size as the boxing manifest's, so a boxing
+checkpoint has matching tensor shapes. Its keys would still throw punches, though, so train a new
+policy on this manifest.
