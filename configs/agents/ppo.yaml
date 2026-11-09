@@ -4,28 +4,10 @@ models:
     activation: elu
     noise_std_type: fixed
     init_noise_std: 0.055
-    weight_init:
-      type: uniform
-      trunk:
-        enabled: false
-        zero_bias: true
-      output:
-        enabled: false
-        gain: 0.01
-        zero_bias: true
 
   critic:
     hidden_layers: [256, 256]
     activation: elu
-    weight_init:
-      type: uniform
-      trunk:
-        enabled: false
-        gain: 1.0
-        zero_bias: true
-      output:
-        enabled: false
-        zero_bias: true
 
 agent:
   class_type: PPO
@@ -53,4 +35,3 @@ agent:
 
 runner:
   timesteps: 200000000
-  use_pbar: False

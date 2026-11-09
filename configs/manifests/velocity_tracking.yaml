@@ -1,7 +1,6 @@
-
 motions:
   walk:
-    file: /home/anthony/Dev/move-it-move-it/data/walk.npz
+    file: data/walk.npz
     sample_prob: 1.0
 
     commands:
@@ -19,13 +18,6 @@ motions:
       yaw_vel_tracking:
         weight: 3.0
         scale: 2.0
-      # action_rate_l2:
-      #   weight: 0.5
-      #   scale: 0.5
-      # joint_acc:
-      #   weight: 0.5
-      #   scale: 1.0e-7
-
 
     standing:
       lin_vel_threshold: 0.1
