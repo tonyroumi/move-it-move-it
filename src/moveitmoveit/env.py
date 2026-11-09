@@ -217,9 +217,9 @@ class MotionLearningEnv(DirectRLEnv):
         return policy_obs
 
     def _get_rewards(self) -> torch.Tensor:
-        total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
-            self._step_context(), self.motion_ids
-        )
+        context = self._step_context()
+        total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(context, self.motion_ids)
+        self.extras["command_tracking"] = self.mdp.command_tracking(context, self.motion_ids)
         return total
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:

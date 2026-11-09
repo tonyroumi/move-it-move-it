@@ -50,6 +50,17 @@ class BaseAgent(ABC):
             lambda: collections.deque(maxlen=self._track_rewards.maxlen)
         )
 
+        # Per-episode sums and step counts of the env's per-step command-tracking diagnostics
+        # (`infos["command_tracking"]`), which are NaN on steps they don't apply to.
+        self._cumulative_tracking_sums = {}
+        self._cumulative_tracking_counts = {}
+        self._track_tracking_sums = collections.defaultdict(
+            lambda: collections.deque(maxlen=self._track_rewards.maxlen)
+        )
+        self._track_tracking_counts = collections.defaultdict(
+            lambda: collections.deque(maxlen=self._track_rewards.maxlen)
+        )
+
     def init(self, env: DirectRLEnv, cfg: dict) -> None:
         """Initialize the agent with the environment and configuration."""
         self._step_dt = env.unwrapped.step_dt # policy frequency
@@ -148,6 +159,15 @@ class BaseAgent(ABC):
 
             self._cumulative_reward_terms_raw[name].add_(values)
 
+        for name, values in infos.get("command_tracking", {}).items():
+            if name not in self._cumulative_tracking_sums:
+                self._cumulative_tracking_sums[name] = torch.zeros_like(values, dtype=torch.float32)
+                self._cumulative_tracking_counts[name] = torch.zeros_like(values, dtype=torch.int32)
+
+            present = ~torch.isnan(values)
+            self._cumulative_tracking_sums[name].add_(torch.where(present, values, 0.0))
+            self._cumulative_tracking_counts[name].add_(present.int())
+
         if dones.any():
             self._track_rewards.extend(
                 self._cumulative_rewards[dones].tolist()
@@ -167,6 +187,13 @@ class BaseAgent(ABC):
                     values[dones].tolist()
                 )
                 values[dones] = 0
+
+            for name, values in self._cumulative_tracking_sums.items():
+                counts = self._cumulative_tracking_counts[name]
+                self._track_tracking_sums[name].extend(values[dones].tolist())
+                self._track_tracking_counts[name].extend(counts[dones].tolist())
+                values[dones] = 0
+                counts[dones] = 0
 
             self._cumulative_rewards[dones] = 0
             self._cumulative_timesteps[dones] = 0
@@ -227,11 +254,46 @@ class BaseAgent(ABC):
                         timestep,
                     )
 
+            # Per-step means over the same episodes as the episode sums above: the window's
+            # summed reward over its summed steps (equivalently mean sum / mean length), so each
+            # step weighs the same however long its episode was.
+            reward_per_step = float(np.sum(track_rewards) / np.sum(track_timesteps))
+            self.logger.track_data(
+                "Performance/Episode Reward per Step (mean)",
+                reward_per_step,
+                timestep,
+            )
+            for prefix, terms in (
+                ("Reward Terms Per Step", self._track_reward_terms),
+                ("Reward Terms Raw Per Step", self._track_reward_terms_raw),
+            ):
+                for name, values in terms.items():
+                    if len(values):
+                        # A term's deque is extended alongside the episode lengths, so its
+                        # episodes are the most recent len(values) of them.
+                        self.logger.track_data(
+                            f"{prefix}/{name}",
+                            np.sum(values) / np.sum(track_timesteps[-len(values):]),
+                            timestep,
+                        )
+
+            # Command tracking: the mean over every applicable step of the same episodes,
+            # pooled across episodes. A bucket with no such steps is not logged.
+            for name, sums in self._track_tracking_sums.items():
+                num_steps = np.sum(self._track_tracking_counts[name])
+                if num_steps > 0:
+                    self.logger.track_data(
+                        f"Command Tracking/{name}",
+                        np.sum(sums) / num_steps,
+                        timestep,
+                    )
+
             core_performance = {
                 "Episode Reward (mean)": self.mean_episode_reward,
                 "Episode Reward (max)": float(np.max(track_rewards)),
                 "Episode Reward (min)": float(np.min(track_rewards)),
                 "Episode Length (mean)": float(np.mean(track_timesteps)),
+                "Reward per Step (mean)": reward_per_step,
             }
 
             mean_episode_time = float(
