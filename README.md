@@ -38,12 +38,12 @@ closing the distance and is 0 on the first step after a reset or a new goal.
 ./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/goal_manifest.yaml
 ```
 
-Drive the goal from the keyboard while playing a checkpoint trained this way. The arrow keys move
-the goal (a red sphere) in world X/Y from a point 1 m ahead of the robot's start position; `L`
-puts it back there:
+Drive the goal from the keyboard while playing a checkpoint trained this way. The goal (a red
+sphere) starts 1 m ahead of the robot's start position and the arrow keys move it relative to the
+robot's current heading; `L` puts it back there. `--overlay` shows the held keys:
 
 ```bash
-./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick --joystick-mode point_goal
+./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick-mode point_goal
 ```
 
 A policy only walks to goals like those it trained on, so goals far outside the sampled range,

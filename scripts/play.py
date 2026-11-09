@@ -11,7 +11,6 @@ import torch
 
 import moveitmoveit
 from moveitmoveit.manifest import CommandIndex
-from moveitmoveit.utils import transforms
 from moveitmoveit.utils.logger import Logger
 
 from isaaclab.utils.dict import update_class_from_dict
@@ -25,7 +24,6 @@ from isaaclab_tasks.utils import (
     setup_preset_cli,
 )
 
-# PLACEHOLDER: Extension template (do not remove this comment)
 with contextlib.suppress(ImportError):
     import isaaclab_tasks_experimental  # noqa: F401
 
@@ -37,51 +35,28 @@ parser.add_argument(
     "--checkpoint",
     type=str,
     required=True,
-    help=(
-        "Path to a model checkpoint written by train.py (<run>/checkpoints/<name>.pt). The env and agent"
-        " configs are loaded from that run's params/{env,agent}.yaml."
-    ),
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument(
-    "--joystick",
-    action="store_true",
-    default=False,
-    help=(
-        "Drive the policy's velocity command live from the keyboard instead of the env's sampled commands."
-        " Requires a task configured with env.reward_type=joystick and a non-headless renderer."
-    ),
-)
-parser.add_argument(
-    "--joystick-overlay",
-    action="store_true",
-    default=False,
-    help="With --joystick, overlay a faint keyboard on the renderer highlighting the currently held keys.",
-)
-parser.add_argument(
     "--joystick-mode",
     type=str,
-    default="velocity",
-    choices=["velocity", "point_goal"],
+    default="none",
+    choices=["none", "velocity", "point_goal"],
     help=(
-        "With --joystick, which command the keyboard drives: 'velocity' for the SE(2) lin/yaw"
-        " command (original behavior; already in the robot's body frame, so up is always forward),"
-        " or 'point_goal' for a world-space goal point that starts 1 m ahead of each env's start"
-        " position along its start heading, stays put while the robot walks, and is moved with the"
-        " same up/down/left/right keys relative to the robot's current heading (up pushes it the way"
-        " the robot faces, left/right to its own left/right). Needs a checkpoint whose manifest declares goal_x/goal_y."
+        "Drive the policy's command live from the keyboard instead of the env's sampled commands"
     ),
+)
+parser.add_argument(
+    "--overlay",
+    action="store_true",
+    default=False,
+    help="With --joystick-mode, overlay a faint keyboard on the renderer highlighting the currently held keys.",
 )
 parser.add_argument(
     "--camera_type",
     type=str,
     default=None,
     choices=["facing", "third-person", "none"],
-    help=(
-        "Scripted camera mode: 'facing' follows in front of the robot looking back at it,"
-        " 'third-person' follows behind and above it, 'none' disables scripted camera updates."
-        " Defaults to the task's configured camera_type."
-    ),
 )
 parser.add_argument("--record", action="store_true", default=False, help="Record a video of the rollout.")
 parser.add_argument(
@@ -95,54 +70,13 @@ if args_cli.record:
     args_cli.enable_cameras = True
 
 
-class HeadingRelativeGoal:
-    """The world-space point goal of `--joystick-mode point_goal`, moved in the robot's heading frame.
-
-    `PointGoalKeyboard` integrates the arrow keys into an XY offset; each step's change in that
-    offset is rotated by the robot's current yaw before it moves the goal, so up always pushes the
-    goal ahead of where the robot faces and left/right to the robot's own left/right. The goal stays
-    fixed in world space while no key is held.
-    """
-
-    def __init__(self, anchor_xy: torch.Tensor, anchor_rotations: torch.Tensor):
-        self._anchor_xy = anchor_xy.clone()
-        self._anchor_rotations = anchor_rotations.clone()
-        self._goal_xy: torch.Tensor | None = None
-        self._offset_xy: torch.Tensor | None = None
-
-    def reset(self):
-        """Back to the keyboard's offset from the start position, in the start heading (L key)."""
-        self._goal_xy = None
-
-    def update(self, offset_xy: torch.Tensor, root_rotations: torch.Tensor) -> torch.Tensor:
-        """(N, 2) world-space goal for the keyboard's (N, 2) offset and the (N, 4) root rotations."""
-        # PointGoalKeyboard maps left -> -y; flip it so left is the robot's left (+y in its heading frame)
-        offset_xy = torch.stack((offset_xy[:, 0], -offset_xy[:, 1]), dim=-1)
-        if self._goal_xy is None:
-            self._goal_xy = self._anchor_xy + self._heading_to_world_xy(self._anchor_rotations, offset_xy)
-        else:
-            step_xy = offset_xy - self._offset_xy
-            self._goal_xy = self._goal_xy + self._heading_to_world_xy(root_rotations, step_xy)
-        self._offset_xy = offset_xy.clone()
-        return self._goal_xy
-
-    @staticmethod
-    def _heading_to_world_xy(rotations: torch.Tensor, vectors_xy: torch.Tensor) -> torch.Tensor:
-        """Rotate (N, 2) heading-frame XY vectors into world space by each rotation's yaw only."""
-        vectors = torch.cat((vectors_xy, torch.zeros_like(vectors_xy[:, :1])), dim=-1)
-        return transforms.quat_apply_yaw(rotations, vectors)[:, :2]
-
-
 def main():
-    """Play a trained agent checkpoint."""
     env_cfg, _ = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
 
     with launch_simulation(env_cfg, args_cli):
-        # train.py writes checkpoints to <run>/checkpoints/, next to the configs it ran with in <run>/params/
         resume_path = os.path.abspath(args_cli.checkpoint)
         log_dir = os.path.dirname(os.path.dirname(resume_path))
 
-        # load the env/agent configs as they were dumped by train.py
         params_dir = os.path.join(log_dir, "params")
 
         print(f"[INFO] Loading configs from run directory: {log_dir}")
@@ -154,47 +88,33 @@ def main():
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
         env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
         env_cfg.random_reset = False
-        # the keyboard owns the commands; the env's own resampling would overwrite them
-        env_cfg.resample_commands = not args_cli.joystick
+
+        env_cfg.resample_commands = args_cli.joystick_mode == "none"
         args_cli.seed = agent_cfg["seed"]
 
         # create isaac environment
         env = gym.make(TASK_ID, cfg=env_cfg, render_mode="rgb_array" if args_cli.record else None)
 
         keyboard = None
-        keyboard_overlay = None
+        overlay = None
         goal_marker = None
-        if args_cli.joystick_overlay and not args_cli.joystick:
-            raise ValueError("--joystick-overlay requires --joystick.")
-        if args_cli.joystick:
+        if args_cli.overlay and args_cli.joystick_mode == "none":
+            raise ValueError("--overlay requires --joystick-mode velocity or point_goal.")
+        if args_cli.joystick_mode != "none":
             if args_cli.headless:
-                raise ValueError("--joystick requires a renderer; do not combine it with --headless.")
-            if not hasattr(env.unwrapped, "commands"):
+                raise ValueError("--joystick-mode requires a renderer; do not combine it with --headless.")
+            if args_cli.joystick_mode == "point_goal" and not env.unwrapped.motions.has_goal.any():
                 raise ValueError(
-                    f"--joystick requires a command-conditioned task (got '{args_cli.task}', which has no"
-                    " `commands` buffer)."
+                    "--joystick-mode point_goal needs a checkpoint trained on a manifest motion that"
+                    " declares goal_x/goal_y commands; this one has none, so its policy never sees a goal."
                 )
 
-            from isaaclab.devices import Se2KeyboardCfg
+            from moveitmoveit.utils.keyboard import Keyboard
 
-            se2_keyboard_cfg = Se2KeyboardCfg(
-                sim_device=env.unwrapped.device,
-                v_x_sensitivity=1.5,
-                v_y_sensitivity=1.0,
-                omega_z_sensitivity=1.0,
-            )
+            keyboard = Keyboard(args_cli.joystick_mode, dt=env.unwrapped.step_dt, device=env.unwrapped.device)
+            print(keyboard)
 
             if args_cli.joystick_mode == "point_goal":
-                if not env.unwrapped.motions.has_goal.any():
-                    raise ValueError(
-                        "--joystick-mode point_goal needs a checkpoint trained on a manifest motion that"
-                        " declares goal_x/goal_y commands; this one has none, so its policy never sees a goal."
-                    )
-
-                from moveitmoveit.utils.keyboard import PointGoalKeyboard
-
-                keyboard = PointGoalKeyboard(se2_keyboard_cfg, dt=env.unwrapped.step_dt)
-
                 import isaaclab.sim as sim_utils
                 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 
@@ -209,16 +129,11 @@ def main():
                         },
                     )
                 )
-            else:
-                from moveitmoveit.utils.keyboard import Keyboard
 
-                keyboard = Keyboard(se2_keyboard_cfg)
-            print(keyboard)
-
-            if args_cli.joystick_overlay:
+            if args_cli.overlay:
                 from moveitmoveit.utils.keyboard_overlay import KeyboardOverlay
 
-                keyboard_overlay = KeyboardOverlay()
+                overlay = KeyboardOverlay()
 
         # get environment (step) dt for real-time evaluation
         try:
@@ -252,37 +167,23 @@ def main():
         runner.agent.load_checkpoint(resume_path, device=env.unwrapped.device)
 
         obs, _ = env.reset()
-        # the keyboard's goal offset is taken from each env's start position and heading, once, so the
-        # goal is a fixed point in world space rather than one that moves along with the robot
-        point_goal = None
-        if args_cli.joystick and args_cli.joystick_mode == "point_goal":
-            point_goal = HeadingRelativeGoal(
-                env.unwrapped.robot.data.body_pos_w.torch[:, env.unwrapped.ref_body_index, :2],
-                env.unwrapped.robot.data.body_quat_w.torch[:, env.unwrapped.ref_body_index],
-            )
-            keyboard.add_callback("L", point_goal.reset)
         timestep = 0
         try:
             while True:
                 start_time = time.time()
 
                 if keyboard is not None:
-                    command = keyboard.advance().to(env.unwrapped.device)
-                    command = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1).clone()
-                    if point_goal is not None:
-                        goal_positions_xy = point_goal.update(
-                            command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1],
-                            env.unwrapped.robot.data.body_quat_w.torch[:, env.unwrapped.ref_body_index],
-                        )
-                        command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = goal_positions_xy
-
-                        goal_height = torch.full(
-                            (goal_positions_xy.shape[0], 1), 0.1, device=goal_positions_xy.device
-                        )
-                        goal_marker.visualize(translations=torch.cat((goal_positions_xy, goal_height), dim=-1))
+                    root_index = env.unwrapped.ref_body_index
+                    command = keyboard.advance(
+                        env.unwrapped.robot.data.body_pos_w.torch[:, root_index, :2],
+                        env.unwrapped.robot.data.body_quat_w.torch[:, root_index],
+                    )
                     env.unwrapped.commands[:] = command
-                if keyboard_overlay is not None:
-                    keyboard_overlay.update()
+                    if goal_marker is not None:
+                        goal_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
+                        goal_marker.visualize(translations=torch.nn.functional.pad(goal_xy, (0, 1), value=0.1))
+                if overlay is not None:
+                    overlay.update()
 
                 with torch.inference_mode():
                     actions = runner.agent.act(obs, deterministic=True)
@@ -300,8 +201,8 @@ def main():
             # close the simulator
             env.close()
         except KeyboardInterrupt:
-            if keyboard_overlay is not None:
-                keyboard_overlay.close()
+            if overlay is not None:
+                overlay.close()
 
 
 if __name__ == "__main__":

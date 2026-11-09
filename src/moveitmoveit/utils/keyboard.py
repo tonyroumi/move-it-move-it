@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import weakref
+
 import carb
+import omni.appwindow
 import torch
 
 from isaaclab.devices import Se2Keyboard, Se2KeyboardCfg
@@ -36,33 +39,11 @@ class Keyboard(Se2Keyboard):
             ),
             key=int,
         )
-    )
 
-    def __init__(self, cfg: Se2KeyboardCfg):
-        super().__init__(cfg)
-
-        if set(self.EXTRA_KEY_MAPPING.values()) != set(self.EXTRA_COMMAND_ORDER):
-            raise ValueError(
-                "EXTRA_KEY_MAPPING must define exactly one key binding for "
-                "every extra CommandIndex entry "
-                f"(expected {set(self.EXTRA_COMMAND_ORDER)}, "
-                f"got {set(self.EXTRA_KEY_MAPPING.values())})."
-            )
-
-        self._extra_commands = {
-            command_name: 0.0
-            for command_name in self.EXTRA_COMMAND_ORDER
-        }
-        # pressed since the last advance(), so a tap between two calls isn't lost
-        self._pressed = set()
-
-    def reset(self):
-        """Reset both SE(2) and custom keyboard commands."""
-        super().reset()
-
-        for command_name in self._extra_commands:
-            self._extra_commands[command_name] = 0.0
-        self._pressed.clear()
+    def __del__(self):
+        # __init__ may have raised before subscribing
+        if getattr(self, "_sub", None) is not None:
+            self._input.unsubscribe_to_keyboard_events(self._keyboard, self._sub)
 
     def __str__(self) -> str:
         """The SE(2) bindings followed by the binary ones."""
@@ -85,60 +66,52 @@ class Keyboard(Se2Keyboard):
             command[name] = 1.0 if name in self._pressed else self._extra_commands[name]
         self._pressed.clear()
 
-        return command
-
-    def _on_keyboard_event(self, event, *args, **kwargs):
-        """Handle the standard SE(2) commands and the binary ones."""
-        raw_input = event.input
-        key = raw_input.name if hasattr(raw_input, "name") else None
-
-        # Preserve all normal Se2Keyboard behavior.
-        super()._on_keyboard_event(event, *args, **kwargs)
-
-        # Ignore keys that are not custom controls (also covers CHAR events, where key is None).
-        if key is None or key not in self.EXTRA_KEY_MAPPING:
-            return True
-
-        command_name = self.EXTRA_KEY_MAPPING[key]
-
-        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
-            self._extra_commands[command_name] = 1.0
-            self._pressed.add(command_name)
-
-        elif event.type == carb.input.KeyboardEventType.KEY_RELEASE:
-            self._extra_commands[command_name] = 0.0
-
-        return True
-
-
-class PointGoalKeyboard(Keyboard):
-    """Drives the GOAL_X/GOAL_Y command: the SE(2) arrow keys move a world-frame goal offset at
-    their sensitivity in m/s (integrated over `dt` per `advance`), and L resets it. The binary keys
-    are as in `Keyboard`."""
-
-    def __init__(self, cfg: Se2KeyboardCfg, dt: float, initial_offset: tuple[float, float] = (1.0, 0.0)):
-        super().__init__(cfg)
-        self._dt = dt
-        self._initial_offset = torch.tensor(initial_offset, dtype=torch.float32, device=cfg.sim_device)
-        self._goal_offset = self._initial_offset.clone()
-
     def reset(self):
-        """Reset both the underlying SE(2) key state and the goal offset."""
-        super().reset()
-        self._goal_offset = self._initial_offset.clone()
+        """Release every key and, in point_goal mode, put the goal back ahead of the start pose."""
+        self._held.clear()
+        self._tapped.clear()
+        self._goal_xy = None
 
-    def advance(self) -> torch.Tensor:
-        """The full (len(CommandIndex),) command, holding the world-frame goal offset and the binary
-        keys; the caller anchors the goal to a world position."""
-        command = super().advance()
-        se2_command = command[list(_SE2_COMMANDS)]
+    def advance(self, root_xy: torch.Tensor, root_quat: torch.Tensor) -> torch.Tensor:
+        """The (N, COMMAND_DIM) command for the envs' (N, 2) root XY positions and (N, 4) root
+        rotations, which only point_goal mode reads."""
+        axes = torch.zeros(3, device=self._device)
+        for key in self._held & MOTION_KEYS.keys():
+            axes += torch.tensor(MOTION_KEYS[key], device=self._device)
+        axes *= self._sensitivity
 
-        # Isaac Lab's Se2Keyboard maps left -> +v_y, right -> -v_y; negate to get left -> -y, right -> +y.
-        self._goal_offset[0] += se2_command[0] * self._dt
-        self._goal_offset[1] -= se2_command[1] * self._dt
+        command = torch.zeros(root_xy.shape[0], COMMAND_DIM, device=self._device)
+        if self.mode == "velocity":
+            command[:, CommandIndex.LIN_X : CommandIndex.YAW + 1] = axes
+        else:
+            if self._start_xy is None:
+                self._start_xy, self._start_quat = root_xy.clone(), root_quat.clone()
+            if self._goal_xy is None:
+                self._goal_xy = self._start_xy + self._heading_to_world_xy(self._start_quat, self._goal_offset)
+            step = torch.cat((axes[:2] * self._dt, axes.new_zeros(1)))
+            self._goal_xy = self._goal_xy + self._heading_to_world_xy(root_quat, step)
+            command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = self._goal_xy
 
-        command[list(_SE2_COMMANDS)] = 0.0
-        command[CommandIndex.GOAL_X] = self._goal_offset[0]
-        command[CommandIndex.GOAL_Y] = self._goal_offset[1]
-
+        for key, index in BINARY_KEYS.items():
+            command[:, index] = float(key in self._held or key in self._tapped)
+        self._tapped.clear()
         return command
+
+    @staticmethod
+    def _heading_to_world_xy(rotations: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
+        """Rotate a (3,) heading-frame vector into world XY by each of the (N, 4) rotations' yaw."""
+        return quat_apply_yaw(rotations, vector.expand(rotations.shape[0], 3))[:, :2]
+
+    def _on_keyboard_event(self, event) -> bool:
+        # CHAR events carry a character rather than a named key; only presses and releases matter
+        key = getattr(event.input, "name", None)
+        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
+            if key == RESET_KEY:
+                self.reset()
+            else:
+                self._held.add(key)
+                if key in BINARY_KEYS:
+                    self._tapped.add(key)
+        elif event.type == carb.input.KeyboardEventType.KEY_RELEASE:
+            self._held.discard(key)
+        return True
