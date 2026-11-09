@@ -11,6 +11,7 @@ import torch
 
 import moveitmoveit
 from moveitmoveit.manifest import CommandIndex
+from moveitmoveit.utils import transforms
 from moveitmoveit.utils.logger import Logger
 
 from isaaclab.utils.dict import update_class_from_dict
@@ -64,9 +65,11 @@ parser.add_argument(
     choices=["velocity", "point_goal"],
     help=(
         "With --joystick, which command the keyboard drives: 'velocity' for the SE(2) lin/yaw"
-        " command (original behavior), or 'point_goal' for a world-space goal point that starts 1 m"
-        " ahead (+X) of each env's start position, stays put while the robot walks, and is moved with"
-        " the same up/down/left/right keys. Needs a checkpoint whose manifest declares goal_x/goal_y."
+        " command (original behavior; already in the robot's body frame, so up is always forward),"
+        " or 'point_goal' for a world-space goal point that starts 1 m ahead of each env's start"
+        " position along its start heading, stays put while the robot walks, and is moved with the"
+        " same up/down/left/right keys relative to the robot's current heading (up pushes it the way"
+        " the robot faces). Needs a checkpoint whose manifest declares goal_x/goal_y."
     ),
 )
 parser.add_argument(
@@ -90,6 +93,41 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 if args_cli.record:
     args_cli.enable_cameras = True
+
+
+class HeadingRelativeGoal:
+    """The world-space point goal of `--joystick-mode point_goal`, moved in the robot's heading frame.
+
+    `PointGoalKeyboard` integrates the arrow keys into an XY offset; each step's change in that
+    offset is rotated by the robot's current yaw before it moves the goal, so up always pushes the
+    goal ahead of where the robot faces. The goal stays fixed in world space while no key is held.
+    """
+
+    def __init__(self, anchor_xy: torch.Tensor, anchor_rotations: torch.Tensor):
+        self._anchor_xy = anchor_xy.clone()
+        self._anchor_rotations = anchor_rotations.clone()
+        self._goal_xy: torch.Tensor | None = None
+        self._offset_xy: torch.Tensor | None = None
+
+    def reset(self):
+        """Back to the keyboard's offset from the start position, in the start heading (L key)."""
+        self._goal_xy = None
+
+    def update(self, offset_xy: torch.Tensor, root_rotations: torch.Tensor) -> torch.Tensor:
+        """(N, 2) world-space goal for the keyboard's (N, 2) offset and the (N, 4) root rotations."""
+        if self._goal_xy is None:
+            self._goal_xy = self._anchor_xy + self._heading_to_world_xy(self._anchor_rotations, offset_xy)
+        else:
+            step_xy = offset_xy - self._offset_xy
+            self._goal_xy = self._goal_xy + self._heading_to_world_xy(root_rotations, step_xy)
+        self._offset_xy = offset_xy.clone()
+        return self._goal_xy
+
+    @staticmethod
+    def _heading_to_world_xy(rotations: torch.Tensor, vectors_xy: torch.Tensor) -> torch.Tensor:
+        """Rotate (N, 2) heading-frame XY vectors into world space by each rotation's yaw only."""
+        vectors = torch.cat((vectors_xy, torch.zeros_like(vectors_xy[:, :1])), dim=-1)
+        return transforms.quat_apply_yaw(rotations, vectors)[:, :2]
 
 
 def main():
@@ -211,9 +249,15 @@ def main():
         runner.agent.load_checkpoint(resume_path, device=env.unwrapped.device)
 
         obs, _ = env.reset()
-        # the keyboard's goal offset is taken from each env's start position, once, so the goal is a
-        # fixed point in world space rather than one that moves along with the robot
-        goal_anchor_xy = env.unwrapped.robot.data.body_pos_w.torch[:, env.unwrapped.ref_body_index, :2].clone()
+        # the keyboard's goal offset is taken from each env's start position and heading, once, so the
+        # goal is a fixed point in world space rather than one that moves along with the robot
+        point_goal = None
+        if args_cli.joystick and args_cli.joystick_mode == "point_goal":
+            point_goal = HeadingRelativeGoal(
+                env.unwrapped.robot.data.body_pos_w.torch[:, env.unwrapped.ref_body_index, :2],
+                env.unwrapped.robot.data.body_quat_w.torch[:, env.unwrapped.ref_body_index],
+            )
+            keyboard.add_callback("L", point_goal.reset)
         timestep = 0
         try:
             while True:
@@ -222,10 +266,13 @@ def main():
                 if keyboard is not None:
                     command = keyboard.advance().to(env.unwrapped.device)
                     command = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1).clone()
-                    if args_cli.joystick_mode == "point_goal":
-                        command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += goal_anchor_xy
+                    if point_goal is not None:
+                        goal_positions_xy = point_goal.update(
+                            command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1],
+                            env.unwrapped.robot.data.body_quat_w.torch[:, env.unwrapped.ref_body_index],
+                        )
+                        command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = goal_positions_xy
 
-                        goal_positions_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
                         goal_height = torch.full(
                             (goal_positions_xy.shape[0], 1), 0.1, device=goal_positions_xy.device
                         )
