@@ -1,0 +1,66 @@
+# Dance: walking toward a world-space goal, standing still once there, plus three dances that a key
+# press runs once each (Left Shift: disco, Space: step touch, C: broadway in play). When a dance
+# ends, the env goes back to walking to the goal, or to standing if the goal is within goal_radius.
+# Clip paths are relative to the repo root. The dances are cut from G1 Moves (CC BY 4.0); see the
+# README's "Dance clips and attribution" for sources and how to make the three _crop clips.
+# Weights are untuned; nothing here has been trained or run in Isaac Lab.
+motions:
+  walk_to_goal:
+    file: data/locomotion/walk.npz
+    sample_prob: 0.64
+    commands: {goal_x: [-5.0, 5.0], goal_y: [-5.0, 5.0]}
+    # a zeroed command puts the goal where the root already is: stand there
+    zero_command_prob: 0.25
+    rewards:
+      # meters closer per step, times 30 = 1 / step_dt: roughly speed toward the goal in m/s
+      progress: {weight: 1.0, scale: 30.0}
+      target_hit: {weight: 0.5, scale: 0.5}
+    # within goal_radius of the goal, these rewards replace the ones above and AMP's style reward is
+    # off; the same block as configs/manifests/goal_manifest.yaml
+    standing:
+      goal_radius: 0.3
+      pose:
+        right_hip_x: -0.12
+        left_hip_x: 0.12
+        right_ankle_x: 0.12
+        left_ankle_x: -0.12
+        right_shoulder_x: -0.18
+        left_shoulder_x: 0.18
+        right_elbow: -0.2
+        left_elbow: -0.2
+      rewards:
+        target_hit: {weight: 0.5, scale: 0.5}
+        root_lin_vel_l2: {weight: 1.0, scale: 4.0}
+        root_ang_vel_l2: {weight: 0.5, scale: 2.0}
+        joint_vel: {weight: 0.5, scale: 5.0e-2}
+        upright: {weight: 0.5, scale: 10.0}
+        support_centered: {weight: 0.5, scale: 20.0}
+        standing_pose: {weight: 0.75, scale: 2.0, tolerance: 0.05}
+    termination: unhealthy
+
+  # Each dance clip starts in the take's rest pose and ends where the dancer passes back close to it
+  # (RMS joint distance 0.11 to 0.20 rad), so it leaves the robot near a standing pose. None of
+  # them settles: each completes at phase 1.
+  disco:
+    file: data/dance/disco_crop.npz
+    trigger: binary_key_0
+    sample_prob: 0.12
+    rewards:
+      heading_motion_tracking: {weight: 2.0}
+    termination: unhealthy
+
+  step_touch:
+    file: data/dance/step_touch_crop.npz
+    trigger: binary_key_1
+    sample_prob: 0.12
+    rewards:
+      heading_motion_tracking: {weight: 2.0}
+    termination: unhealthy
+
+  broadway:
+    file: data/dance/broadway_crop.npz
+    trigger: binary_key_2
+    sample_prob: 0.12
+    rewards:
+      heading_motion_tracking: {weight: 2.0}
+    termination: unhealthy

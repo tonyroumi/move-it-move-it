@@ -241,71 +241,83 @@ The command block grew from 7 to 9 slots (`BINARY_KEY_2`, `BEHAVIOR_PHASE`), so 
 trained before this change do not load. Manifests without triggers train as before; their
 `BEHAVIOR_PHASE` slot is always 0.
 
-## Goal tracking with a key-triggered jump
+## Key-triggered dance behaviors
 
-`configs/manifests/goal_jump_manifest.yaml` is the goal manifest plus one behavior: a standing
-broad jump that Space runs once. Walking to the goal and standing once there keep
-`goal_manifest.yaml`'s commands, rewards and standing block. The jump uses the behavior machinery
-described under "Key-triggered boxing behaviors" above. A press starts it only while the robot is
-walking or standing. Holding Space or pressing it again mid-jump does nothing. When the jump
-completes, the robot walks to the goal again, or stands if the goal is within `goal_radius`.
+`configs/manifests/dance_manifest.yaml` uses the same behavior framework as boxing. One locomotion
+motion, `walk_to_goal`, walks toward a world-space goal and stands still within 0.3 m of it, as in
+`goal_manifest.yaml`. Three one-shot dances are triggered by keys:
 
-- **The jump**: 2.93 s. The robot stands for about 0.4 s, winds up, takes off at 1.45 s and lands
-  at 2.0 s about 2 m ahead along its heading, then stands. It completes at phase 1, or from phase
-  0.9 once the RMS joint speed is below 0.6 rad/s, after the landing is absorbed.
-- **Direction**: the jump goes along the robot's heading, not toward the goal. While it runs only
-  its pose is rewarded (`heading_motion_tracking`); goal progress is not.
-- **Training**: with `sample_prob` 0.2 for the jump, training presses Space about once every 12 s
-  of walking or standing, and the robot spends about 20% of its time jumping.
+| Key in play | Command slot | Dance | Seconds |
+|---|---|---|---:|
+| Left Shift | `binary_key_0` | `disco` | 5.50 |
+| Space | `binary_key_1` | `step_touch` | 6.20 |
+| C | `binary_key_2` | `broadway` | 5.90 |
+
+- **During a dance**: the env tracks that dance's clip from the press, with
+  `heading_motion_tracking`. Key presses are ignored until the dance ends, as for the punches.
+  Standing mode is off and the style reward is on.
+- **When a dance ends**: at phase 1. No dance declares `settle`. The env goes back to
+  `walk_to_goal` under the same goal. If the goal is within 0.3 m it stands; otherwise it walks to
+  the goal.
+- **In play**: the arrow keys move the goal, as in goal tracking.
 
 ```bash
-./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/goal_jump_manifest.yaml
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/dance_manifest.yaml
 ./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick-mode point_goal
 ```
 
-In play, the arrow keys move the goal and Space jumps. Left Shift and C trigger nothing in this
-manifest, but they still reach the policy, which never saw them in training, so don't press them.
-Run both commands from the repo root, because the manifest's clip paths are relative.
+Run both commands from the repo root.
 
-### Jump clip and attribution
+### Dance clips and attribution
 
-`data/` isn't tracked, so put these clips in place before training. Both were once tracked, so
-they can be restored from git history: run `mkdir -p data/locomotion data/jump` from the repo
-root, then the commands below. Neither clip needs cropping.
+The manifest loads `data/locomotion/walk.npz` and the three `_crop` clips below. `goal_manifest.yaml`
+reads the same walking clip from `data/walk.npz`.
 
-| Clip | Seconds | Restore with |
-|---|---:|---|
-| `data/locomotion/walk.npz` | 2.55 | `git show 6563ad9:data/walk.npz > data/locomotion/walk.npz` |
-| `data/jump/standing_broad_jump.npz` | 2.93 | `git show 6563ad9:data/jump/standing_broad_jump.npz > data/jump/standing_broad_jump.npz` |
+The dance clips are adaptations of "G1 Moves" by Experiential Technologies, performer Jasmine
+Coro, captured with MOVIN TRACIN, licensed under
+[Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/), per
+its dataset card. Source: <https://huggingface.co/datasets/exptech/g1-moves>, revision
+`895d064b2385725e6aabf540461c219afc3e0916`. Only the raw human BVH files were used. The source's
+terms apply to the clips, and no source endorses this project or these adaptations. The dataset
+describes the takes as dance choreography, and its license may not settle rights in the
+choreography itself. Check that before commercial use or public performance.
 
-`walk.npz` is the clip `goal_manifest.yaml` loads from `data/walk.npz`; only its path differs.
+Changes made: each take was retargeted from its joint positions to the IsaacLab Humanoid28 with the
+`humanoid28_pyroki` solver, using `joint_acceleration=5.0, joint_velocity=0.5` for disco and step
+touch and `joint_acceleration=2.0, joint_velocity=0.2` for broadway. It was resampled to 60 fps,
+rotated to face +X at the start, and centred on the origin in XY. Each `_crop` clip was then cut
+from that full clip, with the same `crop()` as the boxing clips above:
 
-The jump clip is an adaptation of CMU Graphics Lab Motion Capture Database trial `16_10.amc`
-("forward jump", subject 16, 120 Hz), from 0.9 s to the end. The data used in this clip was obtained
-from <http://mocap.cs.cmu.edu>. The database was created with funding from NSF EIA-0196217. The
-site's FAQ says the data "may be copied, modified, or redistributed without permission". Its home
-page also says the data may be included in commercially sold products, but "you may not resell this
-data directly, even in converted form". Both pages were read on 2026-11-08. Follow the stricter
-wording. CMU also asks anyone publishing results from this data to send it the citation and to
-use the acknowledgment text above. No source endorses this project or this adaptation.
+| Clip | Cut from | Window | Source take |
+|---|---|---|---|
+| `data/dance/disco_crop.npz` | `data/dance/disco.npz` | 0.50–6.00 s | `dance/J_ShortDance14_Disco/capture/J_ShortDance14_Disco.bvh` |
+| `data/dance/step_touch_crop.npz` | `data/dance/step_touch.npz` | 6.00–12.20 s | `dance/J_Dance0_StepTouch/capture/J_Dance0_StepTouch.bvh` |
+| `data/dance/broadway_crop.npz` | `data/dance/broadway.npz` | 2.00–7.90 s | `dance/J_Dance4_Broadway/capture/J_Dance4_Broadway.bvh` |
 
-Changes made: the take was retargeted from its joint positions to the IsaacLab Humanoid28 with the
-`humanoid28_pyroki` solver at default weights, resampled to 60 fps, rotated to face +X at the
-start, centred on the origin in XY, and cropped as above. This is a new kinematic trajectory on a
-different body, not the original capture data. Hand orientation and fingers are not represented.
+```python
+crop("data/dance/disco.npz", "data/dance/disco_crop.npz", 0.50, 6.00)
+crop("data/dance/step_touch.npz", "data/dance/step_touch_crop.npz", 6.00, 12.20)
+crop("data/dance/broadway.npz", "data/dance/broadway_crop.npz", 2.00, 7.90)
+```
 
-The jump clip was checked against `walk.npz`: same joint and body names in the same order, same
-frame rate, and a lowest torso height (0.81 m, in the wind-up) above the `unhealthy` threshold of
-0.65 m. `data/jump/running_jump.npz` (ACCAD "Run to jump to walk") isn't used. It starts at a
-3.8 m/s run, and the walk clip moves at 1.5 m/s.
+Each window starts in the take's opening rest pose, just before the dancer moves. It ends at a frame
+where the dancer passes back close to that pose: an RMS joint distance of 0.14, 0.11 and 0.20 rad,
+at RMS joint speeds of 0.71, 0.45 and 0.56 rad/s. Each crop stays within 0.21 m of where it starts
+in XY, ends within 9° of its starting heading and keeps the torso above 0.94 m.
 
-Nothing here has been trained or run in Isaac Lab, so whether a policy learns the jump, or lands it
-and walks on, is untested. Takeoff comes 1.45 s after Space is pressed: a 0.4 s stand, then the wind-up.
-Trimming the stand from the clip would shorten that delay, but it would also leave less time to
-stop walking before the wind-up.
+The other G1 Moves clips are not loaded:
 
-This manifest keeps the 9-slot command block, so its checkpoints have the same observation and
-action shapes as `goal_manifest.yaml` checkpoints trained since that block grew. One of those can
-be loaded with `--checkpoint` to start training from, but it has never seen the jump slot or the
-phase set, so it won't jump until trained with this manifest. Checkpoints from before the 9-slot
-block don't load.
+- `salsa` never returns to rest after it starts, so no cut ends near standing.
+- `modern` is slow and spread over 38 s.
+- `west_coast` travels up to 0.55 m per 2 s.
+- The full disco, step touch and broadway takes each hold still for seconds and last 14 to 32 s,
+  longer than a 10 s episode.
+
+Nothing here has been trained or run in Isaac Lab. Whether a policy learns the dances, and how
+smoothly it goes from walking into a dance that starts at rest, is untested. A dance ends near rest
+but still moving, so going back to standing is untested too. Nobody has watched the three windows
+for how they look.
+
+The command block and observation are the same size as the boxing manifest's, so a boxing
+checkpoint has matching tensor shapes. Its keys would still throw punches, though, so train a new
+policy on this manifest.
