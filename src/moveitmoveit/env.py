@@ -192,9 +192,12 @@ class MotionLearningEnv(DirectRLEnv):
         self.previous_actions[env_ids] = 0.0
 
         num_samples = env_ids.shape[0]
-        self.motion_ids[env_ids] = self.motions.sample_ids(num_samples)
-        times = self.motions.library.sample_times(self.motion_ids[env_ids])
-        self.motion_start_times[env_ids] = times
+        # each motion's random_start picks whether its clip clock starts at a random time or at 0
+        clips = self.motions.sample_reset(num_samples)
+        times = clips.times
+        self.motion_ids[env_ids] = clips.motion_ids
+        self.base_motion_ids[env_ids] = clips.base_motion_ids
+        self.motion_start_times[env_ids] = clips.locomotion_start_times
         frames = self.reference.frames_for_reset(self.motion_ids[env_ids], times)
         self._reset_behaviors(env_ids, times)
 
@@ -212,16 +215,9 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _reset_behaviors(self, env_ids: torch.Tensor, times: torch.Tensor):
         """An env reset into a behavior's clip at time `times` runs that behavior as if it had started
-        `times` ago, so what it observes matches the pose it starts in, and returns to a locomotion
-        motion sampled for it. Any other env starts in locomotion on the motion it reset into."""
+        `times` ago, so what it observes matches the pose it starts in, and returns to the locomotion
+        motion `sample_reset` drew for it. Any other env starts in locomotion on the motion it reset into."""
         behavior = self.motions.motion_behavior[self.motion_ids[env_ids]]
-        self.base_motion_ids[env_ids] = self.motion_ids[env_ids]
-        in_behavior = env_ids[behavior != LOCOMOTION]
-        if in_behavior.numel() > 0:
-            self.base_motion_ids[in_behavior] = self.motions.sample_locomotion_ids(in_behavior.numel())
-            # the locomotion motion's clip clock starts at a random point, as for an env reset into it
-            self.motion_start_times[in_behavior] = self.motions.library.sample_times(self.base_motion_ids[in_behavior])
-
         if self.cfg.resample_commands and self.motions.num_behaviors > 0:
             self.key_presses.reset(env_ids)
             self.commands[env_ids.unsqueeze(-1), self.motions.behavior_keys] = 0.0
