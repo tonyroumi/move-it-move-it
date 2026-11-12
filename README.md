@@ -27,6 +27,51 @@ Play a checkpoint:
 ./isaaclab.sh -p scripts/play.py --task <task_name> --checkpoint <path>
 ```
 
+### Sweeps
+
+A sweep trains once for each directory under a sweep root (`sweep/` by default). A run directory's
+name is the whole config for that run, and the directory also collects that run's results:
+
+```text
+sweep/
+├── algo=AMP__manifest=goal_manifest__seed=1/
+│   └── locomotion/command_conditioned_walking/AMP/2026-11-11_10-00-00/
+│       ├── params/{env,agent,manifest}.yaml
+│       ├── checkpoints/
+│       └── description.txt
+├── algo=AMP__manifest=goal_manifest__seed=2__agent.agent.learning_rate=1e-4/
+└── algo=PPO__manifest=dance_manifest__num_envs=2048__experiment.experiment_name=ppo_dance/
+```
+
+The name grammar:
+
+- Segments are `key=value`, separated by `__`. Nested experiment fields use dotted keys.
+- `algo` (`PPO` or `AMP`) and `manifest` are required. A bare manifest name like
+  `goal_manifest` means `configs/manifests/goal_manifest.yaml`. A value with a `/` is a path from
+  the directory you run in.
+- Optional keys:
+  - `num_envs` and `checkpoint`, as in `train.py`.
+  - `seed`, `experiment.directory`, `experiment.experiment_name`, `logger.backend`,
+    `logger.write_interval`, `logger.checkpoint_interval` and `description`. They override
+    `configs/experiment.yaml` for that run only; the file itself isn't changed.
+  - `env.*`, `agent.*`, `presets`, `physics` and `renderer`. They are passed through to the
+    preset/Hydra CLI, e.g. `agent.runner.timesteps=50000000`.
+- A key you leave out keeps its default from `configs/experiment.yaml` or the agent yaml.
+- Percent-encode a value that contains `__`, `=` or `/` (`%5F%5F`, `%3D`, `%2F`; a literal `%` is
+  `%25`), e.g. `manifest=configs%2Fmanifests%2Fgoal_manifest.yaml`. A value that ends in `_` runs
+  into the `__` after it, so encode that `_` as `%5F` too.
+
+```bash
+./isaaclab.sh -p scripts/sweep.py [sweep_root] [--force] [--headless ...]
+```
+
+Runs train one after another, in name order, each in its own `scripts/train.py` process. Any
+other argument, such as `--headless`, goes to every run. A name that doesn't parse is reported
+with the reason, and the sweep continues with the other runs. Directories starting with `.` are
+skipped. A run directory that already holds a finished run is skipped, unless you pass `--force`.
+A finished run has the final `checkpoints/<runner.timesteps>.pt`. Run the sweep from the repo
+root, as for training.
+
 ## Goal tracking
 
 `configs/goal_manifest.yaml` trains walking toward a random world-space goal, sampled per
