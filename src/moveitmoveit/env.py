@@ -6,7 +6,7 @@ from isaaclab.envs import DirectRLEnv
 
 from moveitmoveit.utils import transforms
 
-from .behavior import LOCOMOTION, BehaviorManager, RandomKeyPresses, behavior_commands, settled
+from .behavior import LOCOMOTION, BehaviorManager, RandomKeyPresses, behavior_commands, reference_times, settled
 from .env_cfg import MotionLearningEnvCfg
 from .manifest import COMMAND_DIM
 from .mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
@@ -305,10 +305,14 @@ class MotionLearningEnv(DirectRLEnv):
 
     def _current_tracking_targets(self) -> TrackingTargets:
         """The reference pose at each environment's current clip time. A running behavior's clip
-        started with the behavior, at t_start."""
+        started with the behavior, at t_start; a locomotion clip with `loop` repeats."""
         time = self.episode_length_buf.to(torch.float32) * self.step_dt
-        current_times = torch.where(
-            self.behaviors.active, time - self.behaviors.start_time, self.motion_start_times + time
+        current_times = reference_times(
+            time,
+            self.behaviors,
+            self.motion_start_times,
+            self.motions.library.duration[self.motion_ids],
+            self.motions.loop[self.motion_ids],
         )
         return self.reference.tracking_targets(self.motion_ids, current_times, self.random_yaw_quat)
 

@@ -18,13 +18,31 @@ them via `./isaaclab.sh --install` from the IsaacLab repo.
 Train:
 
 ```bash
-./isaaclab.sh -p scripts/train.py --task <task_name>
+./isaaclab.sh -p scripts/train.py --algo <PPO|AMP> --manifest <manifest.yaml>
 ```
+
+`--algo` picks the trainer and its config. `PPO` loads `configs/agents/ppo.yaml` and trains on the
+manifest's task rewards alone. `AMP` loads `configs/agents/amp.yaml` and adds a discriminator's
+style reward. Logs go to `logs/<directory>/<experiment_name>/<algo>/`.
 
 Play a checkpoint:
 
 ```bash
-./isaaclab.sh -p scripts/play.py --task <task_name> --checkpoint <path>
+./isaaclab.sh -p scripts/play.py --checkpoint <path>
+```
+
+Play rebuilds the agent from the `params/agent.yaml` saved with the checkpoint, so it needs no `--algo`.
+
+By default, a motion's tracking target holds the clip's last frame once the clip ends. Set
+`loop: true` on a manifest motion to repeat its clip instead. Episodes still time out as before. A
+triggered behavior runs once whatever its `loop`: it still completes at phase 1, or when it
+settles, and returns to locomotion.
+
+```yaml
+motions:
+  walk:
+    file: data/walk.npz
+    loop: true
 ```
 
 ## Goal tracking

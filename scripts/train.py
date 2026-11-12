@@ -36,7 +36,13 @@ TASK_ID = "MoveIt-Humanoid-v0"
 parser = argparse.ArgumentParser(description="Train a motion-conditioned RL policy in Isaac Lab.")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint to resume training.")
-parser.add_argument("--algo", type=str, required=True, choices=["PPO", "AMP"], help="RL algorithm.")
+parser.add_argument(
+    "--algo",
+    type=str,
+    required=True,
+    choices=moveitmoveit.ALGOS,
+    help="Trainer: PPO trains on the task reward alone; AMP adds a discriminator's style reward.",
+)
 parser.add_argument("--manifest", type=str, required=True, help="Manifest file")
 
 add_launcher_args(parser)
@@ -45,7 +51,11 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 
 def main():
-    env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
+    env_cfg, agent_cfg = resolve_task_config(TASK_ID, moveitmoveit.agent_cfg_entry_point(args_cli.algo))
+    if agent_cfg["agent"]["class_type"] != args_cli.algo:
+        raise ValueError(
+            f"--algo {args_cli.algo} loaded an agent config whose class_type is {agent_cfg['agent']['class_type']}."
+        )
 
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
         experiment_cfg = yaml.safe_load(f)

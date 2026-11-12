@@ -101,6 +101,33 @@ def settled(
     return (phase >= min_phase) & (rms_speed < max_dof_speed)
 
 
+def reference_times(
+    time: torch.Tensor,
+    behaviors: BehaviorManager,
+    locomotion_start_times: torch.Tensor,
+    duration: torch.Tensor,
+    loop: torch.Tensor,
+) -> torch.Tensor:
+    """Each env's time in the clip it tracks, which `MotionLibrary` clamps to [0, duration].
+
+    A running behavior's clip started with it, at t_start, and is never wrapped: the behavior
+    completes on this same unwrapped clock, at phase 1 or when it settles, and returns to
+    locomotion. A locomotion clip's clock started at `locomotion_start_times` and wraps modulo its
+    duration where `loop`, so its target repeats; elsewhere it runs on and holds the last frame.
+
+    Args:
+        time: Each env's current time, in seconds. Shape is (N,).
+        behaviors: Which envs run a behavior, and since when.
+        locomotion_start_times: Each env's locomotion clip time at time 0, in seconds. Shape is (N,).
+        duration: The duration of the clip each env tracks, in seconds. Shape is (N,).
+        loop: Whether the clip each env tracks loops. Shape is (N,).
+    """
+    locomotion_times = locomotion_start_times + time
+    wrapped = torch.remainder(locomotion_times, duration.clamp_min(1e-6))
+    locomotion_times = torch.where(loop, wrapped, locomotion_times)
+    return torch.where(behaviors.active, time - behaviors.start_time, locomotion_times)
+
+
 def behavior_commands(
     commands: torch.Tensor, behavior_keys: list[int], mode: torch.Tensor, phase: torch.Tensor
 ) -> torch.Tensor:
