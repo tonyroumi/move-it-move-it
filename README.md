@@ -57,6 +57,14 @@ motions:
     random_start: false
 ```
 
+Each log write also records how often each manifest motion is sampled and how often each behavior
+completes. `Motion Sample Histogram` holds the motions drawn since the previous write. Bucket i is
+the manifest's i-th motion. `Motion Samples/<motion>` counts every draw since training started, so
+a motion never drawn still shows 0. Draws include env resets, discriminator reference batches, and
+the locomotion motion that a reset into a behavior returns to.
+`Behavior Completions/<behavior>` counts each time a triggered behavior reaches phase 1 or settles
+and returns to locomotion. Deaths, timeouts, and resets that end a behavior early are not counted.
+
 ## Goal tracking
 
 `configs/goal_manifest.yaml` trains walking toward a random world-space goal, sampled per

@@ -28,6 +28,9 @@ class BehaviorManager:
         self.start_time = torch.zeros(num_envs, device=device)
         """t_start: the env time the running behavior started at, in seconds. Shape is (N,)."""
         self._held = torch.zeros(num_envs, num_behaviors, dtype=torch.bool, device=device)
+        self.completions = torch.zeros(num_behaviors, dtype=torch.long, device=device)
+        """How many times each behavior has completed and returned its env to locomotion. A behavior
+        that `reset` replaces, as on a death or timeout, did not complete. Shape is (num_behaviors,)."""
 
     @property
     def active(self) -> torch.Tensor:
@@ -50,7 +53,10 @@ class BehaviorManager:
         pressed = held & ~self._held
         self._held = held
 
-        self.mode[self.active & complete] = LOCOMOTION
+        finished = self.active & complete
+        if self.num_behaviors > 0:
+            self.completions.scatter_add_(0, self.mode.clamp_min(0), finished.long())
+        self.mode[finished] = LOCOMOTION
 
         start = ~self.active & pressed.any(dim=-1)
         if start.any():

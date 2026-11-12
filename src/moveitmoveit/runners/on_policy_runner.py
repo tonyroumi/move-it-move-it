@@ -29,6 +29,7 @@ class OnPolicyRunner:
         self.cfg = OnPolicyRunnerCfg(**cfg["runner"])
         self.env = env
         self.logger = logger
+        self.logger.add_writer(env.unwrapped.motion_metrics.write)
 
         agent_cls, cfg_cls = resolve_agent(cfg["agent"]["class_type"])
 

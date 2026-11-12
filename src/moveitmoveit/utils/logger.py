@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 import collections
 import time
+
+import numpy as np
 
 
 class Logger:
@@ -70,6 +72,9 @@ class Logger:
         self._core_performance: Dict[str, float] = {}
         self._core_train: Dict[str, float] = {}
         self._core_rewards: Dict[str, float] = {}
+
+        # Called by `write_data` after it flushes the tracked tags, e.g. `MotionMetrics.write`.
+        self._writers: List[Callable[["Logger"], None]] = []
 
     def step(self, num_steps: int = 1) -> None:
         """Advance the env-step counter used as the x-axis for step-indexed tags."""
@@ -195,8 +200,12 @@ class Logger:
         minutes, seconds = divmod(remainder, 60)
         return f"{hours:d}h {minutes:02d}m {seconds:02d}s"
 
+    def add_writer(self, writer: Callable[["Logger"], None]) -> None:
+        """Call `writer(self)` each time `write_data` writes, after it flushes the tracked tags."""
+        self._writers.append(writer)
+
     def write_data(self):
-        """Flush every tracked tag to tensorboard and/or wandb."""
+        """Flush every tracked tag to tensorboard and/or wandb, then call each `add_writer` writer."""
         if self._wandb is not None:
             grouped: Dict[int, Dict[str, float]] = collections.defaultdict(dict)
             for k, v in self._tracking_data.items():
@@ -211,6 +220,9 @@ class Logger:
         # reset data containers
         self._tracking_data.clear()
         self._tracking_step.clear()
+
+        for writer in self._writers:
+            writer(self)
 
     def log_scalar(self, tag: str, value: float, step: int) -> None:
         """Log a single scalar value."""
@@ -227,14 +239,40 @@ class Logger:
         if self._wandb is not None:
             self._wandb.log(metrics, step=step)
 
-    def log_histogram(self, tag: str, values, step: int) -> None:
-        """Log a histogram (e.g. action distribution, gradient norms)."""
+    def log_histogram(self, tag: str, values, step: int, bins: Optional[Sequence[float]] = None) -> None:
+        """Log a histogram (e.g. action distribution, gradient norms). `bins`, ascending bin edges,
+        fixes the buckets so every one is logged, empty ones included; by default the backend picks them."""
+        if bins is not None:
+            self._log_binned_histogram(tag, values, step, bins)
+            return
         if self._tb_writer is not None:
             self._tb_writer.add_histogram(tag, values, step)
         if self._wandb is not None:
             import wandb
 
             self._wandb.log({tag: wandb.Histogram(values)}, step=step)
+
+    def _log_binned_histogram(self, tag: str, values, step: int, bins: Sequence[float]) -> None:
+        if self._tb_writer is None and self._wandb is None:
+            return
+        values = np.asarray(values, dtype=np.float64).reshape(-1)
+        edges = np.asarray(bins, dtype=np.float64)
+        counts, _ = np.histogram(values, bins=edges)
+        if self._tb_writer is not None:
+            # each bucket's upper edge; the first bucket starts at `min`
+            self._tb_writer.add_histogram_raw(
+                tag,
+                min=float(values.min()) if values.size else float(edges[0]),
+                max=float(values.max()) if values.size else float(edges[-1]),
+                num=int(values.size),
+                sum=float(values.sum()),
+                sum_squares=float(values.dot(values)),
+                bucket_limits=edges[1:].tolist(),
+                bucket_counts=counts.tolist(),
+                global_step=step,
+            )
+        if self._wandb is not None:
+            self._wandb.log({tag: self._wandb.Histogram(np_histogram=(counts, edges))}, step=step)
 
     def log_video(self, tag: str, video, step: int, fps: int = 30) -> None:
         """Log a video, e.g. shape (N, T, C, H, W) as expected by tensorboard."""

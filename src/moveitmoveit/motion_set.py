@@ -42,6 +42,8 @@ class MotionSet:
         """Motions whose tracking target repeats its clip instead of holding the last frame."""
         self.random_start = torch.tensor([spec.random_start for spec in specs], dtype=torch.bool, device=self.device)
         """Motions whose clip clock starts at a uniform random time when a reset initializes it, not at 0."""
+        self.sample_counts = torch.zeros(self.num_motions, dtype=torch.long, device=self.device)
+        """How many times `sample_ids` and `sample_locomotion_ids` have drawn each motion. Shape is (num_motions,)."""
 
     @classmethod
     def from_manifest(cls, path: str, device: torch.device | str) -> "MotionSet":
@@ -136,12 +138,17 @@ class MotionSet:
 
     def sample_ids(self, num_samples: int) -> torch.Tensor:
         """The one clip-selection distribution, shared by env resets and discriminator batches."""
-        return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
+        return self._counted(torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True))
 
     def sample_locomotion_ids(self, num_samples: int) -> torch.Tensor:
         """The selection distribution restricted to locomotion motions, for an env that resets into a
         behavior and needs a motion to return to."""
-        return torch.multinomial(self.locomotion_sample_prob, num_samples=num_samples, replacement=True)
+        return self._counted(torch.multinomial(self.locomotion_sample_prob, num_samples=num_samples, replacement=True))
+
+    def _counted(self, motion_ids: torch.Tensor) -> torch.Tensor:
+        """Add a draw's motions to `sample_counts`, and return them."""
+        self.sample_counts += torch.bincount(motion_ids, minlength=self.num_motions)
+        return motion_ids
 
     def start_times(self, motion_ids: torch.Tensor) -> torch.Tensor:
         """Where a reset starts each motion's clip clock: a uniform random time within the clip where

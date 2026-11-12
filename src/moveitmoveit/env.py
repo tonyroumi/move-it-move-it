@@ -11,6 +11,7 @@ from .env_cfg import MotionLearningEnvCfg
 from .manifest import COMMAND_DIM
 from .mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
 from .motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
+from .motion_metrics import MotionMetrics
 from .motion_set import MotionSet
 
 
@@ -78,6 +79,8 @@ class MotionLearningEnv(DirectRLEnv):
         # training's random presses or play's keyboard wrote them
         self.behaviors = BehaviorManager(self.num_envs, self.motions.num_behaviors, self.device)
         self.behavior_phase = torch.zeros(self.num_envs, device=self.device)
+        self.motion_metrics = MotionMetrics(self.motions, self.behaviors)
+        """How often each motion is sampled and each behavior completes, for the training log."""
         self.key_presses = RandomKeyPresses(
             self.num_envs,
             self.motions.trigger_rate,
