@@ -45,6 +45,18 @@ motions:
     loop: true
 ```
 
+A reset places each env into a motion at a uniform random time in its clip, and a reset into a
+triggered behavior also starts the locomotion motion it returns to at a random time. Set
+`random_start: false` on a manifest motion to start its clip at time 0 instead whenever a reset
+initializes it. Omitted means `true`. Discriminator reference batches still sample random times.
+
+```yaml
+motions:
+  walk:
+    file: data/walk.npz
+    random_start: false
+```
+
 ## Goal tracking
 
 `configs/goal_manifest.yaml` trains walking toward a random world-space goal, sampled per

@@ -22,7 +22,19 @@ COMMAND_DIM = len(CommandIndex)
 COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex if command != CommandIndex.BEHAVIOR_PHASE)
 TRIGGER_KEYS = frozenset(key for key in COMMAND_KEYS if key.startswith("binary_key_"))
 MOTION_KEYS = frozenset(
-    {"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing", "trigger", "settle", "loop"}
+    {
+        "file",
+        "sample_prob",
+        "commands",
+        "zero_command_prob",
+        "rewards",
+        "termination",
+        "standing",
+        "trigger",
+        "settle",
+        "loop",
+        "random_start",
+    }
 )
 STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "pose", "rewards"})
 SETTLE_KEYS = frozenset({"min_phase", "max_dof_speed"})
@@ -74,6 +86,10 @@ class MotionSpec:
     loop: bool = False
     """Whether a locomotion motion's tracking target repeats its clip once it ends, instead of holding
     the last frame. A triggered behavior runs once either way: it completes at phase 1 or settles."""
+    random_start: bool = True
+    """Whether an env that initializes this motion's clip clock on reset starts it at a uniform random
+    time in the clip, or at time 0. Covers the clip an env resets into and the locomotion motion a
+    behavior reset returns to; discriminator batches still sample times uniformly."""
 
 
 def load_manifest(path: str) -> list[MotionSpec]:
@@ -145,6 +161,10 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
     if not isinstance(loop, bool):
         raise ValueError(f"{name}.loop: expected true or false, got {loop!r}.")
 
+    random_start = motion.get("random_start", True)
+    if not isinstance(random_start, bool):
+        raise ValueError(f"{name}.random_start: expected true or false, got {random_start!r}.")
+
     settle = motion.get("settle")
     if settle is not None:
         if trigger is None:
@@ -163,6 +183,7 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
         trigger=trigger,
         settle=settle,
         loop=loop,
+        random_start=random_start,
     )
 
 
