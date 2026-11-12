@@ -21,6 +21,8 @@ class MotionSet:
         self._build_standing_tables(specs)
         self._build_sample_prob_table(specs)
         self._build_behavior_tables(specs)
+        self.loop = torch.tensor([spec.loop for spec in specs], dtype=torch.bool, device=self.device)
+        """Motions whose tracking target repeats its clip instead of holding the last frame."""
 
     @classmethod
     def from_manifest(cls, path: str, device: torch.device | str) -> "MotionSet":

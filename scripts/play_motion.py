@@ -47,7 +47,8 @@ if args_cli.record:
 
 
 def main():
-    env_cfg, _ = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
+    # only the env config is used; no agent runs here
+    env_cfg, _ = resolve_task_config(TASK_ID, moveitmoveit.agent_cfg_entry_point("PPO"))
 
     motion_file = os.path.abspath(args_cli.motion)
     motion_name = os.path.splitext(os.path.basename(motion_file))[0]

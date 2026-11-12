@@ -22,7 +22,7 @@ COMMAND_DIM = len(CommandIndex)
 COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex if command != CommandIndex.BEHAVIOR_PHASE)
 TRIGGER_KEYS = frozenset(key for key in COMMAND_KEYS if key.startswith("binary_key_"))
 MOTION_KEYS = frozenset(
-    {"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing", "trigger", "settle"}
+    {"file", "sample_prob", "commands", "zero_command_prob", "rewards", "termination", "standing", "trigger", "settle", "loop"}
 )
 STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "pose", "rewards"})
 SETTLE_KEYS = frozenset({"min_phase", "max_dof_speed"})
@@ -71,6 +71,9 @@ class MotionSpec:
     locomotion motion, which an env returns to when its behavior completes."""
     settle: SettleSpec | None = None
     """A behavior's stable-posture completion. None: it completes only when its clip ends."""
+    loop: bool = False
+    """Whether a locomotion motion's tracking target repeats its clip once it ends, instead of holding
+    the last frame. A triggered behavior runs once either way: it completes at phase 1 or settles."""
 
 
 def load_manifest(path: str) -> list[MotionSpec]:
@@ -138,6 +141,10 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
         if "standing" in motion:
             raise ValueError(f"{name}.standing: a triggered behavior runs to completion, so it has no standing mode.")
 
+    loop = motion.get("loop", False)
+    if not isinstance(loop, bool):
+        raise ValueError(f"{name}.loop: expected true or false, got {loop!r}.")
+
     settle = motion.get("settle")
     if settle is not None:
         if trigger is None:
@@ -155,6 +162,7 @@ def _parse_motion(name: str, motion: Any) -> MotionSpec:
         standing=_parse_standing(motion["standing"], name) if "standing" in motion else None,
         trigger=trigger,
         settle=settle,
+        loop=loop,
     )
 
 
