@@ -92,6 +92,7 @@ class AMP(PPO):
         self._amp_observation_buffer.append(infos["amp_obs"])
 
         weighted_style_reward = style_reward * self.cfg.style_reward_lambda
+        
         style_reward_off = infos.get("style_reward_off")
         if style_reward_off is not None:
             weighted_style_reward = torch.where(

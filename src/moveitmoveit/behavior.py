@@ -5,7 +5,6 @@ import torch
 from .manifest import CommandIndex
 
 LOCOMOTION = -1
-"""The mode of an env that is running no behavior."""
 
 
 class BehaviorManager:

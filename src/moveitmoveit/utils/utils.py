@@ -6,8 +6,7 @@ def explained_variance(
     targets: torch.Tensor,
     eps: float = 1e-8,
 ) -> torch.Tensor:
-    """Explained variance of `predictions` w.r.t. `targets`: 1 is perfect, 0 no better than the
-    target mean, below 0 worse; NaN when the targets barely vary."""
+    """Explained variance of `predictions` w.r.t. `targets`"""
     target_var = torch.var(targets, unbiased=False)
 
     if target_var < eps:

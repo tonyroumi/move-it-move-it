@@ -9,16 +9,12 @@ from .library import MotionFrames, MotionLibrary
 
 
 class SkeletonMap(NamedTuple):
-    """Where the robot's DOFs and bodies live in the clips' tensors."""
-
     dof_indexes: list[int]
     root_body_index: int
     key_body_indexes: list[int]
 
 
 class ResetFrames(NamedTuple):
-    """Reference Robot state to reset to."""
-
     dof_positions: torch.Tensor
     dof_velocities: torch.Tensor
     root_positions: torch.Tensor
