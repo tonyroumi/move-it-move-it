@@ -11,6 +11,13 @@ MOVEITMOVEIT_DATA_DIR = Path(os.environ.get(
 CONFIGS_DIR = _REPO_ROOT / "configs"
 
 
+def train_log_root(experiment: dict, name: str, algo: str) -> str:
+    """Set `experiment["experiment_name"]` to `name` (from `train.py --name`) and return the
+    absolute `logs/<directory>/<name>/<algo>` root that training runs are written under."""
+    experiment["experiment_name"] = name
+    return os.path.abspath(os.path.join("logs", experiment["directory"], name, algo))
+
+
 def _dir_mtime(path: str) -> float:
     """Latest mtime of a directory and its direct entries, or -1 if it can't be read."""
     try:

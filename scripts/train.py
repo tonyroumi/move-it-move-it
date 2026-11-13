@@ -24,7 +24,7 @@ from isaaclab_tasks.utils import (
 
 import moveitmoveit
 from moveitmoveit.utils.logger import Logger
-from moveitmoveit.utils.paths import CONFIGS_DIR
+from moveitmoveit.utils.paths import CONFIGS_DIR, train_log_root
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,12 @@ parser.add_argument(
     help="Trainer: PPO trains on the task reward alone; AMP adds a discriminator's style reward.",
 )
 parser.add_argument("--manifest", type=str, required=True, help="Manifest file")
+parser.add_argument(
+    "--name",
+    type=str,
+    required=True,
+    help="Experiment name; replaces experiment.experiment_name from configs/experiment.yaml in the log path.",
+)
 
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
@@ -51,7 +57,6 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 
 def main():
-    
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, moveitmoveit.agent_cfg_entry_point(args_cli.algo))
 
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
@@ -64,13 +69,7 @@ def main():
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.motion_manifest = args_cli.manifest
 
-        log_root_path = os.path.join(
-            "logs",
-            agent_cfg["experiment"]["directory"],
-            agent_cfg["experiment"]["experiment_name"],
-            args_cli.algo,
-        )
-        log_root_path = os.path.abspath(log_root_path)
+        log_root_path = train_log_root(agent_cfg["experiment"], args_cli.name, args_cli.algo)
 
         print(f"[INFO] Logging experiment in directory: {log_root_path}")
         run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
