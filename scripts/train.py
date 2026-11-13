@@ -44,6 +44,12 @@ parser.add_argument(
     help="Trainer: PPO trains on the task reward alone; AMP adds a discriminator's style reward.",
 )
 parser.add_argument("--manifest", type=str, required=True, help="Manifest file")
+parser.add_argument(
+    "--name",
+    type=str,
+    required=True,
+    help="Experiment name: sets experiment.experiment_name and names the log directory.",
+)
 
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
@@ -58,6 +64,7 @@ def main():
         experiment_cfg = yaml.safe_load(f)
     agent_cfg["seed"] = experiment_cfg["seed"]
     agent_cfg["experiment"] = experiment_cfg["experiment"]
+    agent_cfg["experiment"]["experiment_name"] = args_cli.name
     agent_cfg["logger"] = experiment_cfg["logger"]
 
     with launch_simulation(env_cfg, args_cli):
