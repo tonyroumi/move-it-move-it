@@ -44,13 +44,13 @@ class BehaviorManager:
         progress = ((time - self.start_time) / duration.clamp_min(1e-6)).clamp(0.0, 1.0)
         return torch.where(self.active, progress, torch.zeros_like(progress))
 
-    def reset(self, env_ids: torch.Tensor, keys: torch.Tensor, mode: torch.Tensor, start_time: torch.Tensor) -> None:
-        """Put envs in `mode`, a behavior started at `start_time` or LOCOMOTION. The keys' current
-        levels count as already seen, so a key held across a reset does not start a behavior.
+    def reset(self, env_ids: torch.Tensor, held_keys: torch.Tensor) -> None:
+        """Put envs in locomotion with no behavior running. `held_keys` count as already seen, so a
+        key still held across the reset does not start a behavior.
         """
-        self.mode[env_ids] = mode
-        self.start_time[env_ids] = start_time
-        self._held[env_ids] = keys > 0.5
+        self.mode[env_ids] = LOCOMOTION
+        self.start_time[env_ids] = 0.0
+        self._held[env_ids] = held_keys > 0.5
 
 
 def settled(

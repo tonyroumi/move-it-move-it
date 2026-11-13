@@ -11,14 +11,9 @@ class ResetClips:
     """The clips a batch of reset envs initialize, as `MotionSet.sample_reset` draws them."""
 
     motion_ids: torch.Tensor
-    """The motion each env is placed into, a behavior or a locomotion motion. Shape is (M,)."""
+    """The locomotion motion each env is placed into, never a behavior. Shape is (M,)."""
     times: torch.Tensor
-    """Each env's time in that motion's clip, in seconds. Shape is (M,)."""
-    base_motion_ids: torch.Tensor
-    """The locomotion motion each env runs, or returns to once the behavior it resets into
-    completes. Shape is (M,)."""
-    locomotion_start_times: torch.Tensor
-    """Each env's time in its locomotion clip at episode time 0, in seconds. Shape is (M,)."""
+    """Each env's time in that motion's clip at episode time 0, in seconds. Shape is (M,)."""
 
 
 class MotionSet:
@@ -133,8 +128,8 @@ class MotionSet:
         return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
 
     def sample_locomotion_ids(self, num_samples: int) -> torch.Tensor:
-        """The selection distribution restricted to locomotion motions, for an env that resets into a
-        behavior and needs a motion to return to."""
+        """The selection distribution restricted to locomotion motions, for env resets, which start
+        every episode in locomotion with no behavior running."""
         return torch.multinomial(self.locomotion_sample_prob, num_samples=num_samples, replacement=True)
 
     def start_times(self, motion_ids: torch.Tensor) -> torch.Tensor:
@@ -144,18 +139,10 @@ class MotionSet:
         return torch.where(self.random_start[motion_ids], times, torch.zeros_like(times))
 
     def sample_reset(self, num_samples: int) -> ResetClips:
-        motion_ids = self.sample_ids(num_samples)
-        times = self.start_times(motion_ids)
-        base_motion_ids = motion_ids.clone()
-        locomotion_start_times = times.clone()
-
-        in_behavior = self.motion_behavior[motion_ids] >= 0
-        num_in_behavior = int(in_behavior.sum())
-        if num_in_behavior > 0:
-            base_motion_ids[in_behavior] = self.sample_locomotion_ids(num_in_behavior)
-            locomotion_start_times[in_behavior] = self.start_times(base_motion_ids[in_behavior])
-
-        return ResetClips(motion_ids, times, base_motion_ids, locomotion_start_times)
+        """The locomotion clips reset envs start in, at their start times. An episode starts with no
+        behavior running, so the pose a reset writes always comes from a locomotion clip."""
+        motion_ids = self.sample_locomotion_ids(num_samples)
+        return ResetClips(motion_ids, self.start_times(motion_ids))
 
     def sample_commands(self, motion_ids: torch.Tensor, root_positions_xy: torch.Tensor | None = None) -> torch.Tensor:
         """Sample each motion's declared command ranges. Goals are offsets from `root_positions_xy`."""

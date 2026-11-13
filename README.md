@@ -46,10 +46,11 @@ motions:
     loop: true
 ```
 
-A reset places each env into a motion at a uniform random time in its clip, and a reset into a
-triggered behavior also starts the locomotion motion it returns to at a random time. Set
+A reset places each env into a locomotion motion at a uniform random time in its clip. It never
+places an env into a triggered behavior: every episode starts in locomotion. Set
 `random_start: false` on a manifest motion to start its clip at time 0 instead whenever a reset
-initializes it. Omitted means `true`. Discriminator reference batches still sample random times.
+initializes it. Omitted means `true`. Discriminator reference batches still sample every motion,
+behaviors included, at random times.
 
 ```yaml
 motions:
@@ -184,8 +185,12 @@ nothing, and a key held past its end does not start it again.
   hold lengths, into the same command slots the keyboard writes. Training and play therefore run
   the same latching code (`moveitmoveit/motion/behavior.py`). The press rate is derived from
   `sample_prob`, so the agent spends about as much of its time in each behavior as the
-  discriminator's reference data does. An episode that resets into a behavior clip starts that
-  behavior part-way through.
+  discriminator's reference data does.
+- **Resets**: every reset, including the one after a termination, starts the env in locomotion,
+  posed from a locomotion clip. No behavior runs, its one-hot and phase are 0, and its trigger
+  slots are 0. Training's random key presses restart, so a key held when the episode ended is
+  released. In play, a keyboard key still held across a reset does not start a behavior until it
+  is released and pressed again.
 - **Standing mode**: a behavior can't declare `standing`, so an env running one is never in
   standing mode and earns AMP's style reward. When the behavior completes, the locomotion motion's
   own standing mode, if it declares one, applies again. The boxing manifest declares none, so a
