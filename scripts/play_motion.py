@@ -31,7 +31,7 @@ parser.add_argument(
     "--camera",
     type=str,
     default=None,
-    choices=["facing", "third-person", "torso-follow", "none"],
+    choices=["facing", "third-person", "none"],
     help="camera mode. Defaults to the task's configured camera_type.",
 )
 parser.add_argument("--record", action="store_true", default=False, help="Record a video of the playback.")

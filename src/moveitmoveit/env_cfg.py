@@ -36,7 +36,7 @@ class HumanoidSceneCfg(InteractiveSceneCfg):
 class MotionLearningEnvCfg(DirectRLEnvCfg):
     # sim / scene
     decimation: int = 2
-    episode_length_s: float = 10.0
+    episode_length_s: float = 500.0
 
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
     scene: HumanoidSceneCfg = HumanoidSceneCfg(num_envs=4096, env_spacing=10.0)
@@ -75,4 +75,4 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     trigger_max_hold_s: float = 2.0
 
     # rendering
-    camera_type: Literal["facing", "third-person", "torso-follow", "none"] = "none"
+    camera_type: Literal["facing", "third-person", "none"] = "none"

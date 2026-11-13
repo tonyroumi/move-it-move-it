@@ -31,7 +31,7 @@ def deviation_from_motion(c: StepContext, threshold: float) -> torch.Tensor:
     return torch.sum((c.state.dof_positions - c.targets.dof_positions) ** 2, dim=-1) > threshold
 
 
-@termination(height_threshold=0.52)
+@termination(height_threshold=0.55)
 def unhealthy(c: StepContext, height_threshold: float) -> torch.Tensor:
     """The root body falls below a minimum height."""
     return c.state.root_positions[:, 2] < height_threshold

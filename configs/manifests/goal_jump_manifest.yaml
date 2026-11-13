@@ -7,7 +7,7 @@
 motions:
   walk_to_goal:
     file: data/locomotion/walk.npz
-    sample_prob: 0.8
+    sample_prob: 0.75
     commands: {goal_x: [-5.0, 5.0], goal_y: [-5.0, 5.0]}
     # a zeroed command puts the goal where the root already is: stand there
     zero_command_prob: 0.25
@@ -38,11 +38,6 @@ motions:
         standing_pose: {weight: 0.75, scale: 2.0, tolerance: 0.05}
     termination: unhealthy
 
-  # 2.93 s: stands for about 0.4 s, winds up, takes off at 1.45 s (phase 0.49), lands at 2.0 s (0.68)
-  # about 2 m ahead along its heading, and stands again. settle: the jump also completes once it is
-  # min_phase through and the RMS joint speed is below max_dof_speed (rad/s). The robot stands just
-  # as still before the wind-up, so min_phase is the clip's last joint speed above 1 rad/s, after
-  # the landing is absorbed. The clip itself drops below 0.6 rad/s at phase 0.93.
   jump:
     file: data/jump/standing_broad_jump.npz
     trigger: binary_key_0

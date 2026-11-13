@@ -1,13 +1,13 @@
 models:
   actor:
-    hidden_layers: [256, 256]
-    activation: elu
+    hidden_layers: [1024, 512]
+    activation: relu
     noise_std_type: fixed
     init_noise_std: 0.055
 
   critic:
-    hidden_layers: [256, 256]
-    activation: elu
+    hidden_layers: [1024, 512]
+    activation: relu
 
 agent:
   class_type: PPO

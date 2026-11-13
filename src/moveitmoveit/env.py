@@ -113,12 +113,6 @@ class MotionLearningEnv(DirectRLEnv):
             elif self.cfg.camera_type == "third-person":
                 self._camera_target_offset = torch.tensor([1.0, 0.0, 0.5], device=self.device)
                 self._camera_eye_offset = torch.tensor([-6.0, 0.0, 3.0], device=self.device)
-            elif self.cfg.camera_type == "torso-follow":
-                # where the "none" camera stays: the viewer's configured eye and lookat, in world coordinates
-                self._camera_start_eye = torch.tensor(self.cfg.viewer.eye, dtype=torch.float, device=self.device)
-                self._camera_start_target = torch.tensor(self.cfg.viewer.lookat, dtype=torch.float, device=self.device)
-                # the torso position that vantage belongs to, taken on the first camera update
-                self._camera_torso_anchor: torch.Tensor | None = None
 
             self._camera_smoothing_alpha = 0.1
             self._camera_eye_smooth: torch.Tensor | None = None
@@ -131,27 +125,18 @@ class MotionLearningEnv(DirectRLEnv):
         if self.cfg.camera_type == "none":
             return
 
-        if self.cfg.camera_type == "torso-follow":
-            # the starting view, moved by however far the torso is from where it began: no turning with the robot
-            torso_pos = self.robot.data.body_pos_w.torch[0, self.ref_body_index]
-            if self._camera_torso_anchor is None:
-                self._camera_torso_anchor = torso_pos.clone()
-            displacement = torso_pos - self._camera_torso_anchor
-            target = self._camera_start_target + displacement
-            eye = self._camera_start_eye + displacement
+        root_pos = self.robot.data.root_pos_w.torch[0]
+
+        if self.cfg.camera_type == "third-person":
+            root_quat = self.robot.data.root_quat_w.torch[:1]
+            target_offset = quat_apply_yaw(root_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
+            eye_offset = quat_apply_yaw(root_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
         else:
-            root_pos = self.robot.data.root_pos_w.torch[0]
+            target_offset = quat_apply(self.random_yaw_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
+            eye_offset = quat_apply(self.random_yaw_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
 
-            if self.cfg.camera_type == "third-person":
-                root_quat = self.robot.data.root_quat_w.torch[:1]
-                target_offset = quat_apply_yaw(root_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
-                eye_offset = quat_apply_yaw(root_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
-            else:
-                target_offset = quat_apply(self.random_yaw_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
-                eye_offset = quat_apply(self.random_yaw_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
-
-            target = root_pos + target_offset
-            eye = target + eye_offset
+        target = root_pos + target_offset
+        eye = target + eye_offset
 
         if self._camera_target_smooth is None:
             self._camera_target_smooth = target.clone()

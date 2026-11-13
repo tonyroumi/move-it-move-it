@@ -30,124 +30,24 @@ def reward(**defaults: float):
     return register
 
 
-@reward(dof_scale=2.0, key_body_scale=5.0, dof_vel_scale=0.05, root_vel_scale=2.0, root_ang_vel_scale=0.5)
-def motion_tracking(
-    c: StepContext,
-    dof_scale: float = 2.0,
-    key_body_scale: float = 5.0,
-    dof_vel_scale: float = 0.05,
-    root_vel_scale: float = 2.0,
-    root_ang_vel_scale: float = 0.5,
-    dof_weight: float = 0.25,
-    key_body_weight: float = 0.20,
-    dof_vel_weight: float = 0.20,
-    root_vel_weight: float = 0.25,
-    root_ang_vel_weight: float = 0.10,
-) -> torch.Tensor:
-    """Track reference pose and motion dynamics."""
-    state = c.state
-    targets = c.targets
+@reward(dof_scale=2.0, key_body_scale=5.0)
+def motion_tracking(c: StepContext, dof_scale: torch.Tensor, key_body_scale: torch.Tensor) -> torch.Tensor:
+    """DOF positions and root-relative key-body offsets vs. the reference motion."""
+    dof_error = torch.sum((c.state.dof_positions - c.targets.dof_positions) ** 2, dim=-1)
+    offsets = c.state.key_body_positions - c.state.root_positions.unsqueeze(1)
+    ref_offsets = c.targets.key_body_positions - c.targets.root_positions.unsqueeze(1)
+    key_body_error = torch.sum((offsets - ref_offsets).flatten(1) ** 2, dim=-1)
+    return torch.exp(-dof_scale * dof_error - key_body_scale * key_body_error)
 
-    def tracking_reward(actual, target, scale):
-        error = (actual - target).square().mean(dim=-1)
-        return torch.exp(-scale * error)
-
-    offsets = state.key_body_positions - state.root_positions.unsqueeze(1)
-    ref_offsets = targets.key_body_positions - targets.root_positions.unsqueeze(1)
-
-    return (
-        dof_weight * tracking_reward(
-            state.dof_positions, targets.dof_positions, dof_scale
-        )
-        + key_body_weight * tracking_reward(
-            offsets.flatten(1), ref_offsets.flatten(1), key_body_scale
-        )
-        + dof_vel_weight * tracking_reward(
-            state.dof_velocities, targets.dof_velocities, dof_vel_scale
-        )
-        + root_vel_weight * tracking_reward(
-            state.root_linear_velocities,
-            targets.root_linear_velocities,
-            root_vel_scale,
-        )
-        + root_ang_vel_weight * tracking_reward(
-            state.root_angular_velocities,
-            targets.root_angular_velocities,
-            root_ang_vel_scale,
-        )
-    )
-
-
-@reward(dof_scale=2.0, key_body_scale=5.0, dof_vel_scale=0.05, root_vel_scale=2.0, root_ang_vel_scale=0.5,)
-def heading_motion_tracking(
-    c: StepContext,
-    dof_scale: float = 2.0,
-    key_body_scale: float = 5.0,
-    dof_vel_scale: float = 0.05,
-    root_vel_scale: float = 2.0,
-    root_ang_vel_scale: float = 0.5,
-    dof_weight: float = 0.25,
-    key_body_weight: float = 0.20,
-    dof_vel_weight: float = 0.20,
-    root_vel_weight: float = 0.25,
-    root_ang_vel_weight: float = 0.10,
-) -> torch.Tensor:
-    """Track reference pose and velocities in each root's heading frame."""
-    state = c.state
-    targets = c.targets
-
-    def track(actual, target, scale):
-        error = (actual - target).square().mean(dim=-1)
-        return torch.exp(-scale * error)
-
-    # Root-relative key-body positions in heading frames
-    offsets = _heading_frame_offsets(
-        state.key_body_positions,
-        state.root_positions,
-        state.root_rotations,
-    )
-    ref_offsets = _heading_frame_offsets(
-        targets.key_body_positions,
-        targets.root_positions,
-        targets.root_rotations,
-    )
-
-    # Root velocities in heading frames
-    root_vel = _heading_frame_vectors(
-        state.root_linear_velocities,
-        state.root_rotations,
-    )
-    ref_root_vel = _heading_frame_vectors(
-        targets.root_linear_velocities,
-        targets.root_rotations,
-    )
-
-    root_ang_vel = _heading_frame_vectors(
-        state.root_angular_velocities,
-        state.root_rotations,
-    )
-    ref_root_ang_vel = _heading_frame_vectors(
-        targets.root_angular_velocities,
-        targets.root_rotations,
-    )
-
-    return (
-        dof_weight * track(
-            state.dof_positions, targets.dof_positions, dof_scale
-        )
-        + key_body_weight * track(
-            offsets.flatten(1), ref_offsets.flatten(1), key_body_scale
-        )
-        + dof_vel_weight * track(
-            state.dof_velocities, targets.dof_velocities, dof_vel_scale
-        )
-        + root_vel_weight * track(
-            root_vel, ref_root_vel, root_vel_scale
-        )
-        + root_ang_vel_weight * track(
-            root_ang_vel, ref_root_ang_vel, root_ang_vel_scale
-        )
-    )
+@reward(dof_scale=2.0, key_body_scale=5.0)
+def heading_motion_tracking(c: StepContext, dof_scale: torch.Tensor, key_body_scale: torch.Tensor) -> torch.Tensor:
+    """motion_tracking with the robot's and the reference's key-body offsets each in its own root's
+    heading frame, so a motion started at any heading and place is scored the same."""
+    dof_error = torch.sum((c.state.dof_positions - c.targets.dof_positions) ** 2, dim=-1)
+    offsets = _heading_frame_offsets(c.state.key_body_positions, c.state.root_positions, c.state.root_rotations)
+    ref_offsets = _heading_frame_offsets(c.targets.key_body_positions, c.targets.root_positions, c.targets.root_rotations)
+    key_body_error = torch.sum((offsets - ref_offsets).flatten(1) ** 2, dim=-1)
+    return torch.exp(-dof_scale * dof_error - key_body_scale * key_body_error)
 
 
 @reward(scale=2.0)
@@ -254,12 +154,3 @@ def _heading_frame_offsets(body_positions: torch.Tensor, root_positions: torch.T
     rotations = root_rotations.unsqueeze(1).expand(-1, num_bodies, -1).reshape(-1, 4)
     xy = world_to_heading_frame_xy(rotations, offsets[..., :2].reshape(-1, 2)).view(-1, num_bodies, 2)
     return torch.cat((xy, offsets[..., 2:]), dim=-1)
-
-
-def _heading_frame_vectors(
-    vectors: torch.Tensor,
-    root_rotations: torch.Tensor,
-) -> torch.Tensor:
-    """Rotate world-frame vectors into the root's heading frame."""
-    heading = yaw_quat(root_rotations)
-    return quat_apply_inverse(heading, vectors)

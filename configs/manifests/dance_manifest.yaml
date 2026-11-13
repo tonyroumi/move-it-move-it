@@ -1,9 +1,3 @@
-# Dance: walking toward a world-space goal, standing still once there, plus three dances that a key
-# press runs once each (Left Shift: disco, Space: step touch, C: broadway in play). When a dance
-# ends, the env goes back to walking to the goal, or to standing if the goal is within goal_radius.
-# Clip paths are relative to the repo root. The dances are cut from G1 Moves (CC BY 4.0); see the
-# README's "Dance clips and attribution" for sources and how to make the three _crop clips.
-# Weights are untuned; nothing here has been trained or run in Isaac Lab.
 motions:
   walk_to_goal:
     file: data/locomotion/walk.npz
@@ -46,7 +40,7 @@ motions:
     trigger: binary_key_0
     sample_prob: 0.12
     rewards:
-      heading_motion_tracking: {weight: 2.0}
+      heading_motion_tracking: {weight: 3.0}
     termination: unhealthy
 
   step_touch:
@@ -54,7 +48,7 @@ motions:
     trigger: binary_key_1
     sample_prob: 0.12
     rewards:
-      heading_motion_tracking: {weight: 2.0}
+      heading_motion_tracking: {weight: 3.0}
     termination: unhealthy
 
   broadway:
@@ -62,5 +56,5 @@ motions:
     trigger: binary_key_2
     sample_prob: 0.12
     rewards:
-      heading_motion_tracking: {weight: 2.0}
+      heading_motion_tracking: {weight: 3.0}
     termination: unhealthy

@@ -263,14 +263,8 @@ def build_train_command(
         config.algo,
         "--manifest",
         str(files.manifest.resolve()),
-        "--agent_cfg",
-        str(files.agent_cfg.resolve()),
-        "--experiment",
-        str(experiment_file),
         "--name",
         experiment_name,
-        "--log_root",
-        str(run_dir.resolve()),
     ]
     if config.num_envs is not None:
         command += ["--num_envs", str(config.num_envs)]
