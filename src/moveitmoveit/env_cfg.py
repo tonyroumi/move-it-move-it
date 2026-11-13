@@ -75,4 +75,4 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     trigger_max_hold_s: float = 2.0
 
     # rendering
-    camera_type: Literal["facing", "third-person", "none"] = "none"
+    camera_type: Literal["facing", "third-person", "torso-follow", "none"] = "none"

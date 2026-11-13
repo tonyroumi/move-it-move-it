@@ -50,7 +50,7 @@ parser.add_argument(
     "--camera",
     type=str,
     default=None,
-    choices=["facing", "third-person", "none"],
+    choices=["facing", "third-person", "torso-follow", "none"],
 )
 parser.add_argument("--record", action="store_true", default=False, help="Record a video of the rollout.")
 parser.add_argument(
