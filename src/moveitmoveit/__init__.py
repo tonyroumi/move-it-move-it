@@ -3,7 +3,7 @@ import gymnasium as gym
 from moveitmoveit.utils.paths import CONFIGS_DIR
 
 
-ALGOS = ("PPO", "AMP")
+ALGOS = ("PPO", "AMP", "HIL")
 """The trainers `scripts/train.py --algo` selects, by `agent.class_type`."""
 
 

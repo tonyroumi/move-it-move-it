@@ -18,12 +18,17 @@ them via `./isaaclab.sh --install` from the IsaacLab repo.
 Train:
 
 ```bash
-./isaaclab.sh -p scripts/train.py --algo <PPO|AMP> --manifest <manifest.yaml> --name <experiment_name>
+./isaaclab.sh -p scripts/train.py --algo <PPO|AMP|HIL> --manifest <manifest.yaml> --name <experiment_name>
 ```
 
 `--algo` picks the trainer and its config. `PPO` loads `configs/agents/ppo.yaml` and trains on the
 manifest's task rewards alone. `AMP` loads `configs/agents/amp.yaml` and adds a discriminator's
-style reward. `--name` is required and sets the experiment name. Logs go to
+style reward. `HIL` loads `configs/agents/hil.yaml` and trains one policy on the manifest's tracking
+terms (`motion_tracking`, `heading_motion_tracking`) alone for `warm_start_steps` env steps, then
+keeps the first half of the envs on that tracking reward and moves the second half to AMP's reward:
+tracking plus the manifest's other rewards plus the style reward. The same config sets whether
+commands are still resampled, behaviors still sampled, and both still observed by the policy.
+`--name` is required and sets the experiment name. Logs go to
 `logs/<directory>/<experiment_name>/<algo>/`, where `<experiment_name>` is the `--name` value.
 
 Play a checkpoint:

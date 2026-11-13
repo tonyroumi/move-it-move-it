@@ -81,29 +81,35 @@ class AMP(PPO):
         truncated: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
-        with torch.no_grad():
-            disc_logits = self.discriminator(
-                self._disc_obs_preprocessor(infos["amp_obs"])
-            )
-            style_reward = -torch.log(
-                torch.maximum(1 - 1 / (1 + torch.exp(-disc_logits)), torch.tensor(0.0001, device=rewards.device))
-            ).view(rewards.shape)
+        style_reward, weighted_style_reward = self._style_reward(infos, rewards.shape)
 
         self._amp_observation_buffer.append(infos["amp_obs"])
 
-        weighted_style_reward = style_reward * self.cfg.style_reward_lambda
-        
-        style_reward_off = infos.get("style_reward_off")
-        if style_reward_off is not None:
-            weighted_style_reward = torch.where(
-                style_reward_off.view(rewards.shape), torch.zeros_like(weighted_style_reward), weighted_style_reward
-            )
         rewards = self.cfg.goal_reward_lambda * rewards + weighted_style_reward
 
         infos["reward_terms_raw"]["style"] = style_reward
         infos["reward_terms"]["style"] = weighted_style_reward
 
         super().process_env_step(next_observations, rewards, terminated, truncated, infos)
+
+    def _style_reward(self, infos: dict, shape: torch.Size) -> tuple[torch.Tensor, torch.Tensor]:
+        """The discriminator's style reward, then that reward weighted and zeroed where the env turns it off."""
+        with torch.no_grad():
+            disc_logits = self.discriminator(
+                self._disc_obs_preprocessor(infos["amp_obs"])
+            )
+            style_reward = -torch.log(
+                torch.maximum(1 - 1 / (1 + torch.exp(-disc_logits)), torch.tensor(0.0001, device=disc_logits.device))
+            ).view(shape)
+
+        weighted_style_reward = style_reward * self.cfg.style_reward_lambda
+
+        style_reward_off = infos.get("style_reward_off")
+        if style_reward_off is not None:
+            weighted_style_reward = torch.where(
+                style_reward_off.view(shape), torch.zeros_like(weighted_style_reward), weighted_style_reward
+            )
+        return style_reward, weighted_style_reward
 
     def update(self) -> None:
         super().update()

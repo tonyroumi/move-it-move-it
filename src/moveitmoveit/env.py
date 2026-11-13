@@ -16,6 +16,11 @@ from moveitmoveit.motion.reference import ReferenceMotions, ResetFrames, Skeleto
 class MotionLearningEnv(DirectRLEnv):
     cfg: MotionLearningEnvCfg
 
+    # Training switches a trainer may turn off, read only while `cfg.resample_commands` is set: whether
+    # commands are still drawn, and whether training's key presses still start behaviors.
+    sample_commands: bool = True
+    sample_behaviors: bool = True
+
     def __init__(self, cfg: MotionLearningEnvCfg, render_mode: str | None = None, **kwargs):
         cfg.observation_space = observation_dim(cfg.policy_obs) + COMMAND_DIM
         cfg.amp_observation_space = observation_dim(cfg.style_obs)
@@ -232,7 +237,8 @@ class MotionLearningEnv(DirectRLEnv):
         just pressed, and point each env's motion at what it now runs."""
         time = self.episode_length_buf.to(torch.float32) * self.step_dt
         if self.cfg.resample_commands and self.motions.num_behaviors > 0:
-            self.commands[:, self.motions.behavior_keys] = self.key_presses.step()
+            # with behavior sampling off every key stays released, so no new behavior starts
+            self.commands[:, self.motions.behavior_keys] = self.key_presses.step() if self.sample_behaviors else 0.0
 
         duration = self.motions.library.duration[self.motion_ids]
         phase = self.behaviors.phase(time, duration)
@@ -313,21 +319,27 @@ class MotionLearningEnv(DirectRLEnv):
         return self.reference.tracking_targets(self.motion_ids, current_times, self.random_yaw_quat)
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
-        """Resample commands every `command_resample_steps` steps or where `dones` is set."""
+        """Resample commands every `command_resample_steps` steps or where `dones` is set, unless
+        `sample_commands` is off."""
         if not self.cfg.resample_commands:
             return
 
-        resample = self.episode_length_buf % (self.cfg.command_resample_steps + 1) == 0
+        if self.sample_commands:
+            resample = self.episode_length_buf % (self.cfg.command_resample_steps + 1) == 0
+        else:
+            # no new draws, but a new episode still forgets what terms remembered of the last one
+            resample = self.episode_length_buf == 0
 
         if dones is not None:
             resample = resample | dones
 
         resample_env_ids = resample.nonzero(as_tuple=False).squeeze(-1)
         if resample_env_ids.numel() > 0:
-            root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
-            self.commands[resample_env_ids] = self.motions.sample_commands(
-                self.base_motion_ids[resample_env_ids], root_positions_xy
-            )
+            if self.sample_commands:
+                root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
+                self.commands[resample_env_ids] = self.motions.sample_commands(
+                    self.base_motion_ids[resample_env_ids], root_positions_xy
+                )
 
             # a new goal or episode: progress toward the old goal no longer means anything
             self.mdp.reset_memory(resample_env_ids)

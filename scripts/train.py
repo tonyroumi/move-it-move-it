@@ -41,7 +41,10 @@ parser.add_argument(
     type=str,
     required=True,
     choices=ALGOS,
-    help="Trainer: PPO trains on the task reward alone; AMP adds a discriminator's style reward.",
+    help=(
+        "Trainer: PPO trains on the task reward alone; AMP adds a discriminator's style reward; HIL warm"
+        " starts on the tracking reward, then moves half of the envs to AMP."
+    ),
 )
 parser.add_argument("--manifest", type=str, required=True, help="Manifest file")
 parser.add_argument(
