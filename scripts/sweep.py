@@ -43,7 +43,7 @@ TRAIN_SCRIPT = REPO_ROOT / "scripts" / "train.py"
 
 SEGMENT_SEPARATOR = "__"
 
-ALGOS = ("PPO", "AMP")
+ALGOS = ("PPO", "AMP", "HIL")
 
 # The run directory's own parameter files.
 EXPERIMENT_FILENAME = "experiment.yaml"

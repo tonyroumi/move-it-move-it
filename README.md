@@ -98,7 +98,7 @@ The directory name is `key=value` segments separated by `__`:
 
 | Key | Required | Effect |
 |---|---|---|
-| `algo` | yes | `PPO` or `AMP`. Trains with `agents/<algo>.yaml` from the run directory. |
+| `algo` | yes | `PPO`, `AMP` or `HIL`. Trains with `agents/<algo>.yaml` from the run directory. |
 | `manifest` | yes | Trains with `manifests/<manifest>.yaml` from the run directory. |
 | `experiment.experiment_name` | no | Overrides the run's `experiment.yaml`, and becomes `train.py --name`. |
 | `seed` | no | Overrides the run's `experiment.yaml`. |

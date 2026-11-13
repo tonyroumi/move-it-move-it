@@ -9,7 +9,7 @@ train.py command without training.
 A run directory holds the parameter files that run trains with:
 
   <run-name>/experiment.yaml          seed, experiment directory and name, logger, description
-  <run-name>/agents/<algo>.yaml       the agent's hyperparameters (agents/ppo.yaml or agents/amp.yaml)
+  <run-name>/agents/<algo>.yaml       the agent's hyperparameters (agents/ppo.yaml, agents/amp.yaml or agents/hil.yaml)
   <run-name>/manifests/<name>.yaml    the motion manifest
 
 The directory name picks among those files and tells runs apart. It is key=value segments joined
@@ -17,7 +17,7 @@ by a double underscore, for example:
 
   algo=PPO__manifest=box_manifest__num_envs=4096__seed=1__experiment.experiment_name=boxing
 
-  algo                        required. PPO or AMP. Trains with agents/<algo lowercased>.yaml.
+  algo                        required. PPO, AMP or HIL. Trains with agents/<algo lowercased>.yaml.
                               That file's agent.class_type, if set, must match.
   manifest                    required. Trains with manifests/<manifest>.yaml.
   experiment.experiment_name  optional. Overrides experiment.yaml and is train.py's --name.

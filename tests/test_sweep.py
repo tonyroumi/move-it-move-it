@@ -53,6 +53,10 @@ def test_minimal_name():
     assert (config.algo, config.manifest, config.num_envs, config.experiment) == ("AMP", "goal", None, {})
 
 
+def test_hil_is_an_algo():
+    assert sweep.parse_run_name("algo=HIL__manifest=goal").algo == "HIL"
+
+
 def test_segment_order_does_not_matter():
     assert sweep.parse_run_name("seed=3__manifest=m__algo=AMP") == sweep.parse_run_name("algo=AMP__manifest=m__seed=3")
 
