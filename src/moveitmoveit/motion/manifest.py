@@ -73,7 +73,9 @@ class MotionSpec:
     """(low, high) per declared command. Absent commands are always 0."""
     zero_command_prob: float
     rewards: dict[str, RewardSpec]
-    terminations: tuple[str, ...]
+    terminations: dict[str, dict[str, float]]
+    """The termination terms this motion enables, each with the arguments it overrides; a term's
+    other arguments keep its `@termination` defaults."""
     standing: StandingSpec | None = None
     trigger: str | None = None
     """The key slot (`binary_key_N`) whose press runs this motion once, as a behavior. None for a
@@ -255,15 +257,24 @@ def _parse_standing(standing: Any, motion: str) -> StandingSpec:
     return StandingSpec(**thresholds, rewards=_parse_rewards(standing.get("rewards"), f"{motion}.standing"), pose=pose)
 
 
-def _parse_terminations(terminations: Any, motion: str) -> tuple[str, ...]:
-    """A termination name or list of names."""
+def _parse_terminations(terminations: Any, motion: str) -> dict[str, dict[str, float]]:
+    """A termination name or list of names, each with its default arguments, or a mapping from
+    each name to the arguments it overrides (empty for the defaults)."""
+    expected = "a name, a list of names, or a mapping of names to arguments"
     if isinstance(terminations, str):
         terminations = [terminations]
-    if not isinstance(terminations, list):
-        raise ValueError(f"{motion}.termination: expected a name or a list of names, got {terminations!r}.")
-    if not all(isinstance(name, str) for name in terminations):
-        raise ValueError(f"{motion}.termination: expected a name or a list of names, got {terminations!r}.")
-    return tuple(terminations)
+    if isinstance(terminations, list):
+        if not all(isinstance(name, str) for name in terminations):
+            raise ValueError(f"{motion}.termination: expected {expected}, got {terminations!r}.")
+        return {name: {} for name in terminations}
+    if not isinstance(terminations, dict):
+        raise ValueError(f"{motion}.termination: expected {expected}, got {terminations!r}.")
+
+    parsed = {}
+    for name, kwargs in terminations.items():
+        where = f"{motion}.termination.{name}"
+        parsed[name] = {key: _number(value, f"{where}.{key}") for key, value in _mapping(kwargs, where).items()}
+    return parsed
 
 
 def _mapping(value: Any, where: str) -> dict:

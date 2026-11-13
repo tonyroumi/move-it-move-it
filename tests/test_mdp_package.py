@@ -68,8 +68,8 @@ def test_each_kind_of_term_registers_from_its_own_module():
         assert term.fn.__module__ == observations.__name__, name
     for name, term in rewards.REWARDS.items():
         assert term.fn.__module__ == rewards.__name__, name
-    for name, fn in terminations.TERMINATIONS.items():
-        assert fn.__module__ == terminations.__name__, name
+    for name, term in terminations.TERMINATIONS.items():
+        assert term.fn.__module__ == terminations.__name__, name
 
 
 def test_observation_dim_sums_the_selected_terms():

@@ -148,6 +148,8 @@ class ComposedMDP:
                 raise ValueError(f"{spec.name}.rewards: standing_pose is a standing-mode term; declare it in standing.rewards.")
             check_known(standing, REWARDS, f"{spec.name}.standing.rewards")
             check_known(spec.terminations, TERMINATIONS, f"{spec.name}.termination")
+            for name, declared in spec.terminations.items():
+                check_known(declared, TERMINATIONS[name].defaults, f"{spec.name}.termination.{name}")
             for name, declared in spec.rewards.items():
                 check_known(declared.kwargs, REWARDS[name].defaults, f"{spec.name}.rewards.{name}")
             for name, declared in standing.items():
@@ -166,6 +168,17 @@ class ComposedMDP:
             device=device,
             dtype=torch.bool,
         ).reshape(len(specs), len(self.termination_names))
+        # Per-motion arguments (M,) of each selected termination; a motion that doesn't enable a term
+        # keeps its defaults, which `termination_flags` masks out anyway.
+        self.termination_kwargs = {
+            name: {
+                kwarg: torch.tensor(
+                    [spec.terminations.get(name, {}).get(kwarg, default) for spec in specs], device=device
+                )
+                for kwarg, default in TERMINATIONS[name].defaults.items()
+            }
+            for name in self.termination_names
+        }
         self.reward_declared = torch.tensor(
             [[name in spec.rewards for name in self.reward_names] for spec in specs],
             device=device,
@@ -262,7 +275,13 @@ class ComposedMDP:
         enabled = self.termination_flags[motion_ids]
         if not self.termination_names:
             return enabled.any(dim=-1)
-        fired = torch.stack([TERMINATIONS[name](c) for name in self.termination_names], dim=-1)
+        fired = torch.stack(
+            [
+                TERMINATIONS[name].fn(c, **{kwarg: table[motion_ids] for kwarg, table in self.termination_kwargs[name].items()})
+                for name in self.termination_names
+            ],
+            dim=-1,
+        )
         return torch.any(enabled & fired, dim=-1)
 
     def observations(
