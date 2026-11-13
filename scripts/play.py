@@ -38,7 +38,7 @@ parser.add_argument(
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument(
-    "--joystick-mode",
+    "--joystick",
     type=str,
     default="none",
     choices=["none", "velocity", "point_goal"],
@@ -47,13 +47,7 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
-    "--overlay",
-    action="store_true",
-    default=False,
-    help="With --joystick-mode, overlay a faint keyboard on the renderer highlighting the currently held keys.",
-)
-parser.add_argument(
-    "--camera_type",
+    "--camera",
     type=str,
     default=None,
     choices=["facing", "third-person", "none"],
@@ -87,24 +81,19 @@ def main():
 
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
-        env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
+        env_cfg.camera_type = args_cli.camera if args_cli.camera is not None else env_cfg.camera_type
         env_cfg.random_reset = False
 
-        env_cfg.resample_commands = args_cli.joystick_mode == "none"
+        env_cfg.resample_commands = args_cli.joystick == "none"
         args_cli.seed = agent_cfg["seed"]
 
         # create isaac environment
         env = gym.make(TASK_ID, cfg=env_cfg, render_mode="rgb_array" if args_cli.record else None)
 
         keyboard = None
-        overlay = None
         goal_marker = None
-        if args_cli.overlay and args_cli.joystick_mode == "none":
-            raise ValueError("--overlay requires --joystick-mode velocity or point_goal.")
-        if args_cli.joystick_mode != "none":
-            if args_cli.headless:
-                raise ValueError("--joystick-mode requires a renderer; do not combine it with --headless.")
-            if args_cli.joystick_mode == "point_goal" and not env.unwrapped.motions.has_goal.any():
+        if args_cli.joystick != "none":
+            if args_cli.joystick == "point_goal" and not env.unwrapped.motions.has_goal.any():
                 raise ValueError(
                     "--joystick-mode point_goal needs a checkpoint trained on a manifest motion that"
                     " declares goal_x/goal_y commands; this one has none, so its policy never sees a goal."
@@ -112,10 +101,10 @@ def main():
 
             from moveitmoveit.utils.keyboard import Keyboard
 
-            keyboard = Keyboard(args_cli.joystick_mode, dt=env.unwrapped.step_dt, device=env.unwrapped.device)
+            keyboard = Keyboard(args_cli.joystick, dt=env.unwrapped.step_dt, device=env.unwrapped.device)
             print(keyboard)
 
-            if args_cli.joystick_mode == "point_goal":
+            if args_cli.joystick == "point_goal":
                 import isaaclab.sim as sim_utils
                 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 
@@ -130,11 +119,6 @@ def main():
                         },
                     )
                 )
-
-            if args_cli.overlay:
-                from moveitmoveit.utils.keyboard_overlay import KeyboardOverlay
-
-                overlay = KeyboardOverlay()
 
         # get environment (step) dt for real-time evaluation
         try:
@@ -183,8 +167,6 @@ def main():
                     if goal_marker is not None:
                         goal_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
                         goal_marker.visualize(translations=torch.nn.functional.pad(goal_xy, (0, 1), value=0.1))
-                if overlay is not None:
-                    overlay.update()
 
                 with torch.inference_mode():
                     actions = runner.agent.act(obs, deterministic=True)
@@ -202,8 +184,7 @@ def main():
             # close the simulator
             env.close()
         except KeyboardInterrupt:
-            if overlay is not None:
-                overlay.close()
+            pass
 
 
 if __name__ == "__main__":

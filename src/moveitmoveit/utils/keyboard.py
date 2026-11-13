@@ -27,7 +27,7 @@ MOTION_KEYS: dict[str, tuple[float, float, float]] = {
 }
 BINARY_KEYS: dict[str, CommandIndex] = {
     "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
-    "SPACE": CommandIndex.BINARY_KEY_1,
+    "RIGHT_SHIFT": CommandIndex.BINARY_KEY_1,
     "C": CommandIndex.BINARY_KEY_2,
 }
 RESET_KEY = "L"
@@ -35,20 +35,6 @@ MODES = ("velocity", "point_goal")
 
 
 class Keyboard:
-    """Drives the env's full command from the keyboard, in one of two modes.
-
-    - ``velocity``: the arrow keys (or numpad 8/2/4/6) set the body-frame lin_x/lin_y command and
-      Z/X (numpad 7/9) the yaw command, at `sensitivity` while held.
-    - ``point_goal``: the goal starts `goal_offset` ahead of each env's root on the first
-      `advance`, in its heading, and stays fixed in world space. The arrow keys move it at
-      `sensitivity` m/s in the robot's current heading frame: up pushes it the way the robot
-      faces, left/right to the robot's own left/right. Z/X do nothing.
-
-    In both modes Left Shift drives binary_key_0, Space binary_key_1 and C binary_key_2: 1.0 while
-    held and on the first `advance` after a press, so a tap between two calls isn't lost. L releases
-    every key and, in ``point_goal`` mode, puts the goal back `goal_offset` ahead of the start pose.
-    """
-
     def __init__(
         self,
         mode: str,

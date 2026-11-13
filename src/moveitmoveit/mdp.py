@@ -150,14 +150,146 @@ def key_body_offsets(state: BodyState, local_frame: bool) -> torch.Tensor:
 # --- rewards ----------------------------------------------------------------------------------
 
 
-@reward(dof_scale=2.0, key_body_scale=5.0)
-def motion_tracking(c: StepContext, dof_scale: torch.Tensor, key_body_scale: torch.Tensor) -> torch.Tensor:
-    """DOF positions and root-relative key-body offsets vs. the reference motion."""
-    dof_error = torch.sum((c.state.dof_positions - c.targets.dof_positions) ** 2, dim=-1)
-    offsets = c.state.key_body_positions - c.state.root_positions.unsqueeze(1)
-    ref_offsets = c.targets.key_body_positions - c.targets.root_positions.unsqueeze(1)
-    key_body_error = torch.sum((offsets - ref_offsets).flatten(1) ** 2, dim=-1)
-    return torch.exp(-dof_scale * dof_error - key_body_scale * key_body_error)
+@reward(
+    dof_scale=2.0,
+    key_body_scale=5.0,
+    dof_vel_scale=0.05,
+    root_vel_scale=2.0,
+    root_ang_vel_scale=0.5,
+    dof_weight=0.25,
+    key_body_weight=0.20,
+    dof_vel_weight=0.20,
+    root_vel_weight=0.25,
+    root_ang_vel_weight=0.10,
+)
+def motion_tracking(
+    c: StepContext,
+    dof_scale: float,
+    key_body_scale: float,
+    dof_vel_scale: float,
+    root_vel_scale: float,
+    root_ang_vel_scale: float,
+    dof_weight: float,
+    key_body_weight: float,
+    dof_vel_weight: float,
+    root_vel_weight: float,
+    root_ang_vel_weight: float,
+) -> torch.Tensor:
+    """Track reference pose and motion dynamics."""
+    state = c.state
+    targets = c.targets
+
+    def tracking_reward(actual, target, scale):
+        error = (actual - target).square().mean(dim=-1)
+        return torch.exp(-scale * error)
+
+    offsets = state.key_body_positions - state.root_positions.unsqueeze(1)
+    ref_offsets = targets.key_body_positions - targets.root_positions.unsqueeze(1)
+
+    return (
+        dof_weight * tracking_reward(
+            state.dof_positions, targets.dof_positions, dof_scale
+        )
+        + key_body_weight * tracking_reward(
+            offsets.flatten(1), ref_offsets.flatten(1), key_body_scale
+        )
+        + dof_vel_weight * tracking_reward(
+            state.dof_velocities, targets.dof_velocities, dof_vel_scale
+        )
+        + root_vel_weight * tracking_reward(
+            state.root_linear_velocities,
+            targets.root_linear_velocities,
+            root_vel_scale,
+        )
+        + root_ang_vel_weight * tracking_reward(
+            state.root_angular_velocities,
+            targets.root_angular_velocities,
+            root_ang_vel_scale,
+        )
+    )
+
+
+@reward(
+    dof_scale=2.0,
+    key_body_scale=5.0,
+    dof_vel_scale=0.05,
+    root_vel_scale=2.0,
+    root_ang_vel_scale=0.5,
+    dof_weight=0.25,
+    key_body_weight=0.20,
+    dof_vel_weight=0.20,
+    root_vel_weight=0.25,
+    root_ang_vel_weight=0.10,
+)
+def heading_motion_tracking(
+    c: StepContext,
+    dof_scale: float,
+    key_body_scale: float,
+    dof_vel_scale: float,
+    root_vel_scale: float,
+    root_ang_vel_scale: float,
+    dof_weight: float,
+    key_body_weight: float,
+    dof_vel_weight: float,
+    root_vel_weight: float,
+    root_ang_vel_weight: float,
+) -> torch.Tensor:
+    """Track reference pose and velocities in each root's heading frame."""
+    state = c.state
+    targets = c.targets
+
+    def track(actual, target, scale):
+        error = (actual - target).square().mean(dim=-1)
+        return torch.exp(-scale * error)
+
+    # Root-relative key-body positions in heading frames
+    offsets = _heading_frame_offsets(
+        state.key_body_positions,
+        state.root_positions,
+        state.root_rotations,
+    )
+    ref_offsets = _heading_frame_offsets(
+        targets.key_body_positions,
+        targets.root_positions,
+        targets.root_rotations,
+    )
+
+    # Root velocities in heading frames
+    root_vel = _heading_frame_vectors(
+        state.root_linear_velocities,
+        state.root_rotations,
+    )
+    ref_root_vel = _heading_frame_vectors(
+        targets.root_linear_velocities,
+        targets.root_rotations,
+    )
+
+    root_ang_vel = _heading_frame_vectors(
+        state.root_angular_velocities,
+        state.root_rotations,
+    )
+    ref_root_ang_vel = _heading_frame_vectors(
+        targets.root_angular_velocities,
+        targets.root_rotations,
+    )
+
+    return (
+        dof_weight * track(
+            state.dof_positions, targets.dof_positions, dof_scale
+        )
+        + key_body_weight * track(
+            offsets.flatten(1), ref_offsets.flatten(1), key_body_scale
+        )
+        + dof_vel_weight * track(
+            state.dof_velocities, targets.dof_velocities, dof_vel_scale
+        )
+        + root_vel_weight * track(
+            root_vel, ref_root_vel, root_vel_scale
+        )
+        + root_ang_vel_weight * track(
+            root_ang_vel, ref_root_ang_vel, root_ang_vel_scale
+        )
+    )
 
 
 @reward(scale=2.0)
@@ -220,10 +352,6 @@ def progress(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     return scale * (previous - distance)
 
 
-# Standing terms. Bounded in [0, 1] and 1 for a still, upright robot over its feet; meant for a
-# motion's `standing.rewards`, together with e.g. joint_vel and action_rate_l2.
-
-
 @reward(scale=4.0)
 def root_lin_vel_l2(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     """Root linear speed, all three axes."""
@@ -261,17 +389,6 @@ def standing_pose(c: StepContext, scale: torch.Tensor, tolerance: torch.Tensor) 
     return torch.exp(-scale * torch.sum(excess**2, dim=-1))
 
 
-@reward(dof_scale=2.0, key_body_scale=5.0)
-def heading_motion_tracking(c: StepContext, dof_scale: torch.Tensor, key_body_scale: torch.Tensor) -> torch.Tensor:
-    """motion_tracking with the robot's and the reference's key-body offsets each in its own root's
-    heading frame, so a motion started at any heading and place is scored the same."""
-    dof_error = torch.sum((c.state.dof_positions - c.targets.dof_positions) ** 2, dim=-1)
-    offsets = _heading_frame_offsets(c.state.key_body_positions, c.state.root_positions, c.state.root_rotations)
-    ref_offsets = _heading_frame_offsets(c.targets.key_body_positions, c.targets.root_positions, c.targets.root_rotations)
-    key_body_error = torch.sum((offsets - ref_offsets).flatten(1) ** 2, dim=-1)
-    return torch.exp(-dof_scale * dof_error - key_body_scale * key_body_error)
-
-
 def _heading_frame_offsets(body_positions: torch.Tensor, root_positions: torch.Tensor, root_rotations: torch.Tensor) -> torch.Tensor:
     """Bodies' (N, B, 3) offsets from the root, with XY in the root's heading frame."""
     offsets = body_positions - root_positions.unsqueeze(1)
@@ -279,6 +396,15 @@ def _heading_frame_offsets(body_positions: torch.Tensor, root_positions: torch.T
     rotations = root_rotations.unsqueeze(1).expand(-1, num_bodies, -1).reshape(-1, 4)
     xy = transforms.world_to_heading_frame_xy(rotations, offsets[..., :2].reshape(-1, 2)).view(-1, num_bodies, 2)
     return torch.cat((xy, offsets[..., 2:]), dim=-1)
+
+
+def _heading_frame_vectors(
+    vectors: torch.Tensor,
+    root_rotations: torch.Tensor,
+) -> torch.Tensor:
+    """Rotate world-frame vectors into the root's heading frame."""
+    heading = transforms.yaw_quat(root_rotations)
+    return transforms.quat_apply_inverse(heading, vectors)
 
 
 # --- terminations -----------------------------------------------------------------------------
@@ -291,7 +417,7 @@ def deviation_from_motion(c: StepContext, threshold: float = 1.5) -> torch.Tenso
 
 
 @termination
-def unhealthy(c: StepContext, height_threshold: float = 0.65) -> torch.Tensor:
+def unhealthy(c: StepContext, height_threshold: float = 0.52) -> torch.Tensor:
     """The root body falls below a minimum height."""
     return c.state.root_positions[:, 2] < height_threshold
 

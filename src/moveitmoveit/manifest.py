@@ -15,7 +15,6 @@ class CommandIndex(IntEnum):
     GOAL_Y = 6
     BINARY_KEY_2 = 7
     BEHAVIOR_PHASE = 8
-    """Progress through the running behavior, which the env fills in. No motion declares it."""
 
 
 COMMAND_DIM = len(CommandIndex)
@@ -60,9 +59,7 @@ class StandingSpec:
 
 @dataclass(frozen=True)
 class SettleSpec:
-    """When a behavior counts as complete before its clip ends: once it is `min_phase` of the way
-    through and the robot's RMS joint speed is below `max_dof_speed` (rad/s)."""
-
+    """ When a behavior counts as complete. Both conditions must be satisifed """
     min_phase: float
     max_dof_speed: float
 

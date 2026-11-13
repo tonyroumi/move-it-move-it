@@ -10,6 +10,7 @@ from isaaclab.utils.math import (
     quat_mul,
     random_yaw_orientation,
     scale_transform,
+    yaw_quat
 )
 
 

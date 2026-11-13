@@ -28,7 +28,7 @@ TASK_ID = "MoveIt-Humanoid-v0"
 parser = argparse.ArgumentParser(description="Play back a motion clip on the humanoid.")
 parser.add_argument("--motion", type=str, required=True, help="Path to the motion clip (.npz) to play.")
 parser.add_argument(
-    "--camera_type",
+    "--camera",
     type=str,
     default=None,
     choices=["facing", "third-person", "none"],
@@ -56,7 +56,7 @@ def main():
     with launch_simulation(env_cfg, args_cli):
         env_cfg.scene.num_envs = 1
         env_cfg.random_reset = False
-        env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
+        env_cfg.camera_type = args_cli.camera if args_cli.camera is not None else env_cfg.camera_type
 
         # the env loads its clips from a manifest file, so describe the one clip in a throwaway manifest
         with tempfile.NamedTemporaryFile("w", suffix=".yaml") as manifest:

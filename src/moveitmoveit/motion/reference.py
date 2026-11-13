@@ -28,12 +28,13 @@ class ResetFrames(NamedTuple):
 
 
 class TrackingTargets(NamedTuple):
-    """Pose the tracking reward and termination compare the robot against."""
-
     dof_positions: torch.Tensor
+    dof_velocities: torch.Tensor
     root_positions: torch.Tensor
-    key_body_positions: torch.Tensor
     root_rotations: torch.Tensor
+    root_linear_velocities: torch.Tensor
+    root_angular_velocities: torch.Tensor
+    key_body_positions: torch.Tensor
 
 
 class ReferenceMotions:
@@ -66,16 +67,28 @@ class ReferenceMotions:
             frames.body_angular_velocities[:, root],
         )
 
-    def tracking_targets(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor) -> TrackingTargets:
-        """The pose to track at each env's current motion time, at that env's yaw."""
+    def tracking_targets(
+        self,
+        motion_ids: torch.Tensor,
+        times: torch.Tensor,
+        yaw: torch.Tensor,
+    ) -> TrackingTargets:
+        """Reference pose and velocities at each env's motion time and yaw."""
         frames = self._library.frames(motion_ids, times)
+
         if self._random_yaw:
             frames = self._apply_yaw(frames, yaw)
+
+        skeleton = self._skeleton
+
         return TrackingTargets(
-            frames.dof_positions[:, self._skeleton.dof_indexes],
-            frames.body_positions[:, self._skeleton.root_body_index],
-            frames.body_positions[:, self._skeleton.key_body_indexes],
-            frames.body_rotations[:, self._skeleton.root_body_index],
+            dof_positions=frames.dof_positions[:, skeleton.dof_indexes],
+            dof_velocities=frames.dof_velocities[:, skeleton.dof_indexes],
+            root_positions=frames.body_positions[:, skeleton.root_body_index],
+            root_rotations=frames.body_rotations[:, skeleton.root_body_index],
+            root_linear_velocities=frames.body_linear_velocities[:, skeleton.root_body_index],
+            root_angular_velocities=frames.body_angular_velocities[:, skeleton.root_body_index],
+            key_body_positions=frames.body_positions[:, skeleton.key_body_indexes],
         )
 
     def amp_seed(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:

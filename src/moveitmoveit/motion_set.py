@@ -114,12 +114,6 @@ class MotionSet:
     def _build_trigger_rate(self):
         """How often training presses each behavior's key, chosen so the agent spends about as much of
         its time in each behavior as the reference motion the discriminator sees does.
-
-        Discriminator batches draw motion m with probability p_m and a time uniform within its clip,
-        so behavior b fills a share p_b of them. An agent pressing at rate `trigger_rate` while in
-        locomotion, picking b with probability q_b, spends a share
-        rate * q_b * d_b / (1 + rate * sum_j q_j * d_j) of its time in b, d_b being b's duration.
-        Equating the two gives q_b proportional to p_b / d_b, and the rate below.
         """
         if self.num_behaviors == 0:
             self.trigger_rate = 0.0
@@ -150,9 +144,6 @@ class MotionSet:
         return torch.where(self.random_start[motion_ids], times, torch.zeros_like(times))
 
     def sample_reset(self, num_samples: int) -> ResetClips:
-        """Draw the clips `num_samples` resetting envs initialize. Each env is placed into a motion from
-        `sample_ids`, at its `start_times`. An env placed into a behavior also gets a locomotion motion
-        to return to, whose clip clock starts at that motion's own `start_times`."""
         motion_ids = self.sample_ids(num_samples)
         times = self.start_times(motion_ids)
         base_motion_ids = motion_ids.clone()
@@ -163,6 +154,7 @@ class MotionSet:
         if num_in_behavior > 0:
             base_motion_ids[in_behavior] = self.sample_locomotion_ids(num_in_behavior)
             locomotion_start_times[in_behavior] = self.start_times(base_motion_ids[in_behavior])
+
         return ResetClips(motion_ids, times, base_motion_ids, locomotion_start_times)
 
     def sample_commands(self, motion_ids: torch.Tensor, root_positions_xy: torch.Tensor | None = None) -> torch.Tensor:

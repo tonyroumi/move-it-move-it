@@ -51,11 +51,8 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 
 def main():
+    
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, moveitmoveit.agent_cfg_entry_point(args_cli.algo))
-    if agent_cfg["agent"]["class_type"] != args_cli.algo:
-        raise ValueError(
-            f"--algo {args_cli.algo} loaded an agent config whose class_type is {agent_cfg['agent']['class_type']}."
-        )
 
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
         experiment_cfg = yaml.safe_load(f)
