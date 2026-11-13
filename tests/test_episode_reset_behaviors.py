@@ -35,7 +35,20 @@ def _import_env_without_isaaclab() -> type:
 
     math = sys.modules.get("isaaclab.utils.math") or types.ModuleType("isaaclab.utils.math")
     functions = {"quat_apply": quat_apply, "quat_mul": quat_mul}
-    for name in ("quat_apply", "quat_apply_inverse", "quat_apply_yaw", "quat_mul", "yaw_quat", "random_yaw_orientation"):
+    # every name the package imports from isaaclab.utils.math
+    names = (
+        "euler_xyz_from_quat",
+        "normalize",
+        "quat_apply",
+        "quat_apply_inverse",
+        "quat_apply_yaw",
+        "quat_conjugate",
+        "quat_mul",
+        "random_yaw_orientation",
+        "scale_transform",
+        "yaw_quat",
+    )
+    for name in names:
         if not hasattr(math, name):
             setattr(math, name, functions.get(name, unused))
     envs = types.ModuleType("isaaclab.envs")
