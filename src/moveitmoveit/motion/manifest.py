@@ -84,9 +84,9 @@ class MotionSpec:
     """Whether a locomotion motion's tracking target repeats its clip once it ends, instead of holding
     the last frame. A triggered behavior runs once either way: it completes at phase 1 or settles."""
     random_start: bool = True
-    """Whether an env that initializes this motion's clip clock on reset starts it at a uniform random
-    time in the clip, or at time 0. Covers the clip an env resets into and the locomotion motion a
-    behavior reset returns to; discriminator batches still sample times uniformly."""
+    """Whether an env that resets into this motion's clip starts its clock at a uniform random time
+    in the clip, or at time 0. Resets start only locomotion motions; discriminator batches still
+    sample times uniformly."""
 
 
 def load_manifest(path: str) -> list[MotionSpec]:

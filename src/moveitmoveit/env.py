@@ -194,10 +194,10 @@ class MotionLearningEnv(DirectRLEnv):
         clips = self.motions.sample_reset(num_samples)
         times = clips.times
         self.motion_ids[env_ids] = clips.motion_ids
-        self.base_motion_ids[env_ids] = clips.base_motion_ids
-        self.motion_start_times[env_ids] = clips.locomotion_start_times
+        self.base_motion_ids[env_ids] = clips.motion_ids
+        self.motion_start_times[env_ids] = times
         frames = self.reference.frames_for_reset(self.motion_ids[env_ids], times)
-        self._reset_behaviors(env_ids, times)
+        self._reset_behaviors(env_ids)
 
         yaw = None
         if self.cfg.random_reset:
@@ -211,16 +211,20 @@ class MotionLearningEnv(DirectRLEnv):
             self.motion_ids[env_ids], times, self.random_yaw_quat[env_ids]
         )
 
-    def _reset_behaviors(self, env_ids: torch.Tensor, times: torch.Tensor):
-        behavior = self.motions.motion_behavior[self.motion_ids[env_ids]]
+    def _reset_behaviors(self, env_ids: torch.Tensor):
+        """Start each reset env in locomotion: no behavior, phase 0 and its behavior keys released."""
+        keys = env_ids.unsqueeze(-1), self.motions.behavior_keys
+        if self.cfg.resample_commands:
+            # training's key presses restart with the episode, so no key is still held
+            held = torch.zeros(env_ids.shape[0], self.motions.num_behaviors, device=self.device)
+        else:
+            # another source (play's keyboard) writes the keys and may still hold one; it must not
+            # start a behavior once the source writes it again
+            held = self.commands[keys]
 
-        if self.cfg.resample_commands and self.motions.num_behaviors > 0:
-            self.key_presses.reset(env_ids)
-            self.commands[env_ids.unsqueeze(-1), self.motions.behavior_keys] = 0.0
-
-        keys = self.commands[env_ids][:, self.motions.behavior_keys]
-        # episode time restarts at 0, so a behavior `times` in started at -times
-        self.behaviors.reset(env_ids, keys, behavior, -times)
+        self.key_presses.reset(env_ids)
+        self.commands[keys] = 0.0
+        self.behaviors.reset(env_ids, held)
         self.behavior_phase[env_ids] = 0.0
 
     def _update_behaviors(self):
