@@ -7,11 +7,13 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
-from ..motion.manifest import CommandIndex
-from ..utils import transforms
+from isaaclab.utils.math import quat_apply, quat_apply_inverse, yaw_quat
+
+from moveitmoveit.motion.manifest import CommandIndex
+from moveitmoveit.utils.transforms import world_to_heading_frame_xy
 
 if TYPE_CHECKING:
-    from .composer import StepContext
+    from moveitmoveit.mdp.composer import StepContext
 
 
 class RewardTerm(NamedTuple):
@@ -194,7 +196,7 @@ def target_hit(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
 def line_following(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     """Moving along the world-frame direction implied by the commanded body-frame velocity."""
     command = torch.cat((c.commanded_lin_vel, torch.zeros_like(c.commanded_lin_vel[:, :1])), dim=-1)
-    commanded_xy = transforms.quat_apply(c.state.root_rotations, command)[:, :2]
+    commanded_xy = quat_apply(c.state.root_rotations, command)[:, :2]
     actual_xy = c.state.root_linear_velocities[:, :2]
 
     commanded_norm = torch.norm(commanded_xy, dim=-1).clamp_min(1e-6)
@@ -249,7 +251,7 @@ def upright(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     """Root tilt, as 1 minus the world-Z component of its up axis (0 upright, 1 lying flat)."""
     up_axis = torch.zeros_like(c.state.root_positions)
     up_axis[:, 2] = 1.0
-    tilt = 1.0 - transforms.quat_apply(c.state.root_rotations, up_axis)[:, 2]
+    tilt = 1.0 - quat_apply(c.state.root_rotations, up_axis)[:, 2]
     return torch.exp(-scale * tilt)
 
 
@@ -274,7 +276,7 @@ def _heading_frame_offsets(body_positions: torch.Tensor, root_positions: torch.T
     offsets = body_positions - root_positions.unsqueeze(1)
     num_bodies = offsets.shape[1]
     rotations = root_rotations.unsqueeze(1).expand(-1, num_bodies, -1).reshape(-1, 4)
-    xy = transforms.world_to_heading_frame_xy(rotations, offsets[..., :2].reshape(-1, 2)).view(-1, num_bodies, 2)
+    xy = world_to_heading_frame_xy(rotations, offsets[..., :2].reshape(-1, 2)).view(-1, num_bodies, 2)
     return torch.cat((xy, offsets[..., 2:]), dim=-1)
 
 
@@ -283,5 +285,5 @@ def _heading_frame_vectors(
     root_rotations: torch.Tensor,
 ) -> torch.Tensor:
     """Rotate world-frame vectors into the root's heading frame."""
-    heading = transforms.yaw_quat(root_rotations)
-    return transforms.quat_apply_inverse(heading, vectors)
+    heading = yaw_quat(root_rotations)
+    return quat_apply_inverse(heading, vectors)

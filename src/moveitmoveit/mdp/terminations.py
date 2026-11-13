@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import torch
 
 if TYPE_CHECKING:
-    from .composer import StepContext
+    from moveitmoveit.mdp.composer import StepContext
 
 
 TERMINATIONS: dict[str, Callable[[StepContext], torch.Tensor]] = {}

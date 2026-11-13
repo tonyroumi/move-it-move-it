@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
-from .base import MLP
+from moveitmoveit.models.base import MLP
 
 
 class GaussianMLP(MLP):

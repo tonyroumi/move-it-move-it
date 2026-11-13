@@ -2,10 +2,11 @@ from typing import Callable, NamedTuple
 
 import torch
 
-from moveitmoveit.mdp import BodyState
-from moveitmoveit.utils import transforms
+from isaaclab.utils.math import random_yaw_orientation
 
-from .library import MotionFrames, MotionLibrary
+from moveitmoveit.mdp import BodyState
+from moveitmoveit.motion.library import MotionFrames, MotionLibrary
+from moveitmoveit.utils.transforms import apply_random_yaw
 
 
 class SkeletonMap(NamedTuple):
@@ -96,7 +97,7 @@ class ReferenceMotions:
         motion_ids = self._pick(num_samples)
         times = self._library.sample_times(motion_ids)
 
-        yaw = transforms.random_yaw_orientation(num_samples, self._library.device) if self._random_yaw else None
+        yaw = random_yaw_orientation(num_samples, self._library.device) if self._random_yaw else None
         return self._amp_observations(motion_ids, times, yaw).view(num_samples, -1)
 
     def _amp_observations(self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor | None) -> torch.Tensor:
@@ -118,7 +119,7 @@ class ReferenceMotions:
         return self._style_obs(state, self._random_yaw)
 
     def _apply_yaw(self, frames: MotionFrames, yaw: torch.Tensor) -> MotionFrames:
-        body_positions, body_rotations, body_linear_velocities, body_angular_velocities = transforms.apply_random_yaw(
+        body_positions, body_rotations, body_linear_velocities, body_angular_velocities = apply_random_yaw(
             yaw,
             self._skeleton.root_body_index,
             frames.body_positions,

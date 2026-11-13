@@ -11,7 +11,7 @@ import gymnasium as gym
 import torch
 import yaml
 
-import moveitmoveit
+from moveitmoveit import agent_cfg_entry_point
 
 from isaaclab_tasks.utils import (
     add_launcher_args,
@@ -48,7 +48,7 @@ if args_cli.record:
 
 def main():
     # only the env config is used; no agent runs here
-    env_cfg, _ = resolve_task_config(TASK_ID, moveitmoveit.agent_cfg_entry_point("PPO"))
+    env_cfg, _ = resolve_task_config(TASK_ID, agent_cfg_entry_point("PPO"))
 
     motion_file = os.path.abspath(args_cli.motion)
     motion_name = os.path.splitext(os.path.basename(motion_file))[0]

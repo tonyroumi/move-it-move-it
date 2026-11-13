@@ -2,7 +2,7 @@
 
 import torch
 
-from .manifest import CommandIndex
+from moveitmoveit.motion.manifest import CommandIndex
 
 LOCOMOTION = -1
 
