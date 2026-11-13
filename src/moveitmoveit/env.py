@@ -108,8 +108,8 @@ class MotionLearningEnv(DirectRLEnv):
 
         if self.render_enabled and self.cfg.camera_type != "none":
             if self.cfg.camera_type == "facing":
-                self._camera_target_offset = torch.tensor([2.5, 0.0, 0.3], device=self.device)
-                self._camera_eye_offset = torch.tensor([4.0, 0.0, -0.3], device=self.device)
+                self._camera_target_offset = torch.tensor([2.5, 0.0, 0.0], device=self.device)
+                self._camera_eye_offset = torch.tensor([3.0, 0.0, 0.0], device=self.device)
             elif self.cfg.camera_type == "third-person":
                 self._camera_target_offset = torch.tensor([1.0, 0.0, 0.5], device=self.device)
                 self._camera_eye_offset = torch.tensor([-6.0, 0.0, 3.0], device=self.device)
@@ -341,7 +341,7 @@ class MotionLearningEnv(DirectRLEnv):
         """Root state, DOF positions and DOF velocities to write for `frames`, optionally yawed."""
         root_state = self.default_root_state[env_ids].clone()
         root_state[:, 0:3] = frames.root_positions + self.scene.env_origins[env_ids]
-        root_state[:, 2] += 0.1  # lift the humanoid slightly to avoid collisions with the ground
+        # root_state[:, 2] += 0.1  # lift the humanoid slightly to avoid collisions with the ground
         root_state[:, 3:7] = frames.root_rotations
         root_state[:, 7:10] = frames.root_linear_velocities
         root_state[:, 10:13] = frames.root_angular_velocities
