@@ -8,7 +8,7 @@ import torch
 
 from isaaclab.utils.math import quat_apply_yaw
 
-from moveitmoveit.manifest import COMMAND_DIM, CommandIndex
+from moveitmoveit.motion.manifest import COMMAND_DIM, CommandIndex
 
 # key -> (forward, left, yaw) direction; each key and its numpad twin drive the same axis
 MOTION_KEYS: dict[str, tuple[float, float, float]] = {

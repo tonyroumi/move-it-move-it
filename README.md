@@ -18,12 +18,13 @@ them via `./isaaclab.sh --install` from the IsaacLab repo.
 Train:
 
 ```bash
-./isaaclab.sh -p scripts/train.py --algo <PPO|AMP> --manifest <manifest.yaml>
+./isaaclab.sh -p scripts/train.py --algo <PPO|AMP> --manifest <manifest.yaml> --name <experiment_name>
 ```
 
 `--algo` picks the trainer and its config. `PPO` loads `configs/agents/ppo.yaml` and trains on the
 manifest's task rewards alone. `AMP` loads `configs/agents/amp.yaml` and adds a discriminator's
-style reward. Logs go to `logs/<directory>/<experiment_name>/<algo>/`.
+style reward. `--name` is required and sets the experiment name. Logs go to
+`logs/<directory>/<experiment_name>/<algo>/`, where `<experiment_name>` is the `--name` value.
 
 Play a checkpoint:
 
@@ -65,7 +66,7 @@ next resample. The policy observes the goal as an offset in its heading frame; `
 closing the distance and is 0 on the first step after a reset or a new goal.
 
 ```bash
-./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/goal_manifest.yaml
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/goal_manifest.yaml --name goal_walking
 ```
 
 Drive the goal from the keyboard while playing a checkpoint trained this way. The goal (a red
@@ -181,7 +182,7 @@ nothing, and a key held past its end does not start it again.
   its terminations apply. The goal rewards resume when it completes.
 - **How training triggers behaviors**: training presses the trigger keys at random, with random
   hold lengths, into the same command slots the keyboard writes. Training and play therefore run
-  the same latching code (`moveitmoveit/behavior.py`). The press rate is derived from
+  the same latching code (`moveitmoveit/motion/behavior.py`). The press rate is derived from
   `sample_prob`, so the agent spends about as much of its time in each behavior as the
   discriminator's reference data does. An episode that resets into a behavior clip starts that
   behavior part-way through.
@@ -191,7 +192,7 @@ nothing, and a key held past its end does not start it again.
   zero command there still imitates the bounce clip's guard, with style reward on.
 
 ```bash
-./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/boxing_manifest.yaml
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/boxing_manifest.yaml --name boxing
 ./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick-mode point_goal
 ```
 
@@ -292,7 +293,7 @@ motion, `walk_to_goal`, walks toward a world-space goal and stands still within 
 - **In play**: the arrow keys move the goal, as in goal tracking.
 
 ```bash
-./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/dance_manifest.yaml
+./isaaclab.sh -p scripts/train.py --algo AMP --manifest configs/manifests/dance_manifest.yaml --name dance
 ./isaaclab.sh -p scripts/play.py --checkpoint <path> --joystick-mode point_goal
 ```
 
