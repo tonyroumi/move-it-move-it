@@ -9,7 +9,7 @@ import time
 import gymnasium as gym
 import torch
 
-import moveitmoveit
+from moveitmoveit import agent_cfg_entry_point
 from moveitmoveit.motion.manifest import CommandIndex
 from moveitmoveit.utils.logger import Logger
 
@@ -66,7 +66,7 @@ if args_cli.record:
 
 def main():
     # the agent config is the one saved with the checkpoint, read below; this one is discarded
-    env_cfg, _ = resolve_task_config(TASK_ID, moveitmoveit.agent_cfg_entry_point("PPO"))
+    env_cfg, _ = resolve_task_config(TASK_ID, agent_cfg_entry_point("PPO"))
 
     with launch_simulation(env_cfg, args_cli):
         resume_path = os.path.abspath(args_cli.checkpoint)

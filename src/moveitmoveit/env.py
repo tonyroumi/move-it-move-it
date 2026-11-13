@@ -3,15 +3,14 @@ import numpy as np
 import torch
 
 from isaaclab.envs import DirectRLEnv
+from isaaclab.utils.math import quat_apply, quat_apply_yaw, quat_mul, random_yaw_orientation
 
-from moveitmoveit.utils import transforms
-
-from .env_cfg import MotionLearningEnvCfg
-from .mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
-from .motion.behavior import LOCOMOTION, BehaviorManager, RandomKeyPresses, behavior_commands, reference_times, settled
-from .motion.manifest import COMMAND_DIM
-from .motion.motion_set import MotionSet
-from .motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
+from moveitmoveit.env_cfg import MotionLearningEnvCfg
+from moveitmoveit.mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
+from moveitmoveit.motion.behavior import LOCOMOTION, BehaviorManager, RandomKeyPresses, behavior_commands, reference_times, settled
+from moveitmoveit.motion.manifest import COMMAND_DIM
+from moveitmoveit.motion.motion_set import MotionSet
+from moveitmoveit.motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
 
 
 class MotionLearningEnv(DirectRLEnv):
@@ -130,11 +129,11 @@ class MotionLearningEnv(DirectRLEnv):
 
         if self.cfg.camera_type == "third-person":
             root_quat = self.robot.data.root_quat_w.torch[:1]
-            target_offset = transforms.quat_apply_yaw(root_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
-            eye_offset = transforms.quat_apply_yaw(root_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
+            target_offset = quat_apply_yaw(root_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
+            eye_offset = quat_apply_yaw(root_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
         else:
-            target_offset = transforms.quat_apply(self.random_yaw_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
-            eye_offset = transforms.quat_apply(self.random_yaw_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
+            target_offset = quat_apply(self.random_yaw_quat, self._camera_target_offset.unsqueeze(0)).squeeze(0)
+            eye_offset = quat_apply(self.random_yaw_quat, self._camera_eye_offset.unsqueeze(0)).squeeze(0)
 
         target = root_pos + target_offset
         eye = target + eye_offset
@@ -202,7 +201,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         yaw = None
         if self.cfg.random_reset:
-            yaw = transforms.random_yaw_orientation(num_samples, self.device)
+            yaw = random_yaw_orientation(num_samples, self.device)
             self.random_yaw_quat[env_ids] = yaw
         root_state, dof_pos, dof_vel = self._compute_robot_state(env_ids, frames, yaw)
 
@@ -344,8 +343,8 @@ class MotionLearningEnv(DirectRLEnv):
         root_state[:, 10:13] = frames.root_angular_velocities
 
         if yaw is not None:
-            root_state[:, 0:3] = transforms.quat_apply(yaw, root_state[:, 0:3])
-            root_state[:, 3:7] = transforms.quat_mul(yaw, root_state[:, 3:7])
-            root_state[:, 7:10] = transforms.quat_apply(yaw, root_state[:, 7:10])
-            root_state[:, 10:13] = transforms.quat_apply(yaw, root_state[:, 10:13])
+            root_state[:, 0:3] = quat_apply(yaw, root_state[:, 0:3])
+            root_state[:, 3:7] = quat_mul(yaw, root_state[:, 3:7])
+            root_state[:, 7:10] = quat_apply(yaw, root_state[:, 7:10])
+            root_state[:, 10:13] = quat_apply(yaw, root_state[:, 10:13])
         return root_state, frames.dof_positions, frames.dof_velocities

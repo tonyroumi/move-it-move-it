@@ -1,6 +1,6 @@
-from .amp import AMP, AMPCfg
-from .base import BaseAgent, BaseCfg
-from .ppo import PPO, PPOCfg
+from moveitmoveit.agents.amp import AMP, AMPCfg
+from moveitmoveit.agents.base import BaseAgent, BaseCfg
+from moveitmoveit.agents.ppo import PPO, PPOCfg
 
 __all__ = [
     "BaseAgent",

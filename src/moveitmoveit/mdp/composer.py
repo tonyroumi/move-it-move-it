@@ -9,14 +9,16 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
-from ..motion.manifest import CommandIndex, MotionSpec, RewardSpec, check_known
-from ..utils import transforms
-from .observations import OBSERVATIONS
-from .rewards import REWARDS
-from .terminations import TERMINATIONS
+from isaaclab.utils.math import quat_apply_inverse
+
+from moveitmoveit.mdp.observations import OBSERVATIONS
+from moveitmoveit.mdp.rewards import REWARDS
+from moveitmoveit.mdp.terminations import TERMINATIONS
+from moveitmoveit.motion.manifest import CommandIndex, MotionSpec, RewardSpec, check_known
+from moveitmoveit.utils.transforms import world_to_heading_frame_xy
 
 if TYPE_CHECKING:
-    from ..motion.reference import TrackingTargets
+    from moveitmoveit.motion.reference import TrackingTargets
 
 
 class BodyState(NamedTuple):
@@ -54,12 +56,12 @@ class StepContext:
     @cached_property
     def local_lin_vel_xy(self) -> torch.Tensor:
         """The root's forward/lateral linear velocity in its body frame, (N, 2)."""
-        return transforms.quat_apply_inverse(self.state.root_rotations, self.state.root_linear_velocities)[:, :2]
+        return quat_apply_inverse(self.state.root_rotations, self.state.root_linear_velocities)[:, :2]
 
     @cached_property
     def local_yaw_rate(self) -> torch.Tensor:
         """The root's yaw angular velocity in its body frame, (N,)."""
-        return transforms.quat_apply_inverse(self.state.root_rotations, self.state.root_angular_velocities)[:, 2]
+        return quat_apply_inverse(self.state.root_rotations, self.state.root_angular_velocities)[:, 2]
 
     @property
     def root_positions_xy(self) -> torch.Tensor:
@@ -82,7 +84,7 @@ def policy_commands(
     goal = slice(CommandIndex.GOAL_X, CommandIndex.GOAL_Y + 1)
     offset = commands[:, goal] - state.root_positions[:, :2]
     if local_frame:
-        offset = transforms.world_to_heading_frame_xy(state.root_rotations, offset)
+        offset = world_to_heading_frame_xy(state.root_rotations, offset)
 
     observed = commands.clone()
     observed[:, goal] = torch.where(has_goal.unsqueeze(-1), offset, torch.zeros_like(offset))

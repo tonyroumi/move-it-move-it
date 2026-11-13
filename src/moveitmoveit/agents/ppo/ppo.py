@@ -14,8 +14,8 @@ from moveitmoveit.storage import RolloutStorage
 from moveitmoveit.utils.logger import Logger
 from moveitmoveit.utils.utils import explained_variance, fraction_outside_bounds
 
-from .ppo_cfg import PPOCfg
-from ..base import BaseAgent
+from moveitmoveit.agents.ppo.ppo_cfg import PPOCfg
+from moveitmoveit.agents.base import BaseAgent
 
 
 def compute_gae(

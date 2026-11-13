@@ -7,10 +7,12 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
-from ..utils import transforms
+from isaaclab.utils.math import quat_apply_inverse
+
+from moveitmoveit.utils.transforms import quaternion_to_tangent_and_normal
 
 if TYPE_CHECKING:
-    from .composer import BodyState
+    from moveitmoveit.mdp.composer import BodyState
 
 
 class ObservationTerm(NamedTuple):
@@ -46,20 +48,20 @@ def root_height(state: BodyState, local_frame: bool) -> torch.Tensor:
 
 @observation(dim=6)
 def root_orientation(state: BodyState, local_frame: bool) -> torch.Tensor:
-    return transforms.quaternion_to_tangent_and_normal(state.root_rotations)
+    return quaternion_to_tangent_and_normal(state.root_rotations)
 
 
 @observation(dim=3)
 def root_lin_vel(state: BodyState, local_frame: bool) -> torch.Tensor:
     if local_frame:
-        return transforms.quat_apply_inverse(state.root_rotations, state.root_linear_velocities)
+        return quat_apply_inverse(state.root_rotations, state.root_linear_velocities)
     return state.root_linear_velocities
 
 
 @observation(dim=3)
 def root_ang_vel(state: BodyState, local_frame: bool) -> torch.Tensor:
     if local_frame:
-        return transforms.quat_apply_inverse(state.root_rotations, state.root_angular_velocities)
+        return quat_apply_inverse(state.root_rotations, state.root_angular_velocities)
     return state.root_angular_velocities
 
 
@@ -68,5 +70,5 @@ def key_body_offsets(state: BodyState, local_frame: bool) -> torch.Tensor:
     offsets = state.key_body_positions - state.root_positions.unsqueeze(1)
     if local_frame:
         rotations = state.root_rotations.unsqueeze(1).expand(-1, offsets.shape[1], -1)
-        offsets = transforms.quat_apply_inverse(rotations, offsets)
+        offsets = quat_apply_inverse(rotations, offsets)
     return offsets.flatten(1)

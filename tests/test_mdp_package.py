@@ -7,16 +7,27 @@ import types
 import torch
 
 if importlib.util.find_spec("isaaclab") is None:
-    # `utils.transforms` imports two quaternion ops from IsaacLab, which is installed only beside
-    # Isaac Sim. Scriptable stand-ins are enough to import the package; no term runs here.
+    # `utils.transforms`, the MDP terms, and the motion reference import quaternion ops from IsaacLab,
+    # which is installed only beside Isaac Sim. Scriptable stand-ins are enough to import the package;
+    # no term runs here.
     def quat_apply(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+        return vec
+
+    def quat_apply_inverse(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
         return vec
 
     def quat_mul(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
         return q1
 
+    def yaw_quat(quat: torch.Tensor) -> torch.Tensor:
+        return quat
+
+    def random_yaw_orientation(num: int, device: str) -> torch.Tensor:
+        return torch.zeros(num, 4, device=device)
+
     math = types.ModuleType("isaaclab.utils.math")
-    math.quat_apply, math.quat_mul = quat_apply, quat_mul
+    math.quat_apply, math.quat_apply_inverse, math.quat_mul = quat_apply, quat_apply_inverse, quat_mul
+    math.yaw_quat, math.random_yaw_orientation = yaw_quat, random_yaw_orientation
     sys.modules |= {
         "isaaclab": types.ModuleType("isaaclab"),
         "isaaclab.utils": types.ModuleType("isaaclab.utils"),

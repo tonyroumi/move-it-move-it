@@ -22,7 +22,7 @@ from isaaclab_tasks.utils import (
     setup_preset_cli,
 )
 
-import moveitmoveit
+from moveitmoveit import ALGOS, agent_cfg_entry_point
 from moveitmoveit.utils.logger import Logger
 from moveitmoveit.utils.paths import CONFIGS_DIR
 
@@ -40,7 +40,7 @@ parser.add_argument(
     "--algo",
     type=str,
     required=True,
-    choices=moveitmoveit.ALGOS,
+    choices=ALGOS,
     help="Trainer: PPO trains on the task reward alone; AMP adds a discriminator's style reward.",
 )
 parser.add_argument("--manifest", type=str, required=True, help="Manifest file")
@@ -58,7 +58,7 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 def main():
     
-    env_cfg, agent_cfg = resolve_task_config(TASK_ID, moveitmoveit.agent_cfg_entry_point(args_cli.algo))
+    env_cfg, agent_cfg = resolve_task_config(TASK_ID, agent_cfg_entry_point(args_cli.algo))
 
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
         experiment_cfg = yaml.safe_load(f)

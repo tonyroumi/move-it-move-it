@@ -14,8 +14,8 @@ from moveitmoveit.resources import RunningStandardScaler
 from moveitmoveit.storage import CircularBuffer
 from moveitmoveit.utils.logger import Logger
 
-from .amp_cfg import AMPCfg
-from ..ppo import PPO
+from moveitmoveit.agents.amp.amp_cfg import AMPCfg
+from moveitmoveit.agents.ppo import PPO
 
 
 class AMP(PPO):
