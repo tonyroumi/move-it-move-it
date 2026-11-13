@@ -10,7 +10,7 @@ import gymnasium as gym
 import torch
 
 import moveitmoveit
-from moveitmoveit.manifest import CommandIndex
+from moveitmoveit.motion.manifest import CommandIndex
 from moveitmoveit.utils.logger import Logger
 
 from isaaclab.utils.dict import update_class_from_dict

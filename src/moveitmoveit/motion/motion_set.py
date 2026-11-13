@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import torch
 
 from .manifest import COMMAND_DIM, CommandIndex, MotionSpec, load_manifest
-from .motion.library import MotionLibrary
+from .library import MotionLibrary
 
 
 @dataclass

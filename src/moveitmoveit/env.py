@@ -6,12 +6,12 @@ from isaaclab.envs import DirectRLEnv
 
 from moveitmoveit.utils import transforms
 
-from .behavior import LOCOMOTION, BehaviorManager, RandomKeyPresses, behavior_commands, reference_times, settled
 from .env_cfg import MotionLearningEnvCfg
-from .manifest import COMMAND_DIM
 from .mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
+from .motion.behavior import LOCOMOTION, BehaviorManager, RandomKeyPresses, behavior_commands, reference_times, settled
+from .motion.manifest import COMMAND_DIM
+from .motion.motion_set import MotionSet
 from .motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
-from .motion_set import MotionSet
 
 
 class MotionLearningEnv(DirectRLEnv):

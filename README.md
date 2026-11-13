@@ -181,7 +181,7 @@ nothing, and a key held past its end does not start it again.
   its terminations apply. The goal rewards resume when it completes.
 - **How training triggers behaviors**: training presses the trigger keys at random, with random
   hold lengths, into the same command slots the keyboard writes. Training and play therefore run
-  the same latching code (`moveitmoveit/behavior.py`). The press rate is derived from
+  the same latching code (`moveitmoveit/motion/behavior.py`). The press rate is derived from
   `sample_prob`, so the agent spends about as much of its time in each behavior as the
   discriminator's reference data does. An episode that resets into a behavior clip starts that
   behavior part-way through.
