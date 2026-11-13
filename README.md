@@ -59,6 +59,22 @@ motions:
     random_start: false
 ```
 
+A motion's `termination` ends an env's episode early. It takes a term name or a list of names,
+which keeps each term's defaults: `deviation_from_motion` (`threshold: 1.5`, on the summed squared
+DOF error) and `unhealthy` (`height_threshold: 0.52`, in m). Omitted means `unhealthy`. To change
+a motion's arguments, map each term to the ones it overrides, as a reward's kwargs do; a term
+listed without arguments keeps its defaults.
+
+```yaml
+motions:
+  walk:
+    file: data/walk.npz
+    termination:
+      unhealthy:
+        height_threshold: 0.45
+      deviation_from_motion:       # threshold 1.5
+```
+
 ## Goal tracking
 
 `configs/goal_manifest.yaml` trains walking toward a random world-space goal, sampled per

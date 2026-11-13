@@ -85,7 +85,7 @@ def _clip(path, num_frames: int) -> str:
 
 
 def _spec(name: str, file: str, sample_prob: float, **kwargs) -> MotionSpec:
-    return MotionSpec(name, file, sample_prob, {}, 0.0, {}, (), **kwargs)
+    return MotionSpec(name, file, sample_prob, {}, 0.0, {}, {}, **kwargs)
 
 
 @pytest.fixture
