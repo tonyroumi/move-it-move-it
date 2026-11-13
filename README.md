@@ -75,6 +75,50 @@ motions:
       deviation_from_motion:       # threshold 1.5
 ```
 
+### Sweeps
+
+A sweep trains once for each directory under a sweep root (`sweep/` by default). Each run
+directory carries its own parameter files, and its results are written into it too:
+
+```text
+sweep/
+└── algo=PPO__manifest=box_manifest__num_envs=4096__seed=1__experiment.experiment_name=boxing/
+    ├── experiment.yaml                  # seed, experiment directory, logger, description
+    ├── agents/ppo.yaml                  # agents/<algo>.yaml: the agent's hyperparameters
+    ├── manifests/box_manifest.yaml      # the motion manifest
+    └── locomotion/boxing/PPO/<timestamp>/{params,checkpoints,description.txt}   # written by training
+```
+
+The directory name is `key=value` segments separated by `__`:
+
+| Key | Required | Effect |
+|---|---|---|
+| `algo` | yes | `PPO` or `AMP`. Trains with `agents/<algo>.yaml` from the run directory. |
+| `manifest` | yes | Trains with `manifests/<manifest>.yaml` from the run directory. |
+| `experiment.experiment_name` | no | Overrides the run's `experiment.yaml`, and becomes `train.py --name`. |
+| `seed` | no | Overrides the run's `experiment.yaml`. |
+| `num_envs` | no | `train.py --num_envs`. Without it, the env's default applies. |
+
+Percent-encode a value that contains `__`, `=` or `/` (`%5F%5F`, `%3D`, `%2F`; a literal `%` is
+`%25`). A value that ends in `_` runs into the `__` after it, so encode that `_` as `%5F` too.
+
+```bash
+./isaaclab.sh -p scripts/sweep.py [sweep_root] [--force] [--dry_run] [--headless ...]
+```
+
+- **One run at a time.** Runs train in name order, each in its own `scripts/train.py` process.
+  Any other argument, such as `--headless`, goes to every run.
+- **Per-run files.** `train.py` reads the run's files through `--agent_cfg`, `--manifest` and
+  `--experiment`. The name's overrides go into a temporary copy of the run's `experiment.yaml`;
+  neither that file nor anything in `configs/` is changed.
+- **Bad runs.** A bad name, a missing file, or an `agents/<algo>.yaml` whose `agent.class_type`
+  isn't `algo` is reported with the reason, and the sweep goes on to the next run.
+- **Finished runs.** A run directory that already holds its final
+  `checkpoints/<runner.timesteps>.pt` is skipped, unless you pass `--force`.
+- **Dry run.** `--dry_run` checks every run and prints its command, without training.
+- Directories starting with `.` are skipped. Run the sweep from the repo root, as for training,
+  because manifests' clip paths are relative to it.
+
 ## Goal tracking
 
 `configs/goal_manifest.yaml` trains walking toward a random world-space goal, sampled per

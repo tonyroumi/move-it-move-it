@@ -50,6 +50,19 @@ parser.add_argument(
     required=True,
     help="Experiment name: sets experiment.experiment_name and names the log directory.",
 )
+parser.add_argument(
+    "--experiment",
+    type=str,
+    default=os.path.join(CONFIGS_DIR, "experiment.yaml"),
+    help="Experiment file with the seed, experiment directory, logger and description.",
+)
+parser.add_argument(
+    "--agent_cfg",
+    type=str,
+    default=None,
+    help="Agent config file to train with, instead of configs/agents/<algo>.yaml.",
+)
+parser.add_argument("--log_root", type=str, default="logs", help="Directory the run's logs are written under.")
 
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
@@ -57,10 +70,13 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 
 def main():
-    
-    env_cfg, agent_cfg = resolve_task_config(TASK_ID, agent_cfg_entry_point(args_cli.algo))
+    entry_point = agent_cfg_entry_point(args_cli.algo)
+    if args_cli.agent_cfg is not None:
+        # Point this process's task registration at the given file; configs/agents/ is untouched.
+        gym.spec(TASK_ID).kwargs[entry_point] = os.path.abspath(args_cli.agent_cfg)
+    env_cfg, agent_cfg = resolve_task_config(TASK_ID, entry_point)
 
-    with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
+    with open(args_cli.experiment, "r") as f:
         experiment_cfg = yaml.safe_load(f)
     agent_cfg["seed"] = experiment_cfg["seed"]
     agent_cfg["experiment"] = experiment_cfg["experiment"]
@@ -72,7 +88,7 @@ def main():
         env_cfg.motion_manifest = args_cli.manifest
 
         log_root_path = os.path.join(
-            "logs",
+            args_cli.log_root,
             agent_cfg["experiment"]["directory"],
             agent_cfg["experiment"]["experiment_name"],
             args_cli.algo,
