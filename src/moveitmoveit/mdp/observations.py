@@ -1,5 +1,3 @@
-"""Observation terms: what the policy and the discriminator see of a body state."""
-
 from __future__ import annotations
 
 from collections.abc import Callable

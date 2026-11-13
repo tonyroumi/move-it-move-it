@@ -1,8 +1,16 @@
 import torch
 
 from isaaclab.utils.math import (
+    euler_xyz_from_quat,
+    normalize,
     quat_apply,
+    quat_apply_inverse,
+    quat_apply_yaw,
+    quat_conjugate,
     quat_mul,
+    random_yaw_orientation,
+    scale_transform,
+    yaw_quat
 )
 
 

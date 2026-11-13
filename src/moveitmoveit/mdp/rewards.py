@@ -1,5 +1,3 @@
-"""Reward terms: what a selected run is paid for at one env step."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -32,13 +30,7 @@ def reward(**defaults: float):
     return register
 
 
-@reward(
-    dof_scale=2.0,
-    key_body_scale=5.0,
-    dof_vel_scale=0.05,
-    root_vel_scale=2.0,
-    root_ang_vel_scale=0.5,
-)
+@reward(dof_scale=2.0, key_body_scale=5.0, dof_vel_scale=0.05, root_vel_scale=2.0, root_ang_vel_scale=0.5)
 def motion_tracking(
     c: StepContext,
     dof_scale: float = 2.0,
@@ -86,13 +78,7 @@ def motion_tracking(
     )
 
 
-@reward(
-    dof_scale=2.0,
-    key_body_scale=5.0,
-    dof_vel_scale=0.05,
-    root_vel_scale=2.0,
-    root_ang_vel_scale=0.5,
-)
+@reward(dof_scale=2.0, key_body_scale=5.0, dof_vel_scale=0.05, root_vel_scale=2.0, root_ang_vel_scale=0.5,)
 def heading_motion_tracking(
     c: StepContext,
     dof_scale: float = 2.0,

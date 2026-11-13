@@ -29,7 +29,7 @@ motions:
         right_elbow: -0.2
         left_elbow: -0.2
       rewards:
-        target_hit: {weight: 0.5, scale: 0.5}
+        target_hit: {weight: 1.0, scale: 0.5}
         root_lin_vel_l2: {weight: 1.0, scale: 4.0}
         root_ang_vel_l2: {weight: 0.5, scale: 2.0}
         joint_vel: {weight: 0.5, scale: 5.0e-2}
@@ -45,9 +45,11 @@ motions:
   # the landing is absorbed. The clip itself drops below 0.6 rad/s at phase 0.93.
   jump:
     file: data/jump/standing_broad_jump.npz
-    trigger: binary_key_1
-    sample_prob: 0.2
-    settle: {min_phase: 0.9, max_dof_speed: 0.6}
+    trigger: binary_key_0
+    sample_prob: 0.25
+    settle: {min_phase: 1.0, max_dof_speed: 0.6}
     rewards:
-      heading_motion_tracking: {weight: 2.0}
+      heading_motion_tracking: {weight: 25.0}
     termination: unhealthy
+    random_start: false
+    loop: false

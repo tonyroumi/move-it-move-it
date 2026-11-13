@@ -1,5 +1,3 @@
-"""Termination terms: when an env's episode ends early."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
