@@ -47,7 +47,9 @@ motions:
 ```
 
 A reset places each env into a locomotion motion at a uniform random time in its clip. It never
-places an env into a triggered behavior: every episode starts in locomotion. Set
+places an env into a triggered behavior: every episode starts in locomotion. The one exception is
+a manifest that declares no locomotion motion, whose resets start in a behavior; see
+"Behaviors with no locomotion motion". Set
 `random_start: false` on a manifest motion to start its clip at time 0 instead whenever a reset
 initializes it. Omitted means `true`. Discriminator reference batches still sample every motion,
 behaviors included, at random times.
@@ -263,6 +265,46 @@ nothing, and a key held past its end does not start it again.
 
 In play, the arrow keys move the goal, Left Shift throws the jab, Space the right hook and C the
 combo. Run both commands from the repo root, because the manifest's clip paths are relative.
+
+### Behaviors with no locomotion motion
+
+A manifest may declare only behaviors: every motion has a `trigger` and none is a locomotion
+motion. There is then nothing to start in or return to, so the behaviors are always on. Every env
+runs a behavior at every step, with no key press.
+
+```yaml
+motions:
+  dance_a:
+    file: data/dance/a.npz
+    trigger: binary_key_0
+    sample_prob: 0.75
+    rewards:
+      heading_motion_tracking: {weight: 25.0}
+  dance_b:
+    file: data/dance/b.npz
+    trigger: binary_key_1
+    sample_prob: 0.25
+    rewards:
+      heading_motion_tracking: {weight: 25.0}
+```
+
+- **What the policy observes**: the same command block. The running behavior's trigger slot is
+  always 1, and `BEHAVIOR_PHASE` always holds its progress phi(t). The observation layout does not
+  change.
+- **Resets**: a reset draws one of the behaviors by `sample_prob` and poses the env from its clip,
+  at a uniform random time in the clip, or at time 0 with `random_start: false`. The behavior
+  runs from that time, so phi starts at that time over the clip's duration, not at 0.
+- **When a behavior completes**: at phi >= 1 or when it settles, as before. The env then starts
+  another behavior on the same step, from its clip's first frame with phi = 0. Nothing resets the
+  robot, so the new clip's tracking target starts from wherever the last behavior left the robot.
+  The next behavior is drawn by `sample_prob` divided by clip duration, the same weights training's
+  key presses use, so an env spends a `sample_prob` share of its time in each behavior. It may
+  draw the behavior that just completed.
+- **Keys**: nothing reads the trigger keys. Training presses none, and in play a key press neither
+  starts nor switches a behavior.
+
+A manifest that declares both kinds still needs a locomotion motion with a positive `sample_prob`
+and behaves as described above.
 
 ### Boxing clips and attribution
 

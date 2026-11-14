@@ -79,7 +79,9 @@ class MotionSpec:
     standing: StandingSpec | None = None
     trigger: str | None = None
     """The key slot (`binary_key_N`) whose press runs this motion once, as a behavior. None for a
-    locomotion motion, which an env returns to when its behavior completes."""
+    locomotion motion, which an env returns to when its behavior completes. A manifest whose motions
+    all have a trigger has no locomotion to return to: its behaviors run always on, one after
+    another, with no key press."""
     settle: SettleSpec | None = None
     """A behavior's stable-posture completion. None: it completes only when its clip ends."""
     loop: bool = False
@@ -87,8 +89,8 @@ class MotionSpec:
     the last frame. A triggered behavior runs once either way: it completes at phase 1 or settles."""
     random_start: bool = True
     """Whether an env that resets into this motion's clip starts its clock at a uniform random time
-    in the clip, or at time 0. Resets start only locomotion motions; discriminator batches still
-    sample times uniformly."""
+    in the clip, or at time 0. Resets start only locomotion motions, or behaviors where the manifest
+    declares no locomotion motion; discriminator batches still sample times uniformly."""
 
 
 def load_manifest(path: str) -> list[MotionSpec]:
@@ -124,8 +126,13 @@ def _check_triggers(specs: list[MotionSpec], path: str) -> None:
         if driven:
             raise ValueError(f"{spec.name}.commands: {driven} trigger behaviors, so no motion may declare them.")
 
-    if not any(spec.trigger is None and spec.sample_prob > 0 for spec in specs):
-        raise ValueError(f"{path}: behaviors need a locomotion motion (no trigger) with a positive sample_prob.")
+    # no locomotion motion at all is valid: the behaviors then run always on
+    locomotion = [spec for spec in specs if spec.trigger is None]
+    if locomotion and not any(spec.sample_prob > 0 for spec in locomotion):
+        raise ValueError(
+            f"{path}: behaviors need a locomotion motion (no trigger) with a positive sample_prob,"
+            " or no locomotion motion at all, which runs them always on."
+        )
 
 
 def _parse_motion(name: str, motion: Any) -> MotionSpec:

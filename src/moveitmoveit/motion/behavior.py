@@ -8,7 +8,7 @@ LOCOMOTION = -1
 
 
 class BehaviorManager:
-    """Each env's mode: locomotion, or the behavior a key press started."""
+    """Each env's mode: locomotion, or the behavior a key press, or `start`, started."""
 
     def __init__(self, num_envs: int, num_behaviors: int, device: torch.device | str):
         self.num_behaviors = num_behaviors
@@ -37,6 +37,13 @@ class BehaviorManager:
             self.mode[start] = pressed[start].int().argmax(dim=-1)
             self.start_time[start] = time[start]
         return start
+
+    def start(self, envs: torch.Tensor, behaviors: torch.Tensor, start_time: torch.Tensor) -> None:
+        """Run `behaviors` in `envs` (indices or a mask) with no key press, on clip clocks that read
+        0 at `start_time`. A start time before the episode's puts the env part-way through the clip.
+        """
+        self.mode[envs] = behaviors
+        self.start_time[envs] = start_time
 
     def phase(self, time: torch.Tensor, duration: torch.Tensor) -> torch.Tensor:
         """phi(t) = min(1, (t - t_start) / duration) for envs running a behavior, 0 in locomotion.
