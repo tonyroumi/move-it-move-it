@@ -227,6 +227,20 @@ def test_every_env_runs_a_behavior_at_every_step(tmp_path):
         assert (phase >= 0.0).all() and (phase < 1.0).all()
 
 
+def test_the_locomotion_phase_setting_changes_nothing_always_on(tmp_path):
+    phases = []
+    for locomotion_phase in (False, True):
+        torch.manual_seed(0)
+        (tmp_path / str(locomotion_phase)).mkdir()
+        env = _env(_behaviors(tmp_path / str(locomotion_phase)), resample_commands=True)
+        env.cfg.locomotion_phase = locomotion_phase
+        env._reset_idx(torch.arange(NUM_ENVS))
+        _step(env, round(1.5 * SPIN_DURATION / STEP_DT))
+        phases.append(_observed(env)[:, CommandIndex.BEHAVIOR_PHASE])
+
+    assert torch.equal(phases[0], phases[1]) and (phases[0] > 0.0).any()
+
+
 def test_a_settled_behavior_starts_another(tmp_path):
     torch.manual_seed(0)
     specs = [

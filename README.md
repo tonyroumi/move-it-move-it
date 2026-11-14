@@ -235,7 +235,7 @@ nothing, and a key held past its end does not start it again.
 - **What the policy observes**: its state, the goal as an offset in its heading frame, the
   running behavior z(t) as a one-hot in the trigger slots (all 0 during locomotion), and its
   progress phi(t) = min(1, (t - t_start) / duration) in `BEHAVIOR_PHASE`. It never sees the raw
-  key.
+  key. See "Phase" below for what that slot holds during locomotion.
 - **When a behavior completes**: at phi >= 1, or earlier at a stable posture if the motion
   declares `settle: {min_phase, max_dof_speed}`. That means phi >= min_phase with an RMS joint
   speed below max_dof_speed. The robot stands just as still in its guard before the punch, so
@@ -266,6 +266,28 @@ nothing, and a key held past its end does not start it again.
 In play, the arrow keys move the goal, Left Shift throws the jab, Space the right hook and C the
 combo. Run both commands from the repo root, because the manifest's clip paths are relative.
 
+### Phase
+
+There is one phase, and the policy observes it in one place: the `BEHAVIOR_PHASE` command slot
+(index 8 of the command block). No other observation term carries a phase.
+
+The phase is an env's progress through the clip it is tracking: its time in that clip divided by
+the clip's duration, clamped to [0, 1]. The clip time is the one the tracking target is read at.
+
+- **Running a behavior**: the behavior's clip, on a clock that started with the behavior. The phase
+  rises from 0 to 1, where the behavior completes. This is always observed.
+- **In locomotion**: the locomotion clip, on a clock that started at the reset's time in the clip.
+  With `loop: true` the clock wraps, so the phase runs over [0, 1) and starts again. Otherwise the
+  clip holds its last frame and the phase holds at 1. This is observed only with
+  `locomotion_phase` on, which is off by default: the slot is then 0 during locomotion, as it was
+  before.
+
+Turn the locomotion phase on with the env config's `locomotion_phase`, for example the Hydra
+override `env.locomotion_phase=true`, or the same key in a run's `params/env.yaml`. The observation
+layout is the same either way. With it on, an env that starts a behavior observes that behavior's
+phase from 0, and goes back to its locomotion clip's phase when the behavior completes. The
+locomotion clock keeps running underneath the behavior.
+
 ### Behaviors with no locomotion motion
 
 A manifest may declare only behaviors: every motion has a `trigger` and none is a locomotion
@@ -289,8 +311,8 @@ motions:
 ```
 
 - **What the policy observes**: the same command block. The running behavior's trigger slot is
-  always 1, and `BEHAVIOR_PHASE` always holds its progress phi(t). The observation layout does not
-  change.
+  always 1, and `BEHAVIOR_PHASE` always holds its phase, whatever `locomotion_phase` is set to.
+  The observation layout does not change.
 - **Resets**: a reset draws one of the behaviors by `sample_prob` and poses the env from its clip,
   at a uniform random time in the clip, or at time 0 with `random_start: false`. The behavior
   runs from that time, so phi starts at that time over the clip's duration, not at 0.
@@ -377,7 +399,7 @@ punches while moving.
 
 The command block grew from 7 to 9 slots (`BINARY_KEY_2`, `BEHAVIOR_PHASE`), so checkpoints
 trained before this change do not load. Manifests without triggers train as before; their
-`BEHAVIOR_PHASE` slot is always 0.
+`BEHAVIOR_PHASE` slot is always 0 unless `locomotion_phase` is on.
 
 ## Key-triggered dance behaviors
 

@@ -7,8 +7,15 @@ from isaaclab.utils.math import quat_apply, quat_apply_yaw, quat_mul, random_yaw
 
 from moveitmoveit.env_cfg import MotionLearningEnvCfg
 from moveitmoveit.mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
-from moveitmoveit.mdp.observations import reference_phase
-from moveitmoveit.motion.behavior import LOCOMOTION, BehaviorManager, RandomKeyPresses, behavior_commands, reference_times, settled
+from moveitmoveit.motion.behavior import (
+    LOCOMOTION,
+    BehaviorManager,
+    RandomKeyPresses,
+    behavior_commands,
+    clip_phase,
+    reference_times,
+    settled,
+)
 from moveitmoveit.motion.manifest import COMMAND_DIM
 from moveitmoveit.motion.motion_set import MotionSet, ResetClips
 from moveitmoveit.motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
@@ -77,6 +84,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         # discrete behaviors ids from raw keys in commands[:, behavior_keys]
         self.behaviors = BehaviorManager(self.num_envs, self.motions.num_behaviors, self.device)
+        # the phase each env observes in BEHAVIOR_PHASE; see `_phase`
         self.behavior_phase = torch.zeros(self.num_envs, device=self.device)
         self.key_presses = RandomKeyPresses(
             self.num_envs,
@@ -214,9 +222,9 @@ class MotionLearningEnv(DirectRLEnv):
         )
 
     def _reset_behaviors(self, env_ids: torch.Tensor, clips: ResetClips):
-        """Start each reset env in locomotion: no behavior, phase 0 and its behavior keys released.
-        Where the motions are always on, start it instead in the behavior whose clip it reset into,
-        as far through that behavior as the reset placed it in the clip."""
+        """Start each reset env in locomotion: no behavior and its behavior keys released. Where the
+        motions are always on, start it instead in the behavior whose clip it reset into, as far
+        through that behavior as the reset placed it in the clip."""
         keys = env_ids.unsqueeze(-1), self.motions.behavior_keys
         if self.cfg.resample_commands:
             # training's key presses restart with the episode, so no key is still held
@@ -229,13 +237,10 @@ class MotionLearningEnv(DirectRLEnv):
         self.key_presses.reset(env_ids)
         self.commands[keys] = 0.0
         self.behaviors.reset(env_ids, held)
-        self.behavior_phase[env_ids] = 0.0
-
         if self.motions.always_on:
             # the episode clock reads 0 here, so the behavior's clock started `clips.times` ago
             self.behaviors.start(env_ids, self.motions.motion_behavior[clips.motion_ids], -clips.times)
-            duration = self.motions.library.duration[clips.motion_ids]
-            self.behavior_phase[env_ids] = (clips.times / duration.clamp_min(1e-6)).clamp(0.0, 1.0)
+        self.behavior_phase[env_ids] = self._phase()[env_ids]
 
     def _update_behaviors(self):
         """Complete running behaviors at phase 1 or a stable posture, then start any whose key was
@@ -267,13 +272,28 @@ class MotionLearningEnv(DirectRLEnv):
             mode = self.behaviors.mode
             behavior_ids = self.motions.behavior_motion_ids[mode.clamp_min(0)]
             self.motion_ids = torch.where(mode != LOCOMOTION, behavior_ids, self.base_motion_ids)
-        self.behavior_phase = self.behaviors.phase(time, self.motions.library.duration[self.motion_ids])
+        self.behavior_phase = self._phase()
+
+    def _phase(self) -> torch.Tensor:
+        """The phase each env observes in `BEHAVIOR_PHASE`, (N,) in [0, 1]: its progress through the
+        clip it tracks, on the clock its tracking target reads (`clip_phase`). An env running a
+        behavior always observes it. An env in locomotion observes it where `cfg.locomotion_phase`,
+        else 0."""
+        time = self.episode_length_buf.to(torch.float32) * self.step_dt
+        duration = self.motions.library.duration[self.motion_ids]
+        clip_times = reference_times(
+            time, self.behaviors, self.motion_start_times, duration, self.motions.loop[self.motion_ids]
+        )
+        phase = clip_phase(clip_times, duration)
+        if self.cfg.locomotion_phase:
+            return phase
+        return torch.where(self.behaviors.active, phase, torch.zeros_like(phase))
 
     def _get_observations(self) -> dict:
         self._resample_commands()
         self._update_behaviors()
 
-        state = self.current_state._replace(ref_phase=self._reference_phase())
+        state = self.current_state
         local_frame = self.cfg.random_reset or self.render_enabled
         commands = policy_commands(state, self.commands, self.motions.has_goal[self.base_motion_ids], local_frame)
         commands = behavior_commands(commands, self.motions.behavior_keys, self.behaviors.mode, self.behavior_phase)
@@ -329,18 +349,6 @@ class MotionLearningEnv(DirectRLEnv):
             self.motions.loop[self.motion_ids],
         )
         return self.reference.tracking_targets(self.motion_ids, current_times, self.random_yaw_quat)
-
-    def _reference_phase(self) -> torch.Tensor:
-        """Each env's progress through its reference clip, (N,) in [0, 1], for the `ref_phase`
-        observation. It reads the clip each env reset into (`base_motion_ids`) on the clock that
-        started at `motion_start_times`, and nothing of the behavior system."""
-        time = self.episode_length_buf.to(torch.float32) * self.step_dt
-        return reference_phase(
-            self.motion_start_times,
-            time,
-            self.motions.library.duration[self.base_motion_ids],
-            self.motions.loop[self.base_motion_ids],
-        )
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands every `command_resample_steps` steps or where `dones` is set."""
