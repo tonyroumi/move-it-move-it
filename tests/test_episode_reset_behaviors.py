@@ -114,9 +114,7 @@ def motions(tmp_path) -> MotionSet:
 def _env(motions: MotionSet, resample_commands: bool) -> MotionLearningEnv:
     """A MotionLearningEnv with the state its reset and behavior update read, and no simulator."""
     env = MotionLearningEnv.__new__(MotionLearningEnv)
-    env.cfg = SimpleNamespace(
-        random_reset=False, resample_commands=resample_commands, camera_type="none", locomotion_phase=False
-    )
+    env.cfg = SimpleNamespace(random_reset=False, resample_commands=resample_commands, camera_type="none")
     env.render_enabled = False
     env.num_envs = NUM_ENVS
     env.device = "cpu"
