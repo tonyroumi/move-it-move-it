@@ -70,3 +70,26 @@ def key_body_offsets(state: BodyState, local_frame: bool) -> torch.Tensor:
         rotations = state.root_rotations.unsqueeze(1).expand(-1, offsets.shape[1], -1)
         offsets = quat_apply_inverse(rotations, offsets)
     return offsets.flatten(1)
+
+
+@observation(dim=1)
+def ref_phase(state: BodyState, local_frame: bool) -> torch.Tensor:
+    """Each env's progress through the reference clip it tracks, in [0, 1]. Opt-in: no default
+    selection reads it. The env fills `state.ref_phase` from `reference_phase`."""
+    if state.ref_phase is None:
+        raise ValueError("ref_phase is selected but the state carries no reference-clip phase.")
+    return state.ref_phase.unsqueeze(-1)
+
+
+def reference_phase(
+    start_times: torch.Tensor, time: torch.Tensor, duration: torch.Tensor, loop: torch.Tensor
+) -> torch.Tensor:
+    """Progress through a clip whose clock started at `start_times` and has run for `time`, (N,).
+
+    A looping clip wraps modulo its duration, so its phase runs [0, 1) and restarts; any other
+    clip holds its last frame, so its phase clamps at 1. A zero-length clip reads as finished.
+    """
+    duration = duration.clamp_min(1e-6)
+    clip_times = start_times + time
+    clip_times = torch.where(loop, torch.remainder(clip_times, duration), clip_times)
+    return (clip_times / duration).clamp(0.0, 1.0)
