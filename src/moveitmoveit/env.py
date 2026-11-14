@@ -277,16 +277,13 @@ class MotionLearningEnv(DirectRLEnv):
     def _phase(self) -> torch.Tensor:
         """The phase each env observes in `BEHAVIOR_PHASE`, (N,) in [0, 1]: its progress through the
         clip it tracks, on the clock its tracking target reads (`clip_phase`). An env running a
-        behavior always observes it. An env in locomotion observes it where `cfg.locomotion_phase`,
-        else 0."""
+        behavior observes it; an env in locomotion observes 0."""
         time = self.episode_length_buf.to(torch.float32) * self.step_dt
         duration = self.motions.library.duration[self.motion_ids]
         clip_times = reference_times(
             time, self.behaviors, self.motion_start_times, duration, self.motions.loop[self.motion_ids]
         )
         phase = clip_phase(clip_times, duration)
-        if self.cfg.locomotion_phase:
-            return phase
         return torch.where(self.behaviors.active, phase, torch.zeros_like(phase))
 
     def _get_observations(self) -> dict:

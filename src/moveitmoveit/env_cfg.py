@@ -73,10 +73,6 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     resample_commands: bool = True
     # longest a training key press is held, in seconds; presses last 1 step up to this
     trigger_max_hold_s: float = 2.0
-    # whether an env in locomotion also observes its phase through its locomotion clip, in the
-    # BEHAVIOR_PHASE command slot. Off, that slot is 0 in locomotion. An env running a behavior
-    # observes the behavior's phase there either way.
-    locomotion_phase: bool = False
 
     # rendering
     camera_type: Literal["facing", "third-person", "none"] = "none"
