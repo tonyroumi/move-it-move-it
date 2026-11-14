@@ -29,6 +29,9 @@ class BodyState(NamedTuple):
     root_linear_velocities: torch.Tensor
     root_angular_velocities: torch.Tensor
     key_body_positions: torch.Tensor
+    # Each env's progress through the reference clip it tracks, (N,) in [0, 1]. Only the env's own
+    # observation fills it (see `observations.reference_phase`); reference clips leave it None.
+    ref_phase: torch.Tensor | None = None
 
 
 @dataclass
@@ -137,6 +140,9 @@ class ComposedMDP:
         self._policy_obs = list(policy_obs)
         self._style_obs = list(style_obs)
         check_known(self._policy_obs + self._style_obs, OBSERVATIONS, "observations")
+        if "ref_phase" in self._style_obs:
+            # The discriminator also scores reference clips, whose BodyState has no env clip time.
+            raise ValueError("style_obs: ref_phase is a policy observation; select it in policy_obs.")
 
         # Each motion's standing-mode rewards. A motion without a standing block never has an env in
         # standing mode; it keeps its own rewards there anyway, so the standing tables can't change it.

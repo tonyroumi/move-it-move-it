@@ -7,6 +7,7 @@ from isaaclab.utils.math import quat_apply, quat_apply_yaw, quat_mul, random_yaw
 
 from moveitmoveit.env_cfg import MotionLearningEnvCfg
 from moveitmoveit.mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
+from moveitmoveit.mdp.observations import reference_phase
 from moveitmoveit.motion.behavior import LOCOMOTION, BehaviorManager, RandomKeyPresses, behavior_commands, reference_times, settled
 from moveitmoveit.motion.manifest import COMMAND_DIM
 from moveitmoveit.motion.motion_set import MotionSet
@@ -255,7 +256,7 @@ class MotionLearningEnv(DirectRLEnv):
         self._resample_commands()
         self._update_behaviors()
 
-        state = self.current_state
+        state = self.current_state._replace(ref_phase=self._reference_phase())
         local_frame = self.cfg.random_reset or self.render_enabled
         commands = policy_commands(state, self.commands, self.motions.has_goal[self.base_motion_ids], local_frame)
         commands = behavior_commands(commands, self.motions.behavior_keys, self.behaviors.mode, self.behavior_phase)
@@ -311,6 +312,18 @@ class MotionLearningEnv(DirectRLEnv):
             self.motions.loop[self.motion_ids],
         )
         return self.reference.tracking_targets(self.motion_ids, current_times, self.random_yaw_quat)
+
+    def _reference_phase(self) -> torch.Tensor:
+        """Each env's progress through its reference clip, (N,) in [0, 1], for the `ref_phase`
+        observation. It reads the clip each env reset into (`base_motion_ids`) on the clock that
+        started at `motion_start_times`, and nothing of the behavior system."""
+        time = self.episode_length_buf.to(torch.float32) * self.step_dt
+        return reference_phase(
+            self.motion_start_times,
+            time,
+            self.motions.library.duration[self.base_motion_ids],
+            self.motions.loop[self.base_motion_ids],
+        )
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands every `command_resample_steps` steps or where `dones` is set."""
