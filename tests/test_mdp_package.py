@@ -56,7 +56,6 @@ def test_each_kind_of_term_registers_from_its_own_module():
 
     assert list(observations.OBSERVATIONS) == [
         "dof_pos", "dof_vel", "root_height", "root_orientation", "root_lin_vel", "root_ang_vel", "key_body_offsets",
-        "ref_phase",
     ]
     # Registry order sets the order of logged reward terms and reward table columns.
     assert list(rewards.REWARDS) == [

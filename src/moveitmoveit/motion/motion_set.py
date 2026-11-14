@@ -11,14 +11,16 @@ class ResetClips:
     """The clips a batch of reset envs initialize, as `MotionSet.sample_reset` draws them."""
 
     motion_ids: torch.Tensor
-    """The locomotion motion each env is placed into, never a behavior. Shape is (M,)."""
+    """The locomotion motion each env is placed into; a behavior only where the motion set is
+    `always_on`. Shape is (M,)."""
     times: torch.Tensor
     """Each env's time in that motion's clip at episode time 0, in seconds. Shape is (M,)."""
 
 
 class MotionSet:
     """The motions a manifest declares: their clips, plus per-motion command and selection tables.
-    Motions with a `trigger` are behaviors, numbered by key slot; the rest are locomotion motions."""
+    Motions with a `trigger` are behaviors, numbered by key slot; the rest are locomotion motions.
+    With no locomotion motion the set is `always_on`: every env runs a behavior at all times."""
 
     def __init__(self, specs: list[MotionSpec], device: torch.device | str):
         self.device = device
@@ -93,8 +95,17 @@ class MotionSet:
         self.motion_behavior[self.behavior_motion_ids] = torch.arange(self.num_behaviors, device=self.device)
 
         is_locomotion = self.motion_behavior < 0
-        self.locomotion_sample_prob = torch.where(is_locomotion, self.sample_prob, torch.zeros_like(self.sample_prob))
-        self.locomotion_sample_prob /= self.locomotion_sample_prob.sum()
+        self.always_on = not bool(is_locomotion.any())
+        """Whether every motion is a behavior. With no locomotion motion to start in or return to, a
+        reset starts each env in a behavior and a completed behavior starts the next one at once, so
+        a behavior's one-hot and `BEHAVIOR_PHASE` are always on and no key press is needed."""
+        if self.always_on:
+            self.reset_sample_prob = self.sample_prob
+        else:
+            locomotion_weights = torch.where(is_locomotion, self.sample_prob, torch.zeros_like(self.sample_prob))
+            self.reset_sample_prob = locomotion_weights / locomotion_weights.sum()
+        """The selection distribution of the motions a reset starts an env in: the locomotion
+        motions, or every behavior where the set is `always_on`."""
 
         # stable-posture completion; behaviors that don't declare it never settle
         self.settle_min_phase = torch.full((self.num_motions,), float("inf"), device=self.device)
@@ -117,20 +128,24 @@ class MotionSet:
         p = self.sample_prob[self.behavior_motion_ids]
         d = self.library.duration[self.behavior_motion_ids].clamp_min(self.library.dt)
         self.trigger_weights = (p / d) / (p / d).sum()
-        """Probability that a training press is for each behavior."""
+        """Probability that a training press, or an `always_on` restart, is for each behavior."""
+        if self.always_on:
+            # behaviors take all of the time and restart themselves, so training presses no key
+            self.trigger_rate = 0.0
+            return
         behavior_share = float(p.sum())
         mean_duration = float((self.trigger_weights * d).sum())
         self.trigger_rate = behavior_share / ((1.0 - behavior_share) * mean_duration)
-        """Training presses per second while in locomotion."""
+        """Training presses per second while in locomotion; 0 where the set is `always_on`."""
 
     def sample_ids(self, num_samples: int) -> torch.Tensor:
         """The one clip-selection distribution, shared by env resets and discriminator batches."""
         return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
 
-    def sample_locomotion_ids(self, num_samples: int) -> torch.Tensor:
-        """The selection distribution restricted to locomotion motions, for env resets, which start
-        every episode in locomotion with no behavior running."""
-        return torch.multinomial(self.locomotion_sample_prob, num_samples=num_samples, replacement=True)
+    def sample_behaviors(self, num_samples: int) -> torch.Tensor:
+        """Behavior indices drawn by `trigger_weights`, for the behaviors an `always_on` env starts
+        as each one completes. Shape is (num_samples,)."""
+        return torch.multinomial(self.trigger_weights, num_samples=num_samples, replacement=True)
 
     def start_times(self, motion_ids: torch.Tensor) -> torch.Tensor:
         """Where a reset starts each motion's clip clock: a uniform random time within the clip where
@@ -139,9 +154,11 @@ class MotionSet:
         return torch.where(self.random_start[motion_ids], times, torch.zeros_like(times))
 
     def sample_reset(self, num_samples: int) -> ResetClips:
-        """The locomotion clips reset envs start in, at their start times. An episode starts with no
-        behavior running, so the pose a reset writes always comes from a locomotion clip."""
-        motion_ids = self.sample_locomotion_ids(num_samples)
+        """The clips reset envs start in, at their start times. An episode starts with no behavior
+        running, so the pose a reset writes comes from a locomotion clip, drawn by the locomotion
+        motions' `sample_prob`. Where the set is `always_on` there is none, and the clip is a
+        behavior's, drawn by the behaviors' `sample_prob`, which the env then runs from that time."""
+        motion_ids = torch.multinomial(self.reset_sample_prob, num_samples=num_samples, replacement=True)
         return ResetClips(motion_ids, self.start_times(motion_ids))
 
     def sample_commands(self, motion_ids: torch.Tensor, root_positions_xy: torch.Tensor | None = None) -> torch.Tensor:

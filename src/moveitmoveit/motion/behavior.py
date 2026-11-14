@@ -1,4 +1,4 @@
-"""Key-triggered behaviors: which one each env is running, and how far through it is."""
+"""Key-triggered behaviors: which one each env is running, and how far through its clip an env is."""
 
 import torch
 
@@ -8,7 +8,7 @@ LOCOMOTION = -1
 
 
 class BehaviorManager:
-    """Each env's mode: locomotion, or the behavior a key press started."""
+    """Each env's mode: locomotion, or the behavior a key press, or `start`, started."""
 
     def __init__(self, num_envs: int, num_behaviors: int, device: torch.device | str):
         self.num_behaviors = num_behaviors
@@ -38,10 +38,18 @@ class BehaviorManager:
             self.start_time[start] = time[start]
         return start
 
-    def phase(self, time: torch.Tensor, duration: torch.Tensor) -> torch.Tensor:
-        """phi(t) = min(1, (t - t_start) / duration) for envs running a behavior, 0 in locomotion.
+    def start(self, envs: torch.Tensor, behaviors: torch.Tensor, start_time: torch.Tensor) -> None:
+        """Run `behaviors` in `envs` (indices or a mask) with no key press, on clip clocks that read
+        0 at `start_time`. A start time before the episode's puts the env part-way through the clip.
         """
-        progress = ((time - self.start_time) / duration.clamp_min(1e-6)).clamp(0.0, 1.0)
+        self.mode[envs] = behaviors
+        self.start_time[envs] = start_time
+
+    def phase(self, time: torch.Tensor, duration: torch.Tensor) -> torch.Tensor:
+        """phi(t) = min(1, (t - t_start) / duration) for envs running a behavior, 0 in locomotion:
+        `clip_phase` on the behavior's clip clock, which decides when it completes.
+        """
+        progress = clip_phase(time - self.start_time, duration)
         return torch.where(self.active, progress, torch.zeros_like(progress))
 
     def reset(self, env_ids: torch.Tensor, held_keys: torch.Tensor) -> None:
@@ -81,10 +89,23 @@ def reference_times(
     return torch.where(behaviors.active, time - behaviors.start_time, locomotion_times)
 
 
+def clip_phase(clip_times: torch.Tensor, duration: torch.Tensor) -> torch.Tensor:
+    """The one definition of phase: an env's progress through the clip it tracks, (N,) in [0, 1],
+    as its time in that clip (`reference_times`) over the clip's duration.
+
+    A running behavior's phase therefore starts at 0, or where a reset placed the env in its clip,
+    and reaches 1 as the clip ends. A looping locomotion clip's clock wraps, so its phase runs
+    [0, 1) and restarts; any other locomotion clip holds its last frame, so its phase holds at 1.
+    A zero-length clip reads as finished.
+    """
+    return (clip_times / duration.clamp_min(1e-6)).clamp(0.0, 1.0)
+
+
 def behavior_commands(
     commands: torch.Tensor, behavior_keys: list[int], mode: torch.Tensor, phase: torch.Tensor
 ) -> torch.Tensor:
-    """The commands with the behavior id."""
+    """The commands with the behavior id, and the phase in `BEHAVIOR_PHASE`, the one slot that
+    carries phase."""
     observed = commands.clone()
     if behavior_keys:
         one_hot = torch.nn.functional.one_hot(mode.clamp_min(0), len(behavior_keys)).to(commands.dtype)
