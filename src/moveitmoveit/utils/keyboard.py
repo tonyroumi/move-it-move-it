@@ -6,11 +6,10 @@ import carb
 import omni.appwindow
 import torch
 
-from isaaclab.utils.math import quat_apply_yaw
-
 from moveitmoveit.motion.manifest import COMMAND_DIM, CommandIndex
 
-# key -> (forward, left, yaw) direction; each key and its numpad twin drive the same axis
+# key -> (forward, left, yaw) direction; each key and its numpad twin drive the same axis. In velocity
+# mode these are robot-frame; in point_goal mode forward / left are the world +X / +Y axes.
 MOTION_KEYS: dict[str, tuple[float, float, float]] = {
     "UP": (1.0, 0.0, 0.0),
     "NUMPAD_8": (1.0, 0.0, 0.0),
@@ -49,13 +48,12 @@ class Keyboard:
         self._dt = dt
         self._device = device
         self._sensitivity = torch.tensor(sensitivity, device=device)
-        self._goal_offset = torch.tensor((*goal_offset, 0.0), device=device)
+        self._goal_offset = torch.tensor(goal_offset, device=device)
 
         self._held: set[str] = set()
         # binary keys pressed since the last advance()
         self._tapped: set[str] = set()
         self._start_xy: torch.Tensor | None = None
-        self._start_quat: torch.Tensor | None = None
         self._goal_xy: torch.Tensor | None = None
 
         self._input = carb.input.acquire_input_interface()
@@ -80,21 +78,24 @@ class Keyboard:
             ]
         else:
             lines += [
-                "\tGoal ahead / behind: Up / Down (Numpad 8 / 2)",
-                "\tGoal left / right: Left / Right (Numpad 4 / 6)",
+                "\tGoal +X / -X (world): Up / Down (Numpad 8 / 2)",
+                "\tGoal +Y / -Y (world): Left / Right (Numpad 4 / 6)",
             ]
         lines += [f"\t{command.name}: {key}" for key, command in BINARY_KEYS.items()]
         return "\n".join(lines)
 
     def reset(self):
-        """Release every key and, in point_goal mode, put the goal back ahead of the start pose."""
+        """Release every key and, in point_goal mode, put the goal back at its offset from the start pose."""
         self._held.clear()
         self._tapped.clear()
         self._goal_xy = None
 
     def advance(self, root_xy: torch.Tensor, root_quat: torch.Tensor) -> torch.Tensor:
-        """The (N, COMMAND_DIM) command for the envs' (N, 2) root XY positions and (N, 4) root
-        rotations, which only point_goal mode reads."""
+        """The (N, COMMAND_DIM) command for the envs' (N, 2) root XY positions.
+
+        In point_goal mode the goal moves in fixed world XY axes, so it does not depend on the root's
+        heading: root_quat (N, 4) is accepted for the callers' sake and goes unread.
+        """
         axes = torch.zeros(3, device=self._device)
         for key in self._held & MOTION_KEYS.keys():
             axes += torch.tensor(MOTION_KEYS[key], device=self._device)
@@ -105,22 +106,17 @@ class Keyboard:
             command[:, CommandIndex.LIN_X : CommandIndex.YAW + 1] = axes
         else:
             if self._start_xy is None:
-                self._start_xy, self._start_quat = root_xy.clone(), root_quat.clone()
+                self._start_xy = root_xy.clone()
             if self._goal_xy is None:
-                self._goal_xy = self._start_xy + self._heading_to_world_xy(self._start_quat, self._goal_offset)
-            step = torch.cat((axes[:2] * self._dt, axes.new_zeros(1)))
-            self._goal_xy = self._goal_xy + self._heading_to_world_xy(root_quat, step)
+                self._goal_xy = self._start_xy + self._goal_offset
+            # forward / left are the world +X / +Y axes, whichever way the root faces
+            self._goal_xy = self._goal_xy + axes[:2] * self._dt
             command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = self._goal_xy
 
         for key, index in BINARY_KEYS.items():
             command[:, index] = float(key in self._held or key in self._tapped)
         self._tapped.clear()
         return command
-
-    @staticmethod
-    def _heading_to_world_xy(rotations: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
-        """Rotate a (3,) heading-frame vector into world XY by each of the (N, 4) rotations' yaw."""
-        return quat_apply_yaw(rotations, vector.expand(rotations.shape[0], 3))[:, :2]
 
     def _on_keyboard_event(self, event) -> bool:
         # CHAR events carry a character rather than a named key; only presses and releases matter
