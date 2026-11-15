@@ -65,7 +65,6 @@ if args_cli.record:
 
 
 def main():
-    # the agent config is the one saved with the checkpoint, read below; this one is discarded
     env_cfg, _ = resolve_task_config(TASK_ID, agent_cfg_entry_point("PPO"))
 
     with launch_simulation(env_cfg, args_cli):

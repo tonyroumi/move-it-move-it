@@ -57,7 +57,6 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 
 def main():
-    
     env_cfg, agent_cfg = resolve_task_config(TASK_ID, agent_cfg_entry_point(args_cli.algo))
 
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
