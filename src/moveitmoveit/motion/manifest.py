@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any
 
 import yaml
 
@@ -18,25 +17,6 @@ class CommandIndex(IntEnum):
 
 
 COMMAND_DIM = len(CommandIndex)
-COMMAND_KEYS = frozenset(command.name.lower() for command in CommandIndex if command != CommandIndex.BEHAVIOR_PHASE)
-TRIGGER_KEYS = frozenset(key for key in COMMAND_KEYS if key.startswith("binary_key_"))
-MOTION_KEYS = frozenset(
-    {
-        "file",
-        "sample_prob",
-        "commands",
-        "zero_command_prob",
-        "rewards",
-        "termination",
-        "standing",
-        "trigger",
-        "settle",
-        "loop",
-        "random_start",
-    }
-)
-STANDING_KEYS = frozenset({"lin_vel_threshold", "yaw_vel_threshold", "goal_radius", "pose", "rewards"})
-SETTLE_KEYS = frozenset({"min_phase", "max_dof_speed"})
 
 
 @dataclass(frozen=True)
@@ -59,7 +39,8 @@ class StandingSpec:
 
 @dataclass(frozen=True)
 class SettleSpec:
-    """ When a behavior counts as complete. Both conditions must be satisifed """
+    """When a behavior counts as complete. Both conditions must be satisfied."""
+
     min_phase: float
     max_dof_speed: float
 
@@ -91,217 +72,71 @@ class MotionSpec:
     """Whether an env that resets into this motion's clip starts its clock at a uniform random time
     in the clip, or at time 0. Resets start only locomotion motions, or behaviors where the manifest
     declares no locomotion motion; discriminator batches still sample times uniformly."""
+    amp: bool = True
+    """Whether this motion earns the AMP style reward. False disables it for the motion outright,
+    independent of standing mode, which disables it on its own while the robot is asked to stand."""
 
 
 def load_manifest(path: str) -> list[MotionSpec]:
     """Read a manifest. A motion's position in the returned list is its motion id."""
-    with open(path, "r") as f:
-        document = yaml.safe_load(f)
-
-    if not isinstance(document, dict) or set(document) != {"motions"}:
-        raise ValueError(f"{path}: expected a single top-level 'motions' key.")
-    motions = _mapping(document["motions"], "motions")
-    if not motions:
-        raise ValueError(f"{path}: declares no motions.")
-
-    specs = [_parse_motion(name, motion) for name, motion in motions.items()]
-    if not sum(spec.sample_prob for spec in specs) > 0:
-        raise ValueError(f"{path}: at least one motion needs a positive sample_prob.")
-    _check_triggers(specs, path)
-    return specs
+    with open(path) as f:
+        motions = yaml.safe_load(f)["motions"]
+    return [_parse_motion(name, motion) for name, motion in motions.items()]
 
 
-def _check_triggers(specs: list[MotionSpec], path: str) -> None:
-    behaviors = [spec for spec in specs if spec.trigger is not None]
-    if not behaviors:
-        return
-
-    triggers = [spec.trigger for spec in behaviors]
-    duplicates = sorted({key for key in triggers if triggers.count(key) > 1})
-    if duplicates:
-        raise ValueError(f"{path}: {duplicates} each trigger more than one motion.")
-
-    for spec in specs:
-        driven = sorted(set(spec.commands) & set(triggers))
-        if driven:
-            raise ValueError(f"{spec.name}.commands: {driven} trigger behaviors, so no motion may declare them.")
-
-    # no locomotion motion at all is valid: the behaviors then run always on
-    locomotion = [spec for spec in specs if spec.trigger is None]
-    if locomotion and not any(spec.sample_prob > 0 for spec in locomotion):
-        raise ValueError(
-            f"{path}: behaviors need a locomotion motion (no trigger) with a positive sample_prob,"
-            " or no locomotion motion at all, which runs them always on."
-        )
-
-
-def _parse_motion(name: str, motion: Any) -> MotionSpec:
-    """Validate one motion entry."""
-    motion = _mapping(motion, name)
-    check_known(motion, MOTION_KEYS, name)
-    if not isinstance(motion.get("file"), str):
-        raise ValueError(f"{name}: 'file' must be a path.")
-
-    sample_prob = _number(motion.get("sample_prob", 1.0), f"{name}.sample_prob")
-    if sample_prob < 0.0:
-        raise ValueError(f"{name}: sample_prob must not be negative, got {sample_prob}.")
-
-    zero_command_prob = _number(motion.get("zero_command_prob", 0.0), f"{name}.zero_command_prob")
-    if not 0.0 <= zero_command_prob <= 1.0:
-        raise ValueError(f"{name}: zero_command_prob must be in [0, 1], got {zero_command_prob}.")
-
-    commands = _parse_commands(motion.get("commands"), name)
-
-    trigger = motion.get("trigger")
-    if trigger is not None:
-        if not isinstance(trigger, str) or trigger not in TRIGGER_KEYS:
-            raise ValueError(f"{name}.trigger: expected one of {sorted(TRIGGER_KEYS)}, got {trigger!r}.")
-        if commands:
-            raise ValueError(f"{name}: a triggered behavior keeps its locomotion motion's commands; declare none.")
-        if not sample_prob > 0:
-            raise ValueError(f"{name}: a triggered behavior needs a positive sample_prob, which sets how often training triggers it.")
-        if "standing" in motion:
-            raise ValueError(f"{name}.standing: a triggered behavior runs to completion, so it has no standing mode.")
-
-    loop = motion.get("loop", False)
-    if not isinstance(loop, bool):
-        raise ValueError(f"{name}.loop: expected true or false, got {loop!r}.")
-
-    random_start = motion.get("random_start", True)
-    if not isinstance(random_start, bool):
-        raise ValueError(f"{name}.random_start: expected true or false, got {random_start!r}.")
-
+def _parse_motion(name: str, motion: dict) -> MotionSpec:
     settle = motion.get("settle")
-    if settle is not None:
-        if trigger is None:
-            raise ValueError(f"{name}.settle: only a triggered behavior can settle.")
-        settle = _parse_settle(settle, name)
-
     return MotionSpec(
         name=name,
         file=motion["file"],
-        sample_prob=sample_prob,
-        commands=commands,
-        zero_command_prob=zero_command_prob,
-        rewards=_parse_rewards(motion.get("rewards"), name),
-        terminations=_parse_terminations(motion.get("termination", "unhealthy"), name),
-        standing=_parse_standing(motion["standing"], name) if "standing" in motion else None,
-        trigger=trigger,
-        settle=settle,
-        loop=loop,
-        random_start=random_start,
+        sample_prob=motion.get("sample_prob", 1.0),
+        commands=_parse_commands(motion.get("commands")),
+        zero_command_prob=motion.get("zero_command_prob", 0.0),
+        rewards=_parse_rewards(motion.get("rewards")),
+        terminations=_parse_terminations(motion.get("termination", "unhealthy")),
+        standing=_parse_standing(motion["standing"]) if "standing" in motion else None,
+        trigger=motion.get("trigger"),
+        settle=SettleSpec(**settle) if settle else None,
+        loop=motion.get("loop", False),
+        random_start=motion.get("random_start", True),
+        amp=motion.get("amp", True),
     )
 
 
-def _parse_settle(settle: Any, motion: str) -> SettleSpec:
-    settle = _mapping(settle, f"{motion}.settle")
-    check_known(settle, SETTLE_KEYS, f"{motion}.settle")
-    missing = sorted(SETTLE_KEYS - set(settle))
-    if missing:
-        raise ValueError(f"{motion}.settle: missing {missing}.")
-
-    min_phase = _number(settle["min_phase"], f"{motion}.settle.min_phase")
-    max_dof_speed = _number(settle["max_dof_speed"], f"{motion}.settle.max_dof_speed")
-    if not 0.0 < min_phase <= 1.0:
-        raise ValueError(f"{motion}.settle.min_phase: must be in (0, 1], got {min_phase}.")
-    if not max_dof_speed > 0.0:
-        raise ValueError(f"{motion}.settle.max_dof_speed: must be positive, got {max_dof_speed}.")
-    return SettleSpec(min_phase, max_dof_speed)
-
-
-def _parse_commands(commands: Any, motion: str) -> dict[str, tuple[float, float]]:
+def _parse_commands(commands: dict | None) -> dict[str, tuple[float, float]]:
     """Each command as a (low, high) range; a scalar is a fixed value."""
-    commands = _mapping(commands, f"{motion}.commands")
-    check_known(commands, COMMAND_KEYS, f"{motion}.commands")
-
-    parsed = {}
-    for key, value in commands.items():
-        where = f"{motion}.commands.{key}"
-        if isinstance(value, list):
-            if len(value) != 2:
-                raise ValueError(f"{where}: a range must be [low, high], got {value}.")
-            low, high = _number(value[0], where), _number(value[1], where)
-            if low > high:
-                raise ValueError(f"{where}: reversed range {value}.")
-        else:
-            low = high = _number(value, where)
-        parsed[key] = (low, high)
-    return parsed
+    return {key: tuple(value) if isinstance(value, list) else (value, value) for key, value in (commands or {}).items()}
 
 
-def _parse_rewards(rewards: Any, motion: str) -> dict[str, RewardSpec]:
+def _parse_rewards(rewards: dict | None) -> dict[str, RewardSpec]:
     """Each reward as a weight plus kwargs; a scalar is the weight alone."""
-    rewards = _mapping(rewards, f"{motion}.rewards")
-
-    parsed = {}
-    for name, spec in rewards.items():
-        where = f"{motion}.rewards.{name}"
-        if isinstance(spec, dict):
-            kwargs = {key: value for key, value in spec.items() if key != "weight"}
-            parsed[name] = RewardSpec(
-                weight=_number(spec.get("weight", 1.0), f"{where}.weight"),
-                kwargs={key: _number(value, f"{where}.{key}") for key, value in kwargs.items()},
-            )
-        else:
-            parsed[name] = RewardSpec(weight=_number(spec, where), kwargs={})
-    return parsed
+    return {name: _parse_reward(spec) for name, spec in (rewards or {}).items()}
 
 
-def _parse_standing(standing: Any, motion: str) -> StandingSpec:
+def _parse_reward(spec: float | dict) -> RewardSpec:
+    if not isinstance(spec, dict):
+        return RewardSpec(weight=spec, kwargs={})
+    kwargs = dict(spec)
+    return RewardSpec(weight=kwargs.pop("weight", 1.0), kwargs=kwargs)
+
+
+def _parse_standing(standing: dict | None) -> StandingSpec:
     """A declared `standing` block, even an empty one, turns standing mode on with these defaults."""
-    standing = _mapping(standing, f"{motion}.standing")
-    check_known(standing, STANDING_KEYS, f"{motion}.standing")
-
-    thresholds = {}
-    for key, default in (("lin_vel_threshold", 0.1), ("yaw_vel_threshold", 0.1), ("goal_radius", 0.3)):
-        thresholds[key] = _number(standing.get(key, default), f"{motion}.standing.{key}")
-        if thresholds[key] < 0.0:
-            raise ValueError(f"{motion}.standing: {key} must not be negative, got {thresholds[key]}.")
-
-    pose = _mapping(standing.get("pose"), f"{motion}.standing.pose")
-    pose = {joint: _number(value, f"{motion}.standing.pose.{joint}") for joint, value in pose.items()}
-
-    return StandingSpec(**thresholds, rewards=_parse_rewards(standing.get("rewards"), f"{motion}.standing"), pose=pose)
+    standing = standing or {}
+    return StandingSpec(
+        lin_vel_threshold=standing.get("lin_vel_threshold", 0.1),
+        yaw_vel_threshold=standing.get("yaw_vel_threshold", 0.1),
+        goal_radius=standing.get("goal_radius", 0.3),
+        rewards=_parse_rewards(standing.get("rewards")),
+        pose=standing.get("pose") or {},
+    )
 
 
-def _parse_terminations(terminations: Any, motion: str) -> dict[str, dict[str, float]]:
+def _parse_terminations(terminations: str | list | dict) -> dict[str, dict[str, float]]:
     """A termination name or list of names, each with its default arguments, or a mapping from
     each name to the arguments it overrides (empty for the defaults)."""
-    expected = "a name, a list of names, or a mapping of names to arguments"
     if isinstance(terminations, str):
         terminations = [terminations]
     if isinstance(terminations, list):
-        if not all(isinstance(name, str) for name in terminations):
-            raise ValueError(f"{motion}.termination: expected {expected}, got {terminations!r}.")
         return {name: {} for name in terminations}
-    if not isinstance(terminations, dict):
-        raise ValueError(f"{motion}.termination: expected {expected}, got {terminations!r}.")
-
-    parsed = {}
-    for name, kwargs in terminations.items():
-        where = f"{motion}.termination.{name}"
-        parsed[name] = {key: _number(value, f"{where}.{key}") for key, value in _mapping(kwargs, where).items()}
-    return parsed
-
-
-def _mapping(value: Any, where: str) -> dict:
-    """A key left empty in YAML (`rewards:`) reads as None, which means empty."""
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError(f"{where}: expected a mapping, got {value!r}.")
-    return value
-
-
-def _number(value: Any, where: str) -> float:
-    """`value` as a float, or a ValueError naming `where`."""
-    if not isinstance(value, (int, float)):
-        raise ValueError(f"{where}: expected a number, got {value!r}.")
-    return float(value)
-
-
-def check_known(names: Any, known: Any, where: str) -> None:
-    """Raise a ValueError naming `where` if any of `names` is not in `known`."""
-    unknown = [name for name in names if name not in known]
-    if unknown:
-        raise ValueError(f"{where}: unknown {unknown}. Known: {sorted(known)}.")
+    return {name: kwargs or {} for name, kwargs in terminations.items()}

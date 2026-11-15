@@ -14,7 +14,7 @@ agent:
 
   num_transitions_per_env: 16
 
-  num_mini_batches: 2
+  num_mini_batches: 4
   num_learning_epochs: 6
   learning_rate: 0.00005
 
@@ -34,4 +34,4 @@ agent:
 
 
 runner:
-  timesteps: 200000000
+  timesteps: 500000000

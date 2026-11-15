@@ -27,11 +27,11 @@ def termination(**defaults: float):
 
 @termination(threshold=1.5)
 def deviation_from_motion(c: StepContext, threshold: float) -> torch.Tensor:
-    """The tracked pose deviates too far (summed squared DOF error) from the reference motion."""
-    return torch.sum((c.state.dof_positions - c.targets.dof_positions) ** 2, dim=-1) > threshold
+    """Terminate if joint positions deviate too far from the target motion."""
+    return torch.sum((c.state.dof_positions - c.reference_state.dof_positions) ** 2, dim=-1) > threshold
 
 
 @termination(height_threshold=0.55)
 def unhealthy(c: StepContext, height_threshold: float) -> torch.Tensor:
-    """The root body falls below a minimum height."""
+    """Terminate if the root height falls below a minimum threshold."""
     return c.state.root_positions[:, 2] < height_threshold

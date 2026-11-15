@@ -30,9 +30,7 @@ class MotionLearningEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self.motions = MotionSet.from_manifest(cfg.motion_manifest, self.device)
-        self.mdp = ComposedMDP(
-            self.motions.specs, cfg.policy_obs, cfg.style_obs, self.device, joint_names=self.robot.data.joint_names
-        )
+        self.mdp = ComposedMDP(self.motions.specs, cfg.policy_obs, cfg.style_obs, self.device)
 
         self._setup_env()
 
@@ -51,6 +49,7 @@ class MotionLearningEnv(DirectRLEnv):
         return BodyState(
             self.robot.data.joint_pos.torch,
             self.robot.data.joint_vel.torch,
+            self.robot.data.joint_acc.torch,
             self.robot.data.body_pos_w.torch[:, self.ref_body_index],
             self.robot.data.body_quat_w.torch[:, self.ref_body_index],
             self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
@@ -314,12 +313,12 @@ class MotionLearningEnv(DirectRLEnv):
         total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
             context, self.motion_ids, self.standing
         )
-        self.extras["command_tracking"] = self.mdp.command_tracking(context, self.motion_ids)
         return total
 
     def _style_reward_off(self) -> torch.Tensor:
-        """envs that earn no AMP style reward this step"""
-        return self.standing
+        """Envs that earn no AMP style reward this step: those standing still, or running a motion
+        that disables it outright with `amp: false`."""
+        return self.standing | ~self.motions.amp[self.motion_ids]
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
@@ -328,11 +327,23 @@ class MotionLearningEnv(DirectRLEnv):
     def _step_context(self) -> StepContext:
         return StepContext(
             self.current_state,
-            self.robot.data.joint_acc.torch,
+            self._reference_state(self._current_tracking_targets()),
             self.commands,
-            self.actions,
             self.previous_actions,
-            self._current_tracking_targets,
+            self.actions,
+        )
+
+    def _reference_state(self, targets: TrackingTargets) -> BodyState:
+        """The reference motion as a BodyState. Its joint acceleration is not tracked, so it is zero."""
+        return BodyState(
+            targets.dof_positions,
+            targets.dof_velocities,
+            torch.zeros_like(targets.dof_velocities),
+            targets.root_positions,
+            targets.root_rotations,
+            targets.root_linear_velocities,
+            targets.root_angular_velocities,
+            targets.key_body_positions,
         )
 
     def _current_tracking_targets(self) -> TrackingTargets:

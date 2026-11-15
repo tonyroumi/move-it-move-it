@@ -1,16 +1,16 @@
 models:
   actor:
-    hidden_layers: [512, 512, 256]
+    hidden_layers: [1024, 512, 256]
     activation: relu
     noise_std_type: fixed
     init_noise_std: 0.055
 
   critic:
-    hidden_layers: [512, 512, 256]
+    hidden_layers: [1024, 512, 256]
     activation: relu
 
   discriminator:
-    hidden_layers: [512, 512, 256]
+    hidden_layers: [1024, 512, 256]
     activation: relu
 
 agent:
@@ -54,4 +54,4 @@ agent:
 
 
 runner:
-  timesteps: 500000000
+  timesteps: 1000000000

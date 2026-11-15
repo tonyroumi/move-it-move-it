@@ -110,6 +110,7 @@ class ReferenceMotions:
         state = BodyState(
             frames.dof_positions[:, self._skeleton.dof_indexes],
             frames.dof_velocities[:, self._skeleton.dof_indexes],
+            torch.zeros_like(frames.dof_velocities[:, self._skeleton.dof_indexes]),
             frames.body_positions[:, root],
             frames.body_rotations[:, root],
             frames.body_linear_velocities[:, root],

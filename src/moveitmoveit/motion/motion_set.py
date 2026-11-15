@@ -39,6 +39,8 @@ class MotionSet:
         """Motions whose tracking target repeats its clip instead of holding the last frame."""
         self.random_start = torch.tensor([spec.random_start for spec in specs], dtype=torch.bool, device=self.device)
         """Motions whose clip clock starts at a uniform random time when a reset initializes it, not at 0."""
+        self.amp = torch.tensor([spec.amp for spec in specs], dtype=torch.bool, device=self.device)
+        """Motions that earn the AMP style reward; a motion with `amp: false` never does."""
 
     @classmethod
     def from_manifest(cls, path: str, device: torch.device | str) -> "MotionSet":

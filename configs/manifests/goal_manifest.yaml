@@ -21,16 +21,6 @@ motions:
     # stand still: these rewards replace the ones above and the AMP style reward is off. 
     standing:
       goal_radius: 0.3
-      # Standing pose tracking targets
-      pose:
-        right_hip_x: -0.12
-        left_hip_x: 0.12
-        right_ankle_x: 0.12
-        left_ankle_x: -0.12
-        right_shoulder_x: -0.18
-        left_shoulder_x: 0.18
-        right_elbow: -0.2
-        left_elbow: -0.2
       rewards:
         target_hit:
           weight: 0.5
@@ -50,7 +40,7 @@ motions:
         support_centered:
           weight: 0.5
           scale: 20.0
-        standing_pose:
+        reference_pose:
           weight: 0.75
           scale: 2.0
           tolerance: 0.05
