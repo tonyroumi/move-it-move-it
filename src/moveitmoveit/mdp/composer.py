@@ -9,7 +9,8 @@ import torch
 from moveitmoveit.mdp.observations import OBSERVATIONS
 from moveitmoveit.mdp.rewards import REWARDS
 from moveitmoveit.mdp.terminations import TERMINATIONS
-from moveitmoveit.motion.manifest import CommandIndex, MotionSpec, RewardSpec, check_known
+from moveitmoveit.motion.manifest import CommandIndex, check_known
+from moveitmoveit.motion.specs import MotionSpec, RewardSpec
 from moveitmoveit.utils.transforms import world_to_heading_frame_xy
 
 

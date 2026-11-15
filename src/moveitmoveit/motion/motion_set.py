@@ -2,8 +2,9 @@ from dataclasses import dataclass
 
 import torch
 
-from moveitmoveit.motion.manifest import COMMAND_DIM, CommandIndex, MotionSpec, load_manifest
+from moveitmoveit.motion.manifest import COMMAND_DIM, CommandIndex, load_manifest
 from moveitmoveit.motion.library import MotionLibrary
+from moveitmoveit.motion.specs import MotionSpec
 
 
 @dataclass
