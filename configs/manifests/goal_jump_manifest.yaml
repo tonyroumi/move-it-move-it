@@ -7,7 +7,7 @@ motions:
     commands:
       goal_x: [-5.0, 5.0]
       goal_y: [-5.0, 5.0]
-    # Zero command places the goal at the root, causing the agent to stand.
+      
     zero_command_prob: 0.25
 
     rewards:
@@ -18,53 +18,29 @@ motions:
         weight: 0.5
         scale: 0.5
 
-    # Within goal_radius, replace navigation rewards with standing rewards
-    # and disable the AMP style reward.
-    standing:
-      goal_radius: 0.3
-      rewards:
-        target_hit:
-          weight: 1.0
-          scale: 0.5
-        root_lin_vel_l2:
-          weight: 1.0
-          scale: 4.0
-        root_ang_vel_l2:
-          weight: 0.5
-          scale: 2.0
-        joint_vel:
-          weight: 0.5
-          scale: 5.0e-2
-        upright:
-          weight: 0.5
-          scale: 10.0
-        support_centered:
-          weight: 0.5
-          scale: 20.0
-        reference_pose:
-          weight: 0.75
-          scale: 2.0
-          tolerance: 0.05
-
-    termination: unhealthy
+    termination:
+      unhealthy:
 
   jump:
     file: data/jump/standing_broad_jump.npz
-    trigger: binary_key_0
     sample_prob: 0.5
-    amp: false
-
-    settle:
-      min_phase: 1.0
-      max_dof_speed: 0.6
-
+    trigger: binary_key_0
+    amp: 0.0
     random_start: false
 
     rewards:
-      heading_motion_tracking: {weight: 25.0, dof_scale: 0.5, key_body_scale: 0.5}
-      action_rate_l2: {weight: 0.5, scale: 1.0}
-      joint_acc: {weight: 0.1, scale: 1.0e-4}
-      
+      heading_motion_tracking:
+        weight: 25.0
+        dof_scale: 0.5
+        key_body_scale: 0.5
+      action_rate_l2:
+        weight: 0.5
+        scale: 1.0
+      joint_acc:
+        weight: 0.1
+        scale: 1.0e-4
+
     termination:
-      unhealthy: {}
-      deviation_from_motion: {threshold: 5.0}
+      unhealthy:
+      deviation_from_motion:
+        threshold: 5.0

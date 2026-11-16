@@ -1,6 +1,6 @@
 motions:
   walk_to_goal:
-    file: data/walk.npz
+    file: data/locomotion/walk.npz
     sample_prob: 1.0
 
     commands:
@@ -17,32 +17,6 @@ motions:
         weight: 0.5
         scale: 0.5
 
-    # Within goal_radius of the goal (a zeroed command, or once it arrives) the robot is asked to
-    # stand still: these rewards replace the ones above and the AMP style reward is off. 
-    standing:
-      goal_radius: 0.3
-      rewards:
-        target_hit:
-          weight: 0.5
-          scale: 0.5
-        root_lin_vel_l2:
-          weight: 1.0
-          scale: 4.0
-        root_ang_vel_l2:
-          weight: 0.5
-          scale: 2.0
-        joint_vel:
-          weight: 0.5
-          scale: 5.0e-2
-        upright:
-          weight: 0.5
-          scale: 10.0
-        support_centered:
-          weight: 0.5
-          scale: 20.0
-        reference_pose:
-          weight: 0.75
-          scale: 2.0
-          tolerance: 0.05
-
-    termination: unhealthy
+    termination:
+      unhealthy: 
+        height_threshold: 0.55

@@ -2,7 +2,7 @@ seed: 42
 
 experiment:
   directory: "locomotion"
-  experiment_name: "command_conditioned_walking"
+  experiment_name: "point_goal"
 
 logger:
   backend: tensorboard
