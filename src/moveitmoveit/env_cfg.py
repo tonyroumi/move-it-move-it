@@ -65,7 +65,7 @@ class MotionLearningEnvCfg(DirectRLEnvCfg):
     observation_space: int = 0
     amp_observation_space = 0
 
-    motion_manifest: str = ""
+    manifest: str = ""
 
     # environment flags
     random_reset: bool = True

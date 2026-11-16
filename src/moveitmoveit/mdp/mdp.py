@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
-from typing import NamedTuple
+from dataclasses import dataclass
 
 import torch
 
@@ -11,32 +10,7 @@ from moveitmoveit.mdp.rewards import REWARDS
 from moveitmoveit.mdp.terminations import TERMINATIONS
 from moveitmoveit.motion.specs import MotionSpec
 from moveitmoveit.motion.library import MotionFrames
-
-
-class BodyState(NamedTuple):
-    dof_positions: torch.Tensor
-    dof_velocities: torch.Tensor
-    dof_accelerations: torch.Tensor
-    root_positions: torch.Tensor
-    root_rotations: torch.Tensor
-    root_linear_velocities: torch.Tensor
-    root_angular_velocities: torch.Tensor
-    key_body_positions: torch.Tensor
-
-
-@dataclass
-class StepContext:
-    """What reward and termination terms may read at one env step."""
-
-    state: BodyState
-    reference_state: BodyState
-    commands: torch.Tensor
-    previous_actions: torch.Tensor
-    actions: torch.Tensor
-    phase: torch.Tensor
-    behaviors: torch.Tensor
-    goal_active: torch.Tensor
-    memory: dict[str, torch.Tensor] = field(default_factory=dict)
+from moveitmoveit.state import BodyState, StepContext
 
 
 def observation_dim(names: Iterable[str]) -> int:
@@ -44,85 +18,144 @@ def observation_dim(names: Iterable[str]) -> int:
     return sum(OBSERVATIONS[name].dim for name in names)
 
 
+@dataclass
+class RewardTable:
+    weights: torch.Tensor
+    kwargs: dict[str, torch.Tensor]
+
+
+@dataclass
+class TerminationTable:
+    enabled: torch.Tensor
+    kwargs: dict[str, torch.Tensor]
+
+
 class MDP:
-    """Rewards, terminations and observations, computed from the specs the caller provides."""
+    """Vectorized rewards, terminations, and observations."""
 
     def __init__(
         self,
         policy_obs: Iterable[str],
         style_obs: Iterable[str],
+        specs: list[MotionSpec],
         device: torch.device | str,
     ):
+        self.device = device
         self._policy_obs = list(policy_obs)
         self._style_obs = list(style_obs)
         self._memory: dict[str, torch.Tensor] = {}
 
-        self.device = device
+        self._rewards = self._build_reward_tables(specs)
+        self._terminations = self._build_termination_tables(specs)
 
-    def reset_memory(self, env_ids: torch.Tensor) -> None:
-        """Forget what terms remembered about these envs, e.g. when their episode or goal changes."""
-        for value in self._memory.values():
-            value[env_ids] = float("nan")
-
-    def rewards(self, c: StepContext, specs: list[MotionSpec]) -> tuple[torch.Tensor, dict, dict]:
-        """Compute total reward and raw/weighted per-term values for logging."""
-        c.memory = self._memory
-
-        active = [spec.rewards for spec in specs]
-
-        total = torch.zeros(len(specs), device=self.device)
-        raw, weighted = {}, {}
+    def _build_reward_tables(
+        self, specs: list[MotionSpec]
+    ) -> dict[str, RewardTable]:
+        tables = {}
 
         for name, term in REWARDS.items():
-            if not any(name in rewards for rewards in active):
+            configs = [spec.rewards.get(name) for spec in specs]
+            if all(config is None for config in configs):
                 continue
+
+            weights = torch.tensor(
+                [config.weight if config is not None else 0.0 for config in configs],
+                device=self.device,
+            )
 
             kwargs = {
                 key: torch.tensor(
-                    [rewards[name].kwargs.get(key, default) if name in rewards else default for rewards in active],
+                    [
+                        config.kwargs.get(key, default)
+                        if config is not None else default
+                        for config in configs
+                    ],
                     device=self.device,
-                    dtype=torch.float,
+                    dtype=torch.float32,
                 )
                 for key, default in term.defaults.items()
             }
 
-            values = term.fn(c, **kwargs)
-            weights = torch.tensor(
-                [rewards[name].weight if name in rewards else 0.0 for rewards in active],
-                device=self.device,
+            tables[name] = RewardTable(weights, kwargs)
+
+        return tables
+
+    def _build_termination_tables(
+        self, specs: list[MotionSpec]
+    ) -> dict[str, TerminationTable]:
+        tables = {}
+
+        for name, term in TERMINATIONS.items():
+            enabled = [name in spec.terminations for spec in specs]
+            if not any(enabled):
+                continue
+
+            kwargs = {
+                key: torch.tensor(
+                    [
+                        spec.terminations.get(name, {}).get(key, default)
+                        for spec in specs
+                    ],
+                    device=self.device,
+                    dtype=torch.float32,
+                )
+                for key, default in term.defaults.items()
+            }
+
+            tables[name] = TerminationTable(
+                enabled=torch.tensor(enabled, device=self.device),
+                kwargs=kwargs,
             )
 
-            contribution = weights * values
-            total += contribution
+        return tables
 
+    def reset_memory(self, env_ids: torch.Tensor) -> None:
+        for value in self._memory.values():
+            value[env_ids] = float("nan")
+
+    def rewards(
+        self, c: StepContext, spec_ids: torch.Tensor
+    ) -> tuple[torch.Tensor, dict, dict]:
+        """Compute rewards using per-environment spec IDs."""
+        c.memory = self._memory
+
+        total = torch.zeros(len(spec_ids), device=self.device)
+        raw, weighted = {}, {}
+
+        for name, table in self._rewards.items():
+            kwargs = {
+                key: values[spec_ids]
+                for key, values in table.kwargs.items()
+            }
+
+            values = REWARDS[name].fn(c, **kwargs)
+            contribution = table.weights[spec_ids] * values
+
+            total += contribution
             raw[name] = values.detach()
             weighted[name] = contribution.detach()
 
         weighted["task"] = total.detach()
         return total, raw, weighted
 
-    def died(self, c: StepContext, specs: list[MotionSpec]) -> torch.Tensor:
-        """Return environments where an enabled termination has fired."""
-        died = torch.zeros(len(specs), device=self.device, dtype=torch.bool)
+    def died(
+        self, c: StepContext, spec_ids: torch.Tensor
+    ) -> torch.Tensor:
+        """Evaluate enabled termination conditions."""
+        died = torch.zeros(
+            len(spec_ids), device=self.device, dtype=torch.bool
+        )
 
-        for name, term in TERMINATIONS.items():
-            enabled = torch.tensor(
-                [name in spec.terminations for spec in specs],
-                device=self.device,
-            )
-            if not enabled.any():
-                continue
-
+        for name, table in self._terminations.items():
             kwargs = {
-                key: torch.tensor(
-                    [spec.terminations.get(name, {}).get(key, default) for spec in specs],
-                    device=self.device,
-                    dtype=torch.float,
-                )
-                for key, default in term.defaults.items()
+                key: values[spec_ids]
+                for key, values in table.kwargs.items()
             }
 
-            died |= enabled & term.fn(c, **kwargs)
+            died |= (
+                table.enabled[spec_ids]
+                & TERMINATIONS[name].fn(c, **kwargs)
+            )
 
         return died
 

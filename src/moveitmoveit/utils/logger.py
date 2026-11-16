@@ -10,7 +10,7 @@ class Logger:
     """RL logger with optional TensorBoard and/or Weights & Biases backends."""
 
     # Training diagnostics considered "core" enough to print to the screen.
-    _CORE_TRAIN_KEYS = ("Total Loss", "Policy Loss", "Value Loss", "Discriminator Loss")
+    CORE_TRAIN_KEYS = ("Total Loss", "Policy Loss", "Value Loss", "Discriminator Loss")
 
     def __init__(
         self,
@@ -121,7 +121,7 @@ class Logger:
             step = self._metric_step[assoc_grad_num]
             self.track_data(f"Train/{name}", value, step)
 
-            if name in self._CORE_TRAIN_KEYS:
+            if name in self.CORE_TRAIN_KEYS:
                 core[name] = value
 
         self._core_train = core

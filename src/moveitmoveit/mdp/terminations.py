@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import torch
 
 if TYPE_CHECKING:
-    from moveitmoveit.mdp.mdp import StepContext
+    from moveitmoveit.state import StepContext
 
 
 class TerminationTerm(NamedTuple):

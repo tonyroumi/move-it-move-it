@@ -11,7 +11,7 @@ from moveitmoveit.mdp.commands import CommandIndex
 from moveitmoveit.utils.transforms import heading_frame
 
 if TYPE_CHECKING:
-    from moveitmoveit.mdp.mdp import StepContext
+    from moveitmoveit.state import StepContext
 
 
 class RewardTerm(NamedTuple):

@@ -19,7 +19,7 @@ def load_manifest(path: str, durations: list[float]) -> list[MotionSpec]:
     return [parse_motion(name, motion, durations[i]) for i, (name, motion) in enumerate(motions.items())]
 
 
-class MotionManifest:
+class Manifest:
     """The motions a manifest declares"""
 
     def __init__(self, specs: list[MotionSpec], device: torch.device | str):
@@ -42,7 +42,7 @@ class MotionManifest:
         self.durations = torch.tensor([spec.duration for spec in specs], dtype=torch.float, device=self.device)
 
     @classmethod
-    def from_manifest(cls, path: str, device: torch.device | str) -> "MotionManifest":
+    def from_manifest(cls, path: str, device: torch.device | str) -> "Manifest":
         return cls(load_manifest(path), device)
 
     def style_reward_weight(self, motion_ids: torch.Tensor) -> torch.Tensor:

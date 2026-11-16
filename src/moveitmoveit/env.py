@@ -6,10 +6,11 @@ from isaaclab.envs import DirectRLEnv
 from isaaclab.utils.math import quat_apply, quat_apply_yaw, random_yaw_orientation
 
 from moveitmoveit.env_cfg import MotionLearningEnvCfg
-from moveitmoveit.mdp import BodyState, MDP, StepContext, observation_dim
+from moveitmoveit.mdp import MDP, observation_dim
+from moveitmoveit.state import BodyState, StepContext
 from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
 from moveitmoveit.motion.motion_manager import MotionManager
-from moveitmoveit.motion.motion_manifest import MotionManifest, load_manifest, manifest_files
+from moveitmoveit.motion.manifest import Manifest, load_manifest, manifest_files
 from moveitmoveit.motion.library import MotionFrames, MotionLibrary
 from moveitmoveit.utils.transforms import apply_random_yaw
 
@@ -17,24 +18,29 @@ class MotionLearningEnv(DirectRLEnv):
     cfg: MotionLearningEnvCfg
 
     def __init__(self, cfg: MotionLearningEnvCfg, render_mode: str | None = None, **kwargs):
-        self.motion_library = MotionLibrary(manifest_files(cfg.motion_manifest), cfg.sim.device)
-        motion_specs = load_manifest(cfg.motion_manifest, self.motion_library.duration.tolist())
-        self.motion_manifest = MotionManifest(motion_specs, cfg.sim.device)
+        self.motion_library = MotionLibrary(manifest_files(cfg.manifest), cfg.sim.device)
+        motion_specs = load_manifest(cfg.manifest, self.motion_library.duration.tolist())
+        self.manifest = Manifest(motion_specs, cfg.sim.device)
 
         # the policy observation, commands, behavior one-hot, phase
-        self.command_dim = COMMAND_DIM + self.motion_manifest.num_behaviors + 1
+        self.command_dim = COMMAND_DIM + self.manifest.num_behaviors + 1
         cfg.observation_space = observation_dim(cfg.policy_obs) + self.command_dim
         cfg.amp_observation_space = observation_dim(cfg.style_obs)
         super().__init__(cfg, render_mode, **kwargs)
 
         self.motion_manager = MotionManager(
-            self.motion_manifest,
+            self.manifest,
             self.num_envs,
             self.device,
             self.step_dt,
         )
 
-        self.mdp = MDP(cfg.policy_obs, cfg.style_obs, self.device)
+        self.mdp = MDP(
+            policy_obs=cfg.policy_obs,
+            style_obs=cfg.style_obs,
+            specs=motion_specs,
+            device=self.device,
+        )
 
         self._setup_env()
 
@@ -175,9 +181,9 @@ class MotionLearningEnv(DirectRLEnv):
         num_samples = env_ids.shape[0]
 
         # Reference state init
-        motion_ids = self.motion_manifest.sample_ids(num_samples)
+        motion_ids = self.manifest.sample_ids(num_samples)
         times = self.motion_library.sample_times(motion_ids)
-        times = torch.where(self.motion_manifest.random_start[motion_ids], times, torch.zeros_like(times))
+        times = torch.where(self.manifest.random_start[motion_ids], times, torch.zeros_like(times))
         frames = self.motion_library.frames(motion_ids, times)
         self.motion_manager.reset(env_ids, motion_ids, times)
 
@@ -198,7 +204,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         time = self.episode_length_buf.to(torch.float32) * self.step_dt
         # trigger keys written into the commands, by play's keyboard; training presses its own
-        keys = self.commands[:, self.motion_manifest.behavior_keys]
+        keys = self.commands[:, self.manifest.behavior_keys]
         self.motion_manager.step(time, self.cfg.resample_commands, keys)
 
         policy_obs, style_obs = self.mdp.observations(self._step_context(), self.local_frame)
@@ -213,16 +219,16 @@ class MotionLearningEnv(DirectRLEnv):
         return policy_obs
 
     def _get_rewards(self) -> torch.Tensor:
-        self.extras["style_reward_weight"] = self.motion_manifest.style_reward_weight(self.motion_manager.motion_ids)
+        self.extras["style_reward_weight"] = self.manifest.style_reward_weight(self.motion_manager.motion_ids)
         context = self._step_context()
         total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
-            context, self.motion_manager.active_specs()
+            context, self.motion_manager.motion_ids
         )
         return total
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        return self.mdp.died(self._step_context(), self.motion_manager.active_specs()), time_out
+        return self.mdp.died(self._step_context(), self.motion_manager.motion_ids), time_out
 
     def _step_context(self) -> StepContext:
         time = self.episode_length_buf.to(torch.float32) * self.step_dt
@@ -253,8 +259,8 @@ class MotionLearningEnv(DirectRLEnv):
         resample_env_ids = resample.nonzero(as_tuple=False).squeeze(-1)
         if resample_env_ids.numel() > 0:
             motion_ids = self.motion_manager.base_motion_ids[resample_env_ids]
-            commands = self.motion_manifest.sample_commands(motion_ids)
-            goal_active = self.motion_manifest.has_goal[motion_ids]
+            commands = self.manifest.sample_commands(motion_ids)
+            goal_active = self.manifest.has_goal[motion_ids]
             # Sampled goals are offsets; store a fixed world target until the next resample.
             goal = commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
             commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = torch.where(
@@ -312,7 +318,7 @@ class MotionLearningEnv(DirectRLEnv):
 
     def style_batch(self, num_samples: int) -> torch.Tensor:
         """Sample reference style observations with history flattened per sample."""
-        motion_ids = self.motion_manifest.sample_ids(num_samples)
+        motion_ids = self.manifest.sample_ids(num_samples)
         times = self.motion_library.sample_times(motion_ids)
         yaw = random_yaw_orientation(num_samples, self.device) if self.cfg.random_reset else None
         return self._amp_observations(motion_ids, times, yaw)

@@ -11,7 +11,7 @@ from moveitmoveit.mdp.commands import CommandIndex
 from moveitmoveit.utils.transforms import quaternion_to_tangent_and_normal, world_to_heading_frame_xy
 
 if TYPE_CHECKING:
-    from moveitmoveit.mdp.mdp import BodyState
+    from moveitmoveit.state import BodyState
 
 
 class ObservationTerm(NamedTuple):
