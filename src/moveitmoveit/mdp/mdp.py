@@ -33,10 +33,7 @@ class StepContext:
     previous_actions: torch.Tensor
     actions: torch.Tensor
     phase: torch.Tensor
-    """Each env's observed behavior phase, as `MotionManager` recorded it."""
     behaviors: torch.Tensor
-    """Each env's observed running behavior, a one-hot (N, num_behaviors), as `MotionManager` recorded it."""
-    standing: torch.Tensor | None = None
     memory: dict[str, torch.Tensor] = field(default_factory=dict)
 
 
@@ -138,17 +135,21 @@ class MDP:
     def observations(
         self,
         context: StepContext,
-        commands: torch.Tensor,
         local_frame: bool,
-        has_goal: torch.Tensor,
-        behavior_keys: list[int],
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """The policy and the style observation."""
         state = context.state
-        observed = command_observation(
-            commands, state, context.phase, context.behaviors, local_frame, has_goal, behavior_keys
+
+        commands = command_observation(state, local_frame)
+        policy = torch.cat(
+            [
+                *(OBSERVATIONS[name].fn(state, local_frame) for name in self._policy_obs),
+                commands,
+                context.behaviors,
+                context.phase,
+            ],
+            dim=-1,
         )
-        policy = torch.cat([OBSERVATIONS[name].fn(state, local_frame) for name in self._policy_obs] + [observed], dim=-1)
         return policy, self.style_obs(state, local_frame)
 
     def style_obs(self, state: BodyState, local_frame: bool) -> torch.Tensor:

@@ -9,7 +9,7 @@ from moveitmoveit.env_cfg import MotionLearningEnvCfg
 from moveitmoveit.mdp import BodyState, MDP, StepContext, observation_dim
 from moveitmoveit.mdp.commands import COMMAND_DIM
 from moveitmoveit.motion.motion_manager import MotionManager
-from moveitmoveit.motion.motion_set import Manifest
+from moveitmoveit.motion.motion_set import MotionSet
 from moveitmoveit.motion.library import MotionLibrary
 from moveitmoveit.motion.manifest import load_manifest
 
@@ -22,11 +22,18 @@ class MotionLearningEnv(DirectRLEnv):
         cfg.amp_observation_space = observation_dim(cfg.style_obs)
         super().__init__(cfg, render_mode, **kwargs)
 
-        motion_specs = load_manifest(cfg.motion_manifest)
+        self.motion_library = MotionLibrary(self.motion_set.files, self.device)
 
-        self.motion_set = Manifest(motion_specs, self.device)
-        self.motion_library = MotionLibrary(self.motion_set.names, self.device)
-        self.motion_manager = MotionManager(self.motion_set, self.motion_library.duration, self.num_envs, self.device)
+        motion_specs = load_manifest(cfg.motion_manifest, self.motion_library.duration.tolist())
+
+        self.motion_set = MotionSet(motion_specs, self.device)
+        self.motion_library = MotionLibrary(self.motion_set.files, self.device)
+        self.motion_manager = MotionManager(
+            self.motion_set,
+            self.num_envs,
+            self.device,
+            self.step_dt,
+        )
 
         self.mdp = MDP(cfg.policy_obs, cfg.style_obs, self.device)
 
@@ -74,9 +81,6 @@ class MotionLearningEnv(DirectRLEnv):
 
         self.commands = torch.zeros(self.num_envs, COMMAND_DIM, device=self.device)
 
-        # Rewards and the AMP style gate read the mode of the observation the policy acted on.
-        self.standing = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.previous_actions = torch.zeros_like(self.actions)
 
@@ -85,7 +89,7 @@ class MotionLearningEnv(DirectRLEnv):
     def _setup_scene(self):
         self.robot = self.scene["robot"]
 
-        if self.render_enabled and self.cfg.camera_type != "none":
+        if self.cfg.camera_type != "none":
             if self.cfg.camera_type == "facing":
                 self._camera_target_offset = torch.tensor([2.5, 0.0, 0.0], device=self.device)
                 self._camera_eye_offset = torch.tensor([3.0, 0.0, 0.0], device=self.device)
@@ -169,9 +173,11 @@ class MotionLearningEnv(DirectRLEnv):
         num_samples = env_ids.shape[0]
 
         # Reference state init
-        motion_ids, behavior_ids = self.motion_set.sample_ids(num_samples)
-        frames, times = self.motion_library.frames(motion_ids)
-        self.motion_manager.reset(env_ids, motion_ids, behavior_ids, times)
+        motion_ids = self.motion_set.sample_ids(num_samples)
+        times = self.motion_library.sample_times(motion_ids)
+        times = torch.where(self.motion_set.random_start[motion_ids], times, torch.zeros_like(times))
+        frames = self.motion_library.frames(motion_ids, times)
+        self.motion_manager.reset(env_ids, motion_ids, times)
 
         yaw = None
         if self.cfg.random_reset:
@@ -182,20 +188,18 @@ class MotionLearningEnv(DirectRLEnv):
         self._write_robot_state(env_ids, root_state, dof_pos, dof_vel)
 
         # Seed amp observation buffer with initial frames
+        # The style_obs works for now because BodyState and MotionFrames have the same fields
+        # perhaps we can go through all motions and give them what they need. or not. 
         seeded_frames = self.motion_library.history(self.cfg.num_amp_observations)
         self.amp_observation_buffer[env_ids] = self.mdp.style_obs(seeded_frames, yaw)
-
 
     def _get_observations(self) -> dict:
         self._resample_commands()
 
-        state = self.current_state
-
         time = self.episode_length_buf.to(torch.float32) * self.step_dt
-        self.motion_manager.step(time, state)
+        self.motion_manager.step(time, self.cfg.resample_commands)
 
         policy_obs, style_obs = self.mdp.observations(self._step_context(), self.local_frame)
-        motion_obs = self.motion_manager.observations(...)
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
@@ -204,10 +208,9 @@ class MotionLearningEnv(DirectRLEnv):
 
         self.extras["amp_obs"] = self.amp_observation_buffer.view(-1, self.amp_observation_size)
 
-        return torch.cat([policy_obs, self.commands, motion_obs], dim=-1)
+        return policy_obs
 
     def _get_rewards(self) -> torch.Tensor:
-        self.extras["standing"] = self.standing
         self.extras["style_reward_weight"] = self.motion_manager.style_reward_weight
         context = self._step_context()
         total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
@@ -228,12 +231,11 @@ class MotionLearningEnv(DirectRLEnv):
             self.actions,
             self.motion_manager.current_phase(),
             self.motion_manager.current_behaviors(),
-            self.standing,
         )
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands every `command_resample_steps` steps or where `dones` is set."""
-        if not self.cfg.resample_commands or dones is None:
+        if not self.cfg.resample_commands:
             return
 
         resample = self.episode_length_buf % (self.cfg.command_resample_steps + 1) == 0

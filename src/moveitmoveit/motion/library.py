@@ -176,7 +176,7 @@ class MotionLibrary:
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         index_0, index_1, blend = self._compute_frame_blend(times, motion_ids)
-        frames =  MotionFrames(
+        return MotionFrames(
             self._interpolate(self.dof_positions, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
             self._interpolate(self.dof_velocities, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
             self._interpolate(self.body_positions, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
@@ -188,7 +188,6 @@ class MotionLibrary:
                 self.body_angular_velocities, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend
             ),
         )
-        return frames, times
 
     def history(self, motion_ids: torch.Tensor, times: torch.Tensor, num_steps: int) -> MotionFrames:
         """``num_steps`` states, ``dt`` apart, ending at each sample's time, newest first."""

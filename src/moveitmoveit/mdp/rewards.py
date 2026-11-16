@@ -138,8 +138,9 @@ def support_centered(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     return torch.exp(-scale * torch.sum((root_xy - feet_midpoint) ** 2, dim=-1))
 
 
-@reward(scale=2.0)
-def reference_pose(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
-    """Joint positions vs. the reference pose."""
-    error = torch.sum((c.state.dof_positions - c.reference_state.dof_positions) ** 2, dim=-1)
+@reward(scale=2.0, tolerance=0.0)
+def reference_pose(c: StepContext, scale: torch.Tensor, tolerance: torch.Tensor) -> torch.Tensor:
+    """Joint positions vs. the reference pose, ignoring up to `tolerance` rad per joint."""
+    excess = ((c.state.dof_positions - c.reference_state.dof_positions).abs() - tolerance.unsqueeze(-1)).clamp_min(0.0)
+    error = torch.sum(excess**2, dim=-1)
     return torch.exp(-scale * error)

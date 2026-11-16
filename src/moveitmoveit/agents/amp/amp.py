@@ -93,11 +93,9 @@ class AMP(PPO):
 
         weighted_style_reward = style_reward * self.cfg.style_reward_lambda
         
-        style_reward_off = infos.get("style_reward_off")
-        if style_reward_off is not None:
-            weighted_style_reward = torch.where(
-                style_reward_off.view(rewards.shape), torch.zeros_like(weighted_style_reward), weighted_style_reward
-            )
+        style_reward_weight = infos.get("style_reward_weight")
+        if style_reward_weight is not None:
+            weighted_style_reward = weighted_style_reward * style_reward_weight.view(rewards.shape)
             
         rewards = self.cfg.goal_reward_lambda * rewards + weighted_style_reward
 

@@ -16,13 +16,11 @@ class RandomKeyPresses:
         num_envs: int,
         rate: float,
         weights: torch.Tensor,
-        max_hold_steps: int,
         step_dt: float,
         device: torch.device | str,
     ):
         self._press_prob = rate * step_dt
         self._weights = weights
-        self._max_hold_steps = max_hold_steps
         self._behavior = torch.zeros(num_envs, dtype=torch.long, device=device)
         self._hold = torch.zeros(num_envs, dtype=torch.long, device=device)
         self._was_held = torch.zeros(num_envs, dtype=torch.bool, device=device)
@@ -38,7 +36,7 @@ class RandomKeyPresses:
         if press.any():
             num_presses = int(press.sum())
             self._behavior[press] = torch.multinomial(self._weights, num_presses, replacement=True)
-            self._hold[press] = torch.randint(1, self._max_hold_steps + 1, (num_presses,), device=device)
+            self._hold[press] = torch.randint(1, 3, (num_presses,), device=device)
 
         held = self._hold > 0
         levels[held, self._behavior[held]] = 1.0
