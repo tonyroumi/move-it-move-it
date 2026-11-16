@@ -19,7 +19,7 @@ class MotionFrames(NamedTuple):
 
 class MotionLibrary:
     def __init__(self, motion_files: list[str], device: torch.device) -> None:
-        """Load the motion files onto `device`."""
+        """Load the motion files onto device."""
 
         for motion_file in motion_files:
             assert os.path.isfile(motion_file), f"Invalid file path: {motion_file}"
@@ -69,7 +69,7 @@ class MotionLibrary:
         index_1: torch.Tensor,
         blend: torch.Tensor,
     ) -> torch.Tensor:
-        """Lerp each sample's frames `index_0` -> `index_1` by `blend`"""
+        """Lerp each sample's frames index_0 -> index_1 by blend"""
         a = data[motion_ids, index_0]
         b = data[motion_ids, index_1]
         if a.ndim >= 2:
@@ -87,7 +87,7 @@ class MotionLibrary:
         index_1: torch.Tensor,
         blend: torch.Tensor,
     ) -> torch.Tensor:
-        """Slerp each sample's xyzw rotations `index_0` -> `index_1` by `blend`."""
+        """Slerp each sample's xyzw rotations index_0 -> index_1 by blend."""
         q0 = data[motion_ids, index_0]
         q1 = data[motion_ids, index_1]
         if q0.ndim >= 2:
@@ -138,7 +138,6 @@ class MotionLibrary:
         return index_0, index_1, blend
 
     def sample_times(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        """Uniform random times within each sample's clip duration."""
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         return self.duration[motion_ids] * torch.rand(motion_ids.shape[0], device=self.device)
 
@@ -167,7 +166,6 @@ class MotionLibrary:
         num_steps: int,
         step_dt: float | None = None,
     ) -> MotionFrames:
-        """History ending at each sample's time, newest first; defaults to clip frame spacing."""
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         spacing = self.dt if step_dt is None else step_dt
@@ -176,7 +174,6 @@ class MotionLibrary:
         return self.frames(motion_ids.repeat_interleave(num_steps), history_times)
 
     def get_dof_index(self, dof_names: list[str]) -> list[int]:
-        """Clip DOF index of each name; asserts every name exists."""
         indexes = []
         for name in dof_names:
             assert name in self._dof_names, f"The specified DOF name ({name}) doesn't exist: {self._dof_names}"
@@ -184,7 +181,6 @@ class MotionLibrary:
         return indexes
 
     def get_body_index(self, body_names: list[str]) -> list[int]:
-        """Clip body index of each name; asserts every name exists."""
         indexes = []
         for name in body_names:
             assert name in self._body_names, f"The specified body name ({name}) doesn't exist: {self._body_names}"

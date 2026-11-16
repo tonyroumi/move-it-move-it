@@ -26,8 +26,6 @@ class BodyState(NamedTuple):
 
 @dataclass
 class StepContext:
-    """Per-step inputs for command observations, rewards, and termination checks."""
-
     state: BodyState
     reference_state: BodyState
     commands: torch.Tensor

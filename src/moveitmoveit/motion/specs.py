@@ -1,5 +1,3 @@
-"""The specs a manifest motion entry declares."""
-
 from dataclasses import dataclass
 
 

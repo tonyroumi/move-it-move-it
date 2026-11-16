@@ -25,7 +25,6 @@ class OnPolicyRunner:
         self.agent.init(self.env, cfg)
 
     def learn(self, timesteps: int) -> None:
-        """Run the training loop."""
         num_envs = self.env.unwrapped.num_envs
         observations, infos = self.env.reset()
 

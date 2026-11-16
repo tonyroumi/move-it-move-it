@@ -22,7 +22,6 @@ OBSERVATIONS: dict[str, ObservationTerm] = {}
 
 
 def observation(dim: int):
-    """Register a read-only observation of body state."""
     def register(fn):
         OBSERVATIONS[fn.__name__] = ObservationTerm(fn, dim)
         return fn

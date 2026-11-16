@@ -65,11 +65,9 @@ class MotionManager:
         return self.manifest.sample_ids(num_samples)
 
     def reset_times(self, motion_ids: torch.Tensor, times: torch.Tensor) -> torch.Tensor:
-        """Use sampled reset times only for motions that allow random starts."""
         return torch.where(self.manifest.random_start[motion_ids], times, torch.zeros_like(times))
 
     def style_reward_weight(self) -> torch.Tensor:
-        """AMP style reward weights for the currently running motions."""
         return self.manifest.style_reward_weight(self.motion_ids)
 
     @property
@@ -90,7 +88,7 @@ class MotionManager:
         self.mode[env_ids] = mode
         self.motion_ids[env_ids] = motion_ids
         self.base_motion_ids[env_ids] = base_motion_ids
-        # Set the start time and clip offset for behaviors and locomotion respectively.
+
         zeros = torch.zeros_like(times)
         self.start_time[env_ids] = torch.where(is_behavior, -times, zeros)
         self.clip_offsets[env_ids] = torch.where(is_behavior, zeros, times)

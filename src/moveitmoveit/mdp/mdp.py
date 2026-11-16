@@ -172,5 +172,4 @@ class MDP:
         return policy, self.style_obs(context.state, local_frame)
 
     def style_obs(self, state: BodyState, local_frame: bool) -> torch.Tensor:
-        """Style observations depend only on body state, including for reference clips."""
         return torch.cat([OBSERVATIONS[name].fn(state, local_frame) for name in self._style_obs], dim=-1)

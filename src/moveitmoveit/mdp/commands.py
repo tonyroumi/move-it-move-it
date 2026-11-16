@@ -36,7 +36,6 @@ COMMANDS: dict[str, CommandTerm] = {}
 
 
 def command(*indexes: CommandIndex):
-    """Register conversion of a command's slots to policy inputs."""
     def register(fn):
         COMMANDS[fn.__name__] = CommandTerm(fn, indexes)
         return fn
@@ -46,7 +45,6 @@ def command(*indexes: CommandIndex):
 
 @command(CommandIndex.LIN_X, CommandIndex.LIN_Y)
 def linear_velocity(c: StepContext, local_frame: bool) -> torch.Tensor:
-    """Velocity commands are already expressed in their command frame."""
     return c.commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1]
 
 
@@ -66,7 +64,6 @@ def point_goal(c: StepContext, local_frame: bool) -> torch.Tensor:
 
 
 def command_observation(c: StepContext, local_frame: bool) -> torch.Tensor:
-    """Convert independent commands without changing storage or unregistered slots."""
     observation = c.commands.clone()
     for term in COMMANDS.values():
         observation[:, term.indexes] = term.fn(c, local_frame)

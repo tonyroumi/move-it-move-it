@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import weakref
@@ -8,32 +9,34 @@ import torch
 
 from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
 
-# key -> (forward, left, yaw) direction; each key and its numpad twin drive the same axis. In velocity
-# mode these are robot-frame; in point_goal mode forward / left are the world +X / +Y axes.
-MOTION_KEYS: dict[str, tuple[float, float, float]] = {
-    "UP": (1.0, 0.0, 0.0),
-    "NUMPAD_8": (1.0, 0.0, 0.0),
-    "DOWN": (-1.0, 0.0, 0.0),
-    "NUMPAD_2": (-1.0, 0.0, 0.0),
-    "LEFT": (0.0, 1.0, 0.0),
-    "NUMPAD_4": (0.0, 1.0, 0.0),
-    "RIGHT": (0.0, -1.0, 0.0),
-    "NUMPAD_6": (0.0, -1.0, 0.0),
-    "Z": (0.0, 0.0, 1.0),
-    "NUMPAD_7": (0.0, 0.0, 1.0),
-    "X": (0.0, 0.0, -1.0),
-    "NUMPAD_9": (0.0, 0.0, -1.0),
+
+MOTION_KEYS = {
+    "UP": (1, 0, 0),
+    "NUMPAD_8": (1, 0, 0),
+    "DOWN": (-1, 0, 0),
+    "NUMPAD_2": (-1, 0, 0),
+    "LEFT": (0, 1, 0),
+    "NUMPAD_4": (0, 1, 0),
+    "RIGHT": (0, -1, 0),
+    "NUMPAD_6": (0, -1, 0),
+    "Z": (0, 0, 1),
+    "NUMPAD_7": (0, 0, 1),
+    "X": (0, 0, -1),
+    "NUMPAD_9": (0, 0, -1),
 }
-BINARY_KEYS: dict[str, CommandIndex] = {
+
+BINARY_KEYS = {
     "LEFT_SHIFT": CommandIndex.BINARY_KEY_0,
     "RIGHT_SHIFT": CommandIndex.BINARY_KEY_1,
     "C": CommandIndex.BINARY_KEY_2,
 }
+
 RESET_KEY = "L"
-MODES = ("velocity", "point_goal")
 
 
 class Keyboard:
+    """Keyboard-driven velocity, point-goal, and binary commands."""
+
     def __init__(
         self,
         mode: str,
@@ -42,85 +45,84 @@ class Keyboard:
         sensitivity: tuple[float, float, float] = (1.5, 1.0, 1.0),
         goal_offset: tuple[float, float] = (1.0, 0.0),
     ):
-        if mode not in MODES:
-            raise ValueError(f"Unknown keyboard mode '{mode}'; expected one of {MODES}.")
+        if mode not in ("velocity", "point_goal"):
+            raise ValueError(f"Unknown keyboard mode: {mode}")
+
         self.mode = mode
         self._dt = dt
         self._device = device
         self._sensitivity = torch.tensor(sensitivity, device=device)
         self._goal_offset = torch.tensor(goal_offset, device=device)
 
+        self._motion_keys = {
+            key: torch.tensor(direction, device=device) * self._sensitivity
+            for key, direction in MOTION_KEYS.items()
+        }
+
         self._held: set[str] = set()
-        # binary keys pressed since the last advance()
         self._tapped: set[str] = set()
-        self._start_xy: torch.Tensor | None = None
         self._goal_xy: torch.Tensor | None = None
 
         self._input = carb.input.acquire_input_interface()
         self._keyboard = omni.appwindow.get_default_app_window().get_keyboard()
-        # a weak proxy keeps the subscription from holding this object alive
         self._sub = self._input.subscribe_to_keyboard_events(
-            self._keyboard, lambda event, *args, obj=weakref.proxy(self): obj._on_keyboard_event(event)
+            self._keyboard,
+            lambda event, *args, obj=weakref.proxy(self): obj._on_keyboard_event(event),
         )
 
     def __del__(self):
-        # __init__ may have raised before subscribing
         if getattr(self, "_sub", None) is not None:
             self._input.unsubscribe_to_keyboard_events(self._keyboard, self._sub)
 
     def __str__(self) -> str:
-        lines = [f"Keyboard ({self.mode})", f"\tReset: {RESET_KEY}"]
+        lines = [
+            f"Keyboard ({self.mode})",
+            f"  Reset: {RESET_KEY}",
+            "  Forward / backward: Up / Down (Numpad 8 / 2)",
+            "  Left / right: Left / Right (Numpad 4 / 6)",
+        ]
+
         if self.mode == "velocity":
-            lines += [
-                "\tForward / backward: Up / Down (Numpad 8 / 2)",
-                "\tLeft / right: Left / Right (Numpad 4 / 6)",
-                "\tYaw left / right: Z / X (Numpad 7 / 9)",
-            ]
-        else:
-            lines += [
-                "\tGoal +X / -X (world): Up / Down (Numpad 8 / 2)",
-                "\tGoal +Y / -Y (world): Left / Right (Numpad 4 / 6)",
-            ]
-        lines += [f"\t{command.name}: {key}" for key, command in BINARY_KEYS.items()]
+            lines.append("  Yaw left / right: Z / X (Numpad 7 / 9)")
+
+        lines.extend(f"  {index.name}: {key}" for key, index in BINARY_KEYS.items())
         return "\n".join(lines)
 
-    def reset(self):
-        """Release every key and, in point_goal mode, put the goal back at its offset from the start pose."""
+    def reset(self) -> None:
+        """Release all keys and reset the point goal."""
         self._held.clear()
         self._tapped.clear()
         self._goal_xy = None
 
     def advance(self, root_xy: torch.Tensor, root_quat: torch.Tensor) -> torch.Tensor:
-        """The (N, COMMAND_DIM) command for the envs' (N, 2) root XY positions.
+        """Return keyboard commands for each environment."""
+        num_envs = root_xy.shape[0]
+        commands = torch.zeros(num_envs, COMMAND_DIM, device=self._device)
 
-        In point_goal mode the goal moves in fixed world XY axes, so it does not depend on the root's
-        heading: root_quat (N, 4) is accepted for the callers' sake and goes unread.
-        """
         axes = torch.zeros(3, device=self._device)
-        for key in self._held & MOTION_KEYS.keys():
-            axes += torch.tensor(MOTION_KEYS[key], device=self._device)
-        axes *= self._sensitivity
+        for key in self._held:
+            if key in self._motion_keys:
+                axes += self._motion_keys[key]
 
-        command = torch.zeros(root_xy.shape[0], COMMAND_DIM, device=self._device)
         if self.mode == "velocity":
-            command[:, CommandIndex.LIN_X : CommandIndex.YAW + 1] = axes
+            commands[:, CommandIndex.LIN_X : CommandIndex.YAW + 1] = axes
         else:
-            if self._start_xy is None:
-                self._start_xy = root_xy.clone()
             if self._goal_xy is None:
-                self._goal_xy = self._start_xy + self._goal_offset
-            # forward / left are the world +X / +Y axes, whichever way the root faces
-            self._goal_xy = self._goal_xy + axes[:2] * self._dt
-            command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = self._goal_xy
+                self._goal_xy = root_xy.clone() + self._goal_offset
+
+            self._goal_xy += axes[:2] * self._dt
+            commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = self._goal_xy
 
         for key, index in BINARY_KEYS.items():
-            command[:, index] = float(key in self._held or key in self._tapped)
+            commands[:, index] = float(key in self._held or key in self._tapped)
+
         self._tapped.clear()
-        return command
+        return commands
 
     def _on_keyboard_event(self, event) -> bool:
-        # CHAR events carry a character rather than a named key; only presses and releases matter
+        """Track key presses, releases, and resets."""
         key = getattr(event.input, "name", None)
+
         if event.type == carb.input.KeyboardEventType.KEY_PRESS:
             if key == RESET_KEY:
                 self.reset()
@@ -128,6 +130,8 @@ class Keyboard:
                 self._held.add(key)
                 if key in BINARY_KEYS:
                     self._tapped.add(key)
+
         elif event.type == carb.input.KeyboardEventType.KEY_RELEASE:
             self._held.discard(key)
+
         return True

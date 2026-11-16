@@ -19,7 +19,6 @@ class RandomKeyPresses:
         self._was_held = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
     def step(self) -> torch.Tensor:
-        """This step's key levels"""
         num_envs, device = self._hold.shape[0], self._hold.device
         levels = torch.zeros(num_envs, self._weights.shape[0], device=device)
         if self._press_prob <= 0.0:
@@ -38,6 +37,5 @@ class RandomKeyPresses:
         return levels
 
     def reset(self, env_ids: torch.Tensor) -> None:
-        """Release these envs' keys."""
         self._hold[env_ids] = 0
         self._was_held[env_ids] = False
