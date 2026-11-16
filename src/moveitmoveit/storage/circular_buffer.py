@@ -2,7 +2,7 @@ import torch
 
 
 class CircularBuffer:
-    """Fixed-capacity FIFO of samples that overwrites the oldest once full."""
+    """Fixed-capacity FIFO circular buffer."""
 
     def __init__(
         self,
@@ -22,7 +22,6 @@ class CircularBuffer:
         self._write_idx = 0
         self._size = 0
 
-        # monotonic counters (never wrapped): how many samples arrived since the last `get_since_last`
         self._total_appended = 0
         self._last_window_total = 0
 

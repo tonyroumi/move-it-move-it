@@ -6,19 +6,12 @@ from isaaclab.envs import DirectRLEnv
 from isaaclab.utils.math import quat_apply, quat_apply_yaw, quat_mul, random_yaw_orientation
 
 from moveitmoveit.env_cfg import MotionLearningEnvCfg
-from moveitmoveit.mdp import BodyState, ComposedMDP, StepContext, observation_dim, policy_commands
-from moveitmoveit.motion.behavior import (
-    LOCOMOTION,
-    BehaviorManager,
-    RandomKeyPresses,
-    behavior_commands,
-    clip_phase,
-    reference_times,
-    settled,
-)
-from moveitmoveit.motion.manifest import COMMAND_DIM
-from moveitmoveit.motion.motion_set import MotionSet, ResetClips
-from moveitmoveit.motion.reference import ReferenceMotions, ResetFrames, SkeletonMap, TrackingTargets
+from moveitmoveit.mdp import BodyState, MDP, StepContext, observation_dim
+from moveitmoveit.mdp.commands import COMMAND_DIM
+from moveitmoveit.motion.motion_manager import MotionManager
+from moveitmoveit.motion.motion_set import Manifest
+from moveitmoveit.motion.library import MotionLibrary
+from moveitmoveit.motion.manifest import load_manifest
 
 
 class MotionLearningEnv(DirectRLEnv):
@@ -29,10 +22,13 @@ class MotionLearningEnv(DirectRLEnv):
         cfg.amp_observation_space = observation_dim(cfg.style_obs)
         super().__init__(cfg, render_mode, **kwargs)
 
-        self.motions = MotionSet.from_manifest(cfg.motion_manifest, self.device)
-        self.mdp = ComposedMDP(
-            self.motions.specs, cfg.policy_obs, cfg.style_obs, self.device, joint_names=self.robot.data.joint_names
-        )
+        motion_specs = load_manifest(cfg.motion_manifest)
+
+        self.motion_set = Manifest(motion_specs, self.device)
+        self.motion_library = MotionLibrary(self.motion_set.names, self.device)
+        self.motion_manager = MotionManager(self.motion_set, self.motion_library.duration, self.num_envs, self.device)
+
+        self.mdp = MDP(cfg.policy_obs, cfg.style_obs, self.device)
 
         self._setup_env()
 
@@ -51,6 +47,7 @@ class MotionLearningEnv(DirectRLEnv):
         return BodyState(
             self.robot.data.joint_pos.torch,
             self.robot.data.joint_vel.torch,
+            self.robot.data.joint_acc.torch,
             self.robot.data.body_pos_w.torch[:, self.ref_body_index],
             self.robot.data.body_quat_w.torch[:, self.ref_body_index],
             self.robot.data.body_lin_vel_w.torch[:, self.ref_body_index],
@@ -62,38 +59,6 @@ class MotionLearningEnv(DirectRLEnv):
         key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
         self.ref_body_index = self.robot.data.body_names.index("torso")
         self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
-        self.reference = ReferenceMotions(
-            self.motions.sample_ids,
-            self.motions.library,
-            SkeletonMap(
-                self.motions.library.get_dof_index(self.robot.data.joint_names),
-                self.motions.library.get_body_index(["torso"])[0],
-                self.motions.library.get_body_index(key_body_names),
-            ),
-            self.cfg.num_amp_observations,
-            self.cfg.random_reset,
-            self.mdp.style_obs,
-        )
-
-        self.motion_start_times = torch.zeros(self.num_envs, device=self.device)
-        # the motion each env's rewards, terminations and tracking follow: its running behavior's,
-        # else its locomotion motion's (base_motion_ids), which also owns its commands. Where the
-        # motions are always on, base_motion_ids is the behavior the env reset into.
-        self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self.base_motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-
-        # discrete behaviors ids from raw keys in commands[:, behavior_keys]
-        self.behaviors = BehaviorManager(self.num_envs, self.motions.num_behaviors, self.device)
-        # the phase each env observes in BEHAVIOR_PHASE; see `_phase`
-        self.behavior_phase = torch.zeros(self.num_envs, device=self.device)
-        self.key_presses = RandomKeyPresses(
-            self.num_envs,
-            self.motions.trigger_rate,
-            self.motions.trigger_weights,
-            max(1, round(self.cfg.trigger_max_hold_s / self.step_dt)),
-            self.step_dt,
-            self.device,
-        )
 
         self.extras = {}
 
@@ -107,14 +72,18 @@ class MotionLearningEnv(DirectRLEnv):
             (self.num_envs, self.cfg.num_amp_observations, self.cfg.amp_observation_space), device=self.device
         )
 
-        self.command_dim = COMMAND_DIM
-        self.commands = torch.zeros(self.num_envs, self.command_dim, device=self.device)
+        self.commands = torch.zeros(self.num_envs, COMMAND_DIM, device=self.device)
 
         # Rewards and the AMP style gate read the mode of the observation the policy acted on.
         self.standing = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.previous_actions = torch.zeros_like(self.actions)
+
+        self.local_frame = self.cfg.random_reset or self.render_enabled
+
+    def _setup_scene(self):
+        self.robot = self.scene["robot"]
 
         if self.render_enabled and self.cfg.camera_type != "none":
             if self.cfg.camera_type == "facing":
@@ -127,9 +96,6 @@ class MotionLearningEnv(DirectRLEnv):
             self._camera_smoothing_alpha = 0.1
             self._camera_eye_smooth: torch.Tensor | None = None
             self._camera_target_smooth: torch.Tensor | None = None
-
-    def _setup_scene(self):
-        self.robot = self.scene["robot"]
 
     def _update_camera(self):
         if self.cfg.camera_type == "none":
@@ -192,6 +158,7 @@ class MotionLearningEnv(DirectRLEnv):
     def _reset_idx(self, env_ids: torch.Tensor):
         super()._reset_idx(env_ids)
 
+        # Reset camera smoothing when resetting environment
         if self.render_enabled and self.cfg.camera_type != "none" and 0 in env_ids:
             self._camera_eye_smooth = None
             self._camera_target_smooth = None
@@ -200,14 +167,11 @@ class MotionLearningEnv(DirectRLEnv):
         self.previous_actions[env_ids] = 0.0
 
         num_samples = env_ids.shape[0]
-        
-        clips = self.motions.sample_reset(num_samples)
-        times = clips.times
-        self.motion_ids[env_ids] = clips.motion_ids
-        self.base_motion_ids[env_ids] = clips.motion_ids
-        self.motion_start_times[env_ids] = times
-        frames = self.reference.frames_for_reset(self.motion_ids[env_ids], times)
-        self._reset_behaviors(env_ids, clips)
+
+        # Reference state init
+        motion_ids, behavior_ids = self.motion_set.sample_ids(num_samples)
+        frames, times = self.motion_library.frames(motion_ids)
+        self.motion_manager.reset(env_ids, motion_ids, behavior_ids, times)
 
         yaw = None
         if self.cfg.random_reset:
@@ -217,86 +181,21 @@ class MotionLearningEnv(DirectRLEnv):
 
         self._write_robot_state(env_ids, root_state, dof_pos, dof_vel)
 
-        self.amp_observation_buffer[env_ids] = self.reference.amp_seed(
-            self.motion_ids[env_ids], times, self.random_yaw_quat[env_ids]
-        )
+        # Seed amp observation buffer with initial frames
+        seeded_frames = self.motion_library.history(self.cfg.num_amp_observations)
+        self.amp_observation_buffer[env_ids] = self.mdp.style_obs(seeded_frames, yaw)
 
-    def _reset_behaviors(self, env_ids: torch.Tensor, clips: ResetClips):
-        """Start each reset env in locomotion: no behavior and its behavior keys released. Where the
-        motions are always on, start it instead in the behavior whose clip it reset into, as far
-        through that behavior as the reset placed it in the clip."""
-        keys = env_ids.unsqueeze(-1), self.motions.behavior_keys
-        if self.cfg.resample_commands:
-            # training's key presses restart with the episode, so no key is still held
-            held = torch.zeros(env_ids.shape[0], self.motions.num_behaviors, device=self.device)
-        else:
-            # another source (play's keyboard) writes the keys and may still hold one; it must not
-            # start a behavior once the source writes it again
-            held = self.commands[keys]
-
-        self.key_presses.reset(env_ids)
-        self.commands[keys] = 0.0
-        self.behaviors.reset(env_ids, held)
-        if self.motions.always_on:
-            # the episode clock reads 0 here, so the behavior's clock started `clips.times` ago
-            self.behaviors.start(env_ids, self.motions.motion_behavior[clips.motion_ids], -clips.times)
-        self.behavior_phase[env_ids] = self._phase()[env_ids]
-
-    def _update_behaviors(self):
-        """Complete running behaviors at phase 1 or a stable posture, then start any whose key was
-        just pressed, and point each env's motion at what it now runs. Where the motions are always
-        on, a completed behavior starts the next one at once and the keys start nothing."""
-        time = self.episode_length_buf.to(torch.float32) * self.step_dt
-        if self.cfg.resample_commands and self.motions.num_behaviors > 0:
-            self.commands[:, self.motions.behavior_keys] = self.key_presses.step()
-
-        duration = self.motions.library.duration[self.motion_ids]
-        phase = self.behaviors.phase(time, duration)
-        stable = settled(
-            phase,
-            self.robot.data.joint_vel.torch,
-            self.motions.settle_min_phase[self.motion_ids],
-            self.motions.settle_max_dof_speed[self.motion_ids],
-        )
-        complete = (phase >= 1.0) | stable
-        if self.motions.always_on:
-            # no locomotion to return to: each completed env starts a newly drawn behavior from its
-            # clip's first frame, so every env is running a behavior at every step
-            restart = complete.nonzero(as_tuple=False).squeeze(-1)
-            if restart.numel() > 0:
-                self.behaviors.start(restart, self.motions.sample_behaviors(restart.numel()), time[restart])
-        else:
-            self.behaviors.update(self.commands[:, self.motions.behavior_keys], complete, time)
-
-        if self.motions.num_behaviors > 0:
-            mode = self.behaviors.mode
-            behavior_ids = self.motions.behavior_motion_ids[mode.clamp_min(0)]
-            self.motion_ids = torch.where(mode != LOCOMOTION, behavior_ids, self.base_motion_ids)
-        self.behavior_phase = self._phase()
-
-    def _phase(self) -> torch.Tensor:
-        """The phase each env observes in `BEHAVIOR_PHASE`, (N,) in [0, 1]: its progress through the
-        clip it tracks, on the clock its tracking target reads (`clip_phase`). An env running a
-        behavior observes it; an env in locomotion observes 0."""
-        time = self.episode_length_buf.to(torch.float32) * self.step_dt
-        duration = self.motions.library.duration[self.motion_ids]
-        clip_times = reference_times(
-            time, self.behaviors, self.motion_start_times, duration, self.motions.loop[self.motion_ids]
-        )
-        phase = clip_phase(clip_times, duration)
-        return torch.where(self.behaviors.active, phase, torch.zeros_like(phase))
 
     def _get_observations(self) -> dict:
         self._resample_commands()
-        self._update_behaviors()
 
         state = self.current_state
-        local_frame = self.cfg.random_reset or self.render_enabled
-        commands = policy_commands(state, self.commands, self.motions.has_goal[self.base_motion_ids], local_frame)
-        commands = behavior_commands(commands, self.motions.behavior_keys, self.behaviors.mode, self.behavior_phase)
 
-        self.standing = self.motions.standing(self.motion_ids, commands)
-        policy_obs, style_obs = self.mdp.observations(state, commands, local_frame=local_frame)
+        time = self.episode_length_buf.to(torch.float32) * self.step_dt
+        self.motion_manager.step(time, state)
+
+        policy_obs, style_obs = self.mdp.observations(self._step_context(), self.local_frame)
+        motion_obs = self.motion_manager.observations(...)
 
         # update AMP observation history
         for i in reversed(range(self.cfg.num_amp_observations - 1)):
@@ -305,51 +204,36 @@ class MotionLearningEnv(DirectRLEnv):
 
         self.extras["amp_obs"] = self.amp_observation_buffer.view(-1, self.amp_observation_size)
 
-        return policy_obs
+        return torch.cat([policy_obs, self.commands, motion_obs], dim=-1)
 
     def _get_rewards(self) -> torch.Tensor:
         self.extras["standing"] = self.standing
-        self.extras["style_reward_off"] = self._style_reward_off()
+        self.extras["style_reward_weight"] = self.motion_manager.style_reward_weight
         context = self._step_context()
         total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
-            context, self.motion_ids, self.standing
+            context, self.motion_manager.active_specs()
         )
-        self.extras["command_tracking"] = self.mdp.command_tracking(context, self.motion_ids)
         return total
-
-    def _style_reward_off(self) -> torch.Tensor:
-        """envs that earn no AMP style reward this step"""
-        return self.standing
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        return self.mdp.died(self._step_context(), self.motion_ids), time_out
+        return self.mdp.died(self._step_context(), self.motion_manager.active_specs()), time_out
 
     def _step_context(self) -> StepContext:
         return StepContext(
             self.current_state,
-            self.robot.data.joint_acc.torch,
+            self.motion_manager.current_reference_state(),
             self.commands,
-            self.actions,
             self.previous_actions,
-            self._current_tracking_targets,
+            self.actions,
+            self.motion_manager.current_phase(),
+            self.motion_manager.current_behaviors(),
+            self.standing,
         )
-
-    def _current_tracking_targets(self) -> TrackingTargets:
-        """The reference pose at each environment's current clip time"""
-        time = self.episode_length_buf.to(torch.float32) * self.step_dt
-        current_times = reference_times(
-            time,
-            self.behaviors,
-            self.motion_start_times,
-            self.motions.library.duration[self.motion_ids],
-            self.motions.loop[self.motion_ids],
-        )
-        return self.reference.tracking_targets(self.motion_ids, current_times, self.random_yaw_quat)
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
         """Resample commands every `command_resample_steps` steps or where `dones` is set."""
-        if not self.cfg.resample_commands:
+        if not self.cfg.resample_commands or dones is None:
             return
 
         resample = self.episode_length_buf % (self.cfg.command_resample_steps + 1) == 0
@@ -359,10 +243,8 @@ class MotionLearningEnv(DirectRLEnv):
 
         resample_env_ids = resample.nonzero(as_tuple=False).squeeze(-1)
         if resample_env_ids.numel() > 0:
-            root_positions_xy = self.robot.data.body_pos_w.torch[resample_env_ids, self.ref_body_index, :2]
-            self.commands[resample_env_ids] = self.motions.sample_commands(
-                self.base_motion_ids[resample_env_ids], root_positions_xy
-            )
+            motion_ids = self.motion_manager.get_base_motion_ids(resample_env_ids)
+            self.commands[resample_env_ids] = self.motion_set.sample_commands(motion_ids)
 
             # a new goal or episode: progress toward the old goal no longer means anything
             self.mdp.reset_memory(resample_env_ids)
@@ -370,7 +252,7 @@ class MotionLearningEnv(DirectRLEnv):
     def _compute_robot_state(
         self,
         env_ids: torch.Tensor,
-        frames: ResetFrames,
+        frames: BodyState,
         yaw: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Root state, DOF positions and DOF velocities to write for `frames`, optionally yawed."""
@@ -386,4 +268,12 @@ class MotionLearningEnv(DirectRLEnv):
             root_state[:, 3:7] = quat_mul(yaw, root_state[:, 3:7])
             root_state[:, 7:10] = quat_apply(yaw, root_state[:, 7:10])
             root_state[:, 10:13] = quat_apply(yaw, root_state[:, 10:13])
+
         return root_state, frames.dof_positions, frames.dof_velocities
+
+    def style_batch(self, num_samples: int) -> torch.Tensor:
+        """Sample reference style observations for the agent, with history flattened per sample."""
+        motion_ids = self.motion_set.sample_ids(num_samples)
+        batch = self.motion_library.sample_batch(motion_ids)     
+        yaw = random_yaw_orientation(num_samples, self.device) if self.cfg.random_reset else None
+        return self.mdp.style_obs(batch, yaw).flatten(1)

@@ -1,19 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-import tqdm
-
 from isaaclab.envs import DirectRLEnv
 
 from moveitmoveit.agents import resolve_agent
 from moveitmoveit.utils.logger import Logger
-
-
-@dataclass(kw_only=True)
-class OnPolicyRunnerCfg:
-    timesteps: int = 100000
-    use_pbar: bool = False
 
 
 class OnPolicyRunner:
@@ -26,7 +16,6 @@ class OnPolicyRunner:
         env: DirectRLEnv,
         logger: Logger,
     ):
-        self.cfg = OnPolicyRunnerCfg(**cfg["runner"])
         self.env = env
         self.logger = logger
 
@@ -35,37 +24,35 @@ class OnPolicyRunner:
         self.agent = agent_cls(cfg=cfg_cls(**cfg["agent"]), logger=self.logger)
         self.agent.init(self.env, cfg)
 
-    def learn(self) -> None:
+    def learn(self, timesteps: int) -> None:
         """Run the training loop."""
         num_envs = self.env.unwrapped.num_envs
         observations, infos = self.env.reset()
 
         timestep = 0
-        with tqdm.tqdm(total=self.cfg.timesteps, disable=not self.cfg.use_pbar) as pbar:
-            while timestep < self.cfg.timesteps:
-                self.agent.inference()
+        while timestep < timesteps:
+            self.agent.inference()
 
-                with self.logger.timing("Collection Time"):
-                    for _ in range(self.agent.cfg.num_transitions_per_env):
-                        actions = self.agent.act(observations)
+            with self.logger.timing("Collection Time"):
+                for _ in range(self.agent.cfg.num_transitions_per_env):
+                    actions = self.agent.act(observations)
 
-                        observations, rewards, terminated, truncated, infos = self.env.step(actions)
+                    observations, rewards, terminated, truncated, infos = self.env.step(actions)
 
-                        self.agent.process_env_step(
-                            next_observations=observations,
-                            rewards=rewards,
-                            terminated=terminated,
-                            truncated=truncated,
-                            infos=infos
-                        )
+                    self.agent.process_env_step(
+                        next_observations=observations,
+                        rewards=rewards,
+                        terminated=terminated,
+                        truncated=truncated,
+                        infos=infos
+                    )
 
-                        timestep += num_envs
-                        pbar.update(num_envs)
+                    timestep += num_envs
 
-                        self.logger.step(num_envs)
+                    self.logger.step(num_envs)
 
-                self.agent.train()
-                with self.logger.timing("Learning Time"):
-                    self.agent.update()
+            self.agent.train()
+            with self.logger.timing("Learning Time"):
+                self.agent.update()
 
-                self.logger.log(self.agent.write_checkpoint, mean_episode_reward=self.agent.mean_episode_reward)
+            self.logger.log(self.agent.write_checkpoint, mean_episode_reward=self.agent.mean_episode_reward)

@@ -10,7 +10,7 @@ import gymnasium as gym
 import torch
 
 from moveitmoveit import agent_cfg_entry_point
-from moveitmoveit.motion.manifest import CommandIndex
+from moveitmoveit.mdp.commands import CommandIndex
 from moveitmoveit.utils.logger import Logger
 
 from isaaclab.utils.dict import update_class_from_dict

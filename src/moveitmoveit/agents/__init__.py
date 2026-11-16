@@ -2,15 +2,6 @@ from moveitmoveit.agents.amp import AMP, AMPCfg
 from moveitmoveit.agents.base import BaseAgent, BaseCfg
 from moveitmoveit.agents.ppo import PPO, PPOCfg
 
-__all__ = [
-    "BaseAgent",
-    "BaseCfg",
-    "PPO",
-    "PPOCfg",
-    "AMP",
-    "AMPCfg",
-]
-
 
 AGENT_REGISTRY: dict[str, dict[str, type]] = {
     "PPO": (PPO, PPOCfg),

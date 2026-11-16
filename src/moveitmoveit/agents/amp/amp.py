@@ -35,7 +35,7 @@ class AMP(PPO):
         super().__init__(cfg=cfg, logger=logger)
 
     def init(self, env: DirectRLEnv, cfg: dict):
-        self.style_batch: Callable = env.unwrapped.reference.style_batch
+        self.style_batch: Callable = env.unwrapped.style_batch
 
         super().init(env, cfg)
 

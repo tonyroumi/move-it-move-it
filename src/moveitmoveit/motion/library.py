@@ -1,7 +1,3 @@
-# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
 
 from __future__ import annotations
 
@@ -22,12 +18,9 @@ class MotionFrames(NamedTuple):
 
 
 class MotionLibrary:
-    """Motion clips (.npz) zero-padded into shared (num_clips, max_frames, ...) tensors, sampled by
-    motion id (position in ``motion_files``) and time."""
-
     def __init__(self, motion_files: list[str], device: torch.device) -> None:
         """Load the motion files onto `device`."""
-        assert len(motion_files) > 0, "MotionLibrary requires at least one motion file."
+
         for motion_file in motion_files:
             assert os.path.isfile(motion_file), f"Invalid file path: {motion_file}"
 
@@ -37,6 +30,7 @@ class MotionLibrary:
         self._dof_names = clips[0]["dof_names"].tolist()
         self._body_names = clips[0]["body_names"].tolist()
         self.dt = float(1.0 / clips[0]["fps"])
+
         for clip in clips[1:]:
             assert clip["dof_names"].tolist() == self._dof_names, "All motion clips must share the same DOF names."
             assert clip["body_names"].tolist() == self._body_names, "All motion clips must share the same body names."
@@ -65,6 +59,10 @@ class MotionLibrary:
         self.duration = (self.num_frames - 1).to(torch.float32) * self.dt
         for motion_file, nf, dur in zip(motion_files, self.num_frames.tolist(), self.duration.tolist()):
             print(f"Motion loaded ({motion_file}): duration: {dur} sec, frames: {nf}")
+
+    @property
+    def info(self) -> torch.Tensor:
+        return self.duration
 
     @property
     def num_motions(self) -> int:
@@ -100,7 +98,7 @@ class MotionLibrary:
         index_1: torch.Tensor,
         blend: torch.Tensor,
     ) -> torch.Tensor:
-        """Lerp each sample's frames `index_0` -> `index_1` by `blend`, (N, X) or (N, M, X)."""
+        """Lerp each sample's frames `index_0` -> `index_1` by `blend`"""
         a = data[motion_ids, index_0]
         b = data[motion_ids, index_1]
         if a.ndim >= 2:
@@ -118,7 +116,7 @@ class MotionLibrary:
         index_1: torch.Tensor,
         blend: torch.Tensor,
     ) -> torch.Tensor:
-        """Slerp each sample's xyzw rotations `index_0` -> `index_1` by `blend`, (N, 4) or (N, M, 4)."""
+        """Slerp each sample's xyzw rotations `index_0` -> `index_1` by `blend`."""
         q0 = data[motion_ids, index_0]
         q1 = data[motion_ids, index_1]
         if q0.ndim >= 2:
@@ -169,7 +167,7 @@ class MotionLibrary:
         return index_0, index_1, blend
 
     def sample_times(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        """Uniform random times within each sample's clip duration, (N,)."""
+        """Uniform random times within each sample's clip duration."""
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         return self.duration[motion_ids] * torch.rand(motion_ids.shape[0], device=self.device)
 
@@ -178,8 +176,7 @@ class MotionLibrary:
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         index_0, index_1, blend = self._compute_frame_blend(times, motion_ids)
-
-        return MotionFrames(
+        frames =  MotionFrames(
             self._interpolate(self.dof_positions, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
             self._interpolate(self.dof_velocities, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
             self._interpolate(self.body_positions, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend),
@@ -191,10 +188,10 @@ class MotionLibrary:
                 self.body_angular_velocities, motion_ids=motion_ids, index_0=index_0, index_1=index_1, blend=blend
             ),
         )
+        return frames, times
 
     def history(self, motion_ids: torch.Tensor, times: torch.Tensor, num_steps: int) -> MotionFrames:
-        """``num_steps`` states, ``dt`` apart, ending at each sample's time, newest first.
-        Flattened over samples and steps to (N * num_steps, ...)."""
+        """``num_steps`` states, ``dt`` apart, ending at each sample's time, newest first."""
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
         # step back num_steps times, dt apart, from each sample's time -> (N * num_steps,)
@@ -217,17 +214,3 @@ class MotionLibrary:
             assert name in self._body_names, f"The specified body name ({name}) doesn't exist: {self._body_names}"
             indexes.append(self._body_names.index(name))
         return indexes
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--file", type=str, required=True, help="Motion file")
-    args, _ = parser.parse_known_args()
-
-    motion = MotionLibrary([args.file], "cpu")
-
-    print("- number of frames:", motion.num_frames[0])
-    print("- number of DOFs:", motion.num_dofs)
-    print("- number of bodies:", motion.num_bodies)

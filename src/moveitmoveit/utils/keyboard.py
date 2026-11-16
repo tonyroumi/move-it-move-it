@@ -6,7 +6,7 @@ import carb
 import omni.appwindow
 import torch
 
-from moveitmoveit.motion.manifest import COMMAND_DIM, CommandIndex
+from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
 
 # key -> (forward, left, yaw) direction; each key and its numpad twin drive the same axis. In velocity
 # mode these are robot-frame; in point_goal mode forward / left are the world +X / +Y axes.

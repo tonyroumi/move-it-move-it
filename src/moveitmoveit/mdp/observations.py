@@ -7,10 +7,11 @@ import torch
 
 from isaaclab.utils.math import quat_apply_inverse
 
-from moveitmoveit.utils.transforms import quaternion_to_tangent_and_normal
+from moveitmoveit.mdp.commands import CommandIndex
+from moveitmoveit.utils.transforms import quaternion_to_tangent_and_normal, world_to_heading_frame_xy
 
 if TYPE_CHECKING:
-    from moveitmoveit.mdp.composer import BodyState
+    from moveitmoveit.mdp.mdp import BodyState
 
 
 class ObservationTerm(NamedTuple):
@@ -70,3 +71,31 @@ def key_body_offsets(state: BodyState, local_frame: bool) -> torch.Tensor:
         rotations = state.root_rotations.unsqueeze(1).expand(-1, offsets.shape[1], -1)
         offsets = quat_apply_inverse(rotations, offsets)
     return offsets.flatten(1)
+
+
+def goal_offset(commands: torch.Tensor, state: BodyState, has_goal: torch.Tensor, local_frame: bool) -> torch.Tensor:
+    offset = commands[:, CommandIndex.GOAL_X:CommandIndex.GOAL_Y + 1] - state.root_positions[:, :2]
+    if local_frame:
+        offset = world_to_heading_frame_xy(state.root_rotations, offset)
+    return torch.where(has_goal.unsqueeze(-1), offset, torch.zeros_like(offset))
+
+
+def command_observation(
+    commands: torch.Tensor,
+    state: BodyState,
+    phase: torch.Tensor,
+    behaviors: torch.Tensor,
+    local_frame: bool,
+    has_goal: torch.Tensor,
+    behavior_keys: list[int],
+) -> torch.Tensor:
+    """The policy's command observation, (N, COMMAND_DIM): the stored commands with the behavior
+    slots holding `behaviors`, the running behavior's one-hot, `BEHAVIOR_PHASE` holding `phase`,
+    both as `MotionManager` observed them, and the goal as an offset from the root. `commands` is
+    not modified."""
+    observed = commands.clone()
+    if behavior_keys:
+        observed[:, behavior_keys] = behaviors.to(observed.dtype)
+    observed[:, CommandIndex.BEHAVIOR_PHASE] = phase
+    observed[:, CommandIndex.GOAL_X:CommandIndex.GOAL_Y + 1] = goal_offset(commands, state, has_goal, local_frame)
+    return observed

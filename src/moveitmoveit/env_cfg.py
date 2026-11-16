@@ -36,7 +36,7 @@ class HumanoidSceneCfg(InteractiveSceneCfg):
 class MotionLearningEnvCfg(DirectRLEnvCfg):
     # sim / scene
     decimation: int = 2
-    episode_length_s: float = 500.0
+    episode_length_s: float = 10.0
 
     sim: SimulationCfg = SimulationCfg(dt=1 / 60, render_interval=decimation)
     scene: HumanoidSceneCfg = HumanoidSceneCfg(num_envs=4096, env_spacing=10.0)

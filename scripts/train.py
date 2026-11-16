@@ -119,7 +119,7 @@ def main():
             runner.agent.load_checkpoint(resume_path, env.unwrapped.device)
 
         try:
-            runner.learn()
+            runner.learn(agent_cfg["runner"]["timesteps"])
 
             print(f"Training time: {round(time.time() - start_time, 2)} seconds")
 

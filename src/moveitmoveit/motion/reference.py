@@ -37,18 +37,14 @@ class TrackingTargets(NamedTuple):
 class ReferenceMotions:
     def __init__(
         self,
-        picker: Callable[[int], torch.Tensor],
         library: MotionLibrary,
         skeleton_map: SkeletonMap,
         num_amp_steps: int,
-        random_yaw: bool,
         style_obs: Callable[[BodyState, bool], torch.Tensor],
     ):
-        self._pick = picker
         self._library = library
         self._skeleton = skeleton_map
         self._num_amp_steps = num_amp_steps
-        self._random_yaw = random_yaw
         self._style_obs = style_obs
 
     def frames_for_reset(self, motion_ids: torch.Tensor, times: torch.Tensor) -> ResetFrames:

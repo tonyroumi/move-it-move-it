@@ -66,8 +66,8 @@ def main():
             env = gym.make(TASK_ID, cfg=env_cfg, render_mode="rgb_array" if args_cli.record else None)
         unwrapped = env.unwrapped
 
-        reference = unwrapped.reference
-        duration = unwrapped.motions.library.duration[0].item()
+        motion_manager = unwrapped.motion_manager
+        duration = motion_manager.library.duration[0].item()
         print(f"[INFO] Playing motion '{motion_name}' (duration={duration:.2f}s)")
 
         env.reset()
@@ -88,7 +88,7 @@ def main():
                 start_time = time.time()
 
                 times = torch.full((unwrapped.num_envs,), clip_time, device=unwrapped.device)
-                frames = reference.frames_for_reset(motion_ids, times)
+                frames = motion_manager.reference_state(motion_ids, times)
 
                 root_state, dof_pos, dof_vel = unwrapped._compute_robot_state(env_ids, frames)
                 unwrapped._write_robot_state(env_ids, root_state, dof_pos, dof_vel)

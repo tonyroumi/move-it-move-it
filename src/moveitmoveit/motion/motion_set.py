@@ -1,44 +1,31 @@
-from dataclasses import dataclass
-
 import torch
 
-from moveitmoveit.motion.manifest import COMMAND_DIM, CommandIndex, MotionSpec, load_manifest
-from moveitmoveit.motion.library import MotionLibrary
+from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
+from moveitmoveit.motion.manifest import load_manifest
+from moveitmoveit.motion.specs import MotionSpec
 
 
-@dataclass
-class ResetClips:
-    """The clips a batch of reset envs initialize, as `MotionSet.sample_reset` draws them."""
-
-    motion_ids: torch.Tensor
-    """The locomotion motion each env is placed into; a behavior only where the motion set is
-    `always_on`. Shape is (M,)."""
-    times: torch.Tensor
-    """Each env's time in that motion's clip at episode time 0, in seconds. Shape is (M,)."""
-
-
-class MotionSet:
-    """The motions a manifest declares: their clips, plus per-motion command and selection tables.
-    Motions with a `trigger` are behaviors, numbered by key slot; the rest are locomotion motions.
-    With no locomotion motion the set is `always_on`: every env runs a behavior at all times."""
+class Manifest:
+    """The motions a manifest declares"""
 
     def __init__(self, specs: list[MotionSpec], device: torch.device | str):
-        self.device = device
         self.specs = specs
 
         self.names = [spec.name for spec in specs]
         self.name_to_id = {name: i for i, name in enumerate(self.names)}
         self.num_motions = len(specs)
-        self.library = MotionLibrary([spec.file for spec in specs], device)
+        self.files = [spec.file for spec in specs]
 
         self._build_command_tables(specs)
         self._build_standing_tables(specs)
         self._build_sample_prob_table(specs)
         self._build_behavior_tables(specs)
+
         self.loop = torch.tensor([spec.loop for spec in specs], dtype=torch.bool, device=self.device)
-        """Motions whose tracking target repeats its clip instead of holding the last frame."""
         self.random_start = torch.tensor([spec.random_start for spec in specs], dtype=torch.bool, device=self.device)
-        """Motions whose clip clock starts at a uniform random time when a reset initializes it, not at 0."""
+        self.amp = torch.tensor([spec.amp for spec in specs], dtype=torch.bool, device=self.device)
+
+        self.device = device
 
     @classmethod
     def from_manifest(cls, path: str, device: torch.device | str) -> "MotionSet":
@@ -77,12 +64,7 @@ class MotionSet:
         )
 
     def _build_sample_prob_table(self, specs: list[MotionSpec]):
-        weights = torch.zeros(self.num_motions, device=self.device)
-
-        for motion_id, spec in enumerate(specs):
-            weights[motion_id] = spec.sample_prob
-
-        self.sample_prob = weights / weights.sum()
+        self.sample_prob = torch.tensor([spec.sample_prob for spec in specs], dtype=torch.float, device=self.device)
 
     def _build_behavior_tables(self, specs: list[MotionSpec]):
         behaviors = sorted((CommandIndex[spec.trigger.upper()], motion_id) for motion_id, spec in enumerate(specs) if spec.trigger)
@@ -99,14 +81,6 @@ class MotionSet:
         """Whether every motion is a behavior. With no locomotion motion to start in or return to, a
         reset starts each env in a behavior and a completed behavior starts the next one at once, so
         a behavior's one-hot and `BEHAVIOR_PHASE` are always on and no key press is needed."""
-        if self.always_on:
-            self.reset_sample_prob = self.sample_prob
-        else:
-            locomotion_weights = torch.where(is_locomotion, self.sample_prob, torch.zeros_like(self.sample_prob))
-            self.reset_sample_prob = locomotion_weights / locomotion_weights.sum()
-        """The selection distribution of the motions a reset starts an env in: the locomotion
-        motions, or every behavior where the set is `always_on`."""
-
         # stable-posture completion; behaviors that don't declare it never settle
         self.settle_min_phase = torch.full((self.num_motions,), float("inf"), device=self.device)
         self.settle_max_dof_speed = torch.zeros(self.num_motions, device=self.device)
@@ -115,54 +89,17 @@ class MotionSet:
                 self.settle_min_phase[motion_id] = spec.settle.min_phase
                 self.settle_max_dof_speed[motion_id] = spec.settle.max_dof_speed
 
-        self._build_trigger_rate()
-
-    def _build_trigger_rate(self):
-        """How often training presses each behavior's key, chosen so the agent spends about as much of
-        its time in each behavior as the reference motion the discriminator sees does.
-        """
-        if self.num_behaviors == 0:
-            self.trigger_rate = 0.0
-            self.trigger_weights = torch.zeros(0, device=self.device)
-            return
-        p = self.sample_prob[self.behavior_motion_ids]
-        d = self.library.duration[self.behavior_motion_ids].clamp_min(self.library.dt)
-        self.trigger_weights = (p / d) / (p / d).sum()
-        """Probability that a training press, or an `always_on` restart, is for each behavior."""
-        if self.always_on:
-            # behaviors take all of the time and restart themselves, so training presses no key
-            self.trigger_rate = 0.0
-            return
-        behavior_share = float(p.sum())
-        mean_duration = float((self.trigger_weights * d).sum())
-        self.trigger_rate = behavior_share / ((1.0 - behavior_share) * mean_duration)
-        """Training presses per second while in locomotion; 0 where the set is `always_on`."""
-
     def sample_ids(self, num_samples: int) -> torch.Tensor:
-        """The one clip-selection distribution, shared by env resets and discriminator batches."""
-        return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
+        """Motion ids drawn directly from manifest weights, including at reset."""
+        motion_ids = torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
+        return motion_ids, (motion_ids == self.behavior_motion_ids) 
 
-    def sample_behaviors(self, num_samples: int) -> torch.Tensor:
-        """Behavior indices drawn by `trigger_weights`, for the behaviors an `always_on` env starts
-        as each one completes. Shape is (num_samples,)."""
-        return torch.multinomial(self.trigger_weights, num_samples=num_samples, replacement=True)
+    def specs_for(self, motion_ids: torch.Tensor) -> list[MotionSpec]:
+        """The spec each env is running, in `motion_ids` order."""
+        return [self.specs[int(motion_id)] for motion_id in motion_ids.tolist()]
 
-    def start_times(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        """Where a reset starts each motion's clip clock: a uniform random time within the clip where
-        the motion's `random_start`, else 0. Shape is (N,)."""
-        times = self.library.sample_times(motion_ids)
-        return torch.where(self.random_start[motion_ids], times, torch.zeros_like(times))
-
-    def sample_reset(self, num_samples: int) -> ResetClips:
-        """The clips reset envs start in, at their start times. An episode starts with no behavior
-        running, so the pose a reset writes comes from a locomotion clip, drawn by the locomotion
-        motions' `sample_prob`. Where the set is `always_on` there is none, and the clip is a
-        behavior's, drawn by the behaviors' `sample_prob`, which the env then runs from that time."""
-        motion_ids = torch.multinomial(self.reset_sample_prob, num_samples=num_samples, replacement=True)
-        return ResetClips(motion_ids, self.start_times(motion_ids))
-
-    def sample_commands(self, motion_ids: torch.Tensor, root_positions_xy: torch.Tensor | None = None) -> torch.Tensor:
-        """Sample each motion's declared command ranges. Goals are offsets from `root_positions_xy`."""
+    def sample_commands(self, motion_ids: torch.Tensor) -> torch.Tensor:
+        """Sample each motion's declared command ranges. Goal slots stay offsets; the env places them."""
         low = self.command_low[motion_ids]
         high = self.command_high[motion_ids]
 
@@ -171,18 +108,15 @@ class MotionSet:
         zero_prob = self.command_zero_prob[motion_ids]
         zero_mask = torch.rand(motion_ids.shape[0], device=self.device) < zero_prob
         commands[zero_mask] = 0.0
-
-        if root_positions_xy is not None:
-            has_goal = self.has_goal[motion_ids]
-            commands[has_goal, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy[has_goal]
-
         return commands
 
-    def standing(self, motion_ids: torch.Tensor, observed_commands: torch.Tensor) -> torch.Tensor:
-        """Which envs' commands ask them to stand still, (N,) bool."""
-        lin_vel = torch.linalg.vector_norm(observed_commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1], dim=-1)
-        yaw_vel = observed_commands[:, CommandIndex.YAW].abs()
-        goal_distance = torch.linalg.vector_norm(observed_commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1], dim=-1)
+    def standing(self, motion_ids: torch.Tensor, commands: torch.Tensor, goal_distance: torch.Tensor) -> torch.Tensor:
+        """Which envs' commands ask them to stand still, (N,) bool.
+
+        `goal_distance` is the distance from the root to the stored goal, 0 where the motion has none.
+        """
+        lin_vel = torch.linalg.vector_norm(commands[:, CommandIndex.LIN_X : CommandIndex.LIN_Y + 1], dim=-1)
+        yaw_vel = commands[:, CommandIndex.YAW].abs()
         return (
             self.can_stand[motion_ids]
             & (lin_vel <= self.standing_lin_vel_threshold[motion_ids])
