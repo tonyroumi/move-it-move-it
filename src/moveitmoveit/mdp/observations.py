@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, NamedTuple
 
-from moveitmoveit.mdp.mdp import StepContext
 import torch
 
 from isaaclab.utils.math import quat_apply_inverse

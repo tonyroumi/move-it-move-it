@@ -9,7 +9,7 @@ import torch
 from moveitmoveit.mdp.observations import OBSERVATIONS, command_observation
 from moveitmoveit.mdp.rewards import REWARDS
 from moveitmoveit.mdp.terminations import TERMINATIONS
-from moveitmoveit.motion.specs import MotionSpec, RewardSpec
+from moveitmoveit.motion.specs import MotionSpec
 from moveitmoveit.motion.library import MotionFrames
 
 
@@ -29,7 +29,7 @@ class StepContext:
     """What reward and termination terms may read at one env step."""
 
     state: BodyState
-    reference_state: MotionFrames
+    reference_state: BodyState
     commands: torch.Tensor
     previous_actions: torch.Tensor
     actions: torch.Tensor
@@ -42,13 +42,6 @@ class StepContext:
 def observation_dim(names: Iterable[str]) -> int:
     """Size of the observation these terms produce."""
     return sum(OBSERVATIONS[name].dim for name in names)
-
-
-def _active_rewards(spec: MotionSpec, standing: bool) -> dict[str, RewardSpec]:
-    """The reward specs in force: the standing block while that env is standing, else its own."""
-    if standing and spec.standing is not None:
-        return spec.standing.rewards
-    return spec.rewards
 
 
 class MDP:
@@ -75,8 +68,7 @@ class MDP:
         """Compute total reward and raw/weighted per-term values for logging."""
         c.memory = self._memory
 
-        standing = c.standing.tolist() if c.standing is not None else [False] * len(specs)
-        active = [_active_rewards(spec, stand) for spec, stand in zip(specs, standing)]
+        active = [spec.rewards for spec in specs]
 
         total = torch.zeros(len(specs), device=self.device)
         raw, weighted = {}, {}
@@ -148,7 +140,7 @@ class MDP:
                 *(OBSERVATIONS[name].fn(state, local_frame) for name in self._policy_obs),
                 commands,
                 context.behaviors,
-                context.phase,
+                context.phase.unsqueeze(-1),
             ],
             dim=-1,
         )

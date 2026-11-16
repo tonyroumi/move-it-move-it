@@ -63,8 +63,7 @@ class MotionManager:
         self.mode[env_ids] = mode
         self.motion_ids[env_ids] = motion_ids
         self.base_motion_ids[env_ids] = base_motion_ids
-        # the episode clock reads 0 here: a behavior's clip clock started `times` ago, a locomotion
-        # clip's clock starts at `times`
+        # Set the start time and clip offset for behaviors and locomotion respectively.
         zeros = torch.zeros_like(times)
         self.start_time[env_ids] = torch.where(is_behavior, -times, zeros)
         self.clip_offsets[env_ids] = torch.where(is_behavior, zeros, times)
@@ -88,7 +87,8 @@ class MotionManager:
 
         self.motion_ids = self._running_motion_ids()
         self.motion_phase = self.phase(time)
-        self.behaviors = (self.mode.unsqueeze(-1) == self.manifest.motion_behavior).float()
+        behavior_indexes = torch.arange(self.manifest.num_behaviors, device=self.mode.device)
+        self.behaviors = (self.mode.unsqueeze(-1) == behavior_indexes).float()
 
     def update(self, keys: torch.Tensor, complete: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
         """Set each env's mode for this step: back to locomotion if its behavior is complete, then

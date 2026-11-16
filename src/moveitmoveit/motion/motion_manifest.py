@@ -5,6 +5,13 @@ from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
 from moveitmoveit.motion.specs import MotionSpec, parse_motion
 
 
+def manifest_files(path: str) -> list[str]:
+    """The clip file of each manifest motion, in motion id order."""
+    with open(path) as f:
+        motions = yaml.safe_load(f)["motions"]
+    return [motion["file"] for motion in motions.values()]
+
+
 def load_manifest(path: str, durations: list[float]) -> list[MotionSpec]:
     """Read a manifest. A motion's position in the returned list is its motion id."""
     with open(path) as f:
@@ -38,10 +45,9 @@ class MotionManifest:
     def from_manifest(cls, path: str, device: torch.device | str) -> "MotionManifest":
         return cls(load_manifest(path), device)
 
-    @property
-    def style_reward_weight(self) -> torch.Tensor:
-        """Each env's AMP style reward weight"""
-        return self.amp[self.name_to_id].float()
+    def style_reward_weight(self, motion_ids: torch.Tensor) -> torch.Tensor:
+        """The AMP style reward weight of the motion each env runs, its manifest `amp`."""
+        return self.amp[motion_ids]
 
     def _build_command_tables(self, specs: list[MotionSpec]):
         self.command_low = torch.zeros(self.num_motions, COMMAND_DIM, device=self.device)
@@ -74,6 +80,10 @@ class MotionManifest:
         rates = probabilities / durations
         self.trigger_weights = rates / rates.sum()
 
+        # Always-on behaviors restart without key presses, so they need no trigger rate.
+        if self.always_on:
+            return
+
         # Choose a trigger rate that achieves the desired behavior time share.
         behavior_share = float(probabilities.sum() / self.sample_prob.sum())
         mean_duration = float((self.trigger_weights * durations).sum())
@@ -94,6 +104,8 @@ class MotionManifest:
         )
 
         self.num_behaviors = len(behaviors)
+        # the command slot each behavior's trigger key is written to, in behavior order
+        self.behavior_keys = [int(key) for key, _ in behaviors]
         self.behavior_motion_ids = torch.tensor(
             [motion_id for _, motion_id in behaviors],
             dtype=torch.long,

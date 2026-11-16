@@ -92,12 +92,6 @@ def main():
         keyboard = None
         goal_marker = None
         if args_cli.joystick != "none":
-            if args_cli.joystick == "point_goal" and not env.unwrapped.motions.has_goal.any():
-                raise ValueError(
-                    "--joystick-mode point_goal needs a checkpoint trained on a manifest motion that"
-                    " declares goal_x/goal_y commands; this one has none, so its policy never sees a goal."
-                )
-
             from moveitmoveit.utils.keyboard import Keyboard
 
             keyboard = Keyboard(args_cli.joystick, dt=env.unwrapped.step_dt, device=env.unwrapped.device)
@@ -163,6 +157,7 @@ def main():
                         env.unwrapped.robot.data.body_quat_w.torch[:, root_index],
                     )
                     env.unwrapped.commands[:] = command
+                    env.unwrapped.goal_active[:] = keyboard.mode == "point_goal"
                     if goal_marker is not None:
                         goal_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
                         goal_marker.visualize(translations=torch.nn.functional.pad(goal_xy, (0, 1), value=0.1))

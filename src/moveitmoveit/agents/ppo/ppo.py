@@ -191,7 +191,9 @@ class PPO(BaseAgent):
                     )
                 value_loss = self.cfg.value_loss_coef * F.mse_loss(values, batch.returns)
 
-                loss = policy_loss + value_loss
+                entropy = self.actor.entropy.mean()
+
+                loss = policy_loss + value_loss - self.cfg.entropy_coef * entropy
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -242,6 +244,7 @@ class PPO(BaseAgent):
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
             "_obs_preprocessor": self._obs_preprocessor.state_dict(),
+            "value_preprocessor": self._value_preprocessor.state_dict(),
             "optimizer": self.optimizer.state_dict(),
         }, f"{path}/{filename}")
 
@@ -250,4 +253,7 @@ class PPO(BaseAgent):
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
         self._obs_preprocessor.load_state_dict(checkpoint["_obs_preprocessor"])
+        # the critic predicts normalized returns; checkpoints written before it was saved lack it
+        if "value_preprocessor" in checkpoint:
+            self._value_preprocessor.load_state_dict(checkpoint["value_preprocessor"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])

@@ -186,6 +186,7 @@ class AMP(PPO):
             "discriminator": self.discriminator.state_dict(),
             "obs_preprocessor": self._obs_preprocessor.state_dict(),
             "disc_obs_preprocessor": self._disc_obs_preprocessor.state_dict(),
+            "value_preprocessor": self._value_preprocessor.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "disc_optimizer": self.disc_optimizer.state_dict(),
         }, f"{path}/{filename}")
@@ -197,5 +198,8 @@ class AMP(PPO):
         self.discriminator.load_state_dict(checkpoint["discriminator"])
         self._obs_preprocessor.load_state_dict(checkpoint["obs_preprocessor"])
         self._disc_obs_preprocessor.load_state_dict(checkpoint["disc_obs_preprocessor"])
+        # the critic predicts normalized returns; checkpoints written before it was saved lack it
+        if "value_preprocessor" in checkpoint:
+            self._value_preprocessor.load_state_dict(checkpoint["value_preprocessor"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         self.disc_optimizer.load_state_dict(checkpoint["disc_optimizer"])
