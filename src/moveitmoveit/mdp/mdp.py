@@ -10,6 +10,7 @@ from moveitmoveit.mdp.observations import OBSERVATIONS, command_observation
 from moveitmoveit.mdp.rewards import REWARDS
 from moveitmoveit.mdp.terminations import TERMINATIONS
 from moveitmoveit.motion.specs import MotionSpec, RewardSpec
+from moveitmoveit.motion.library import MotionFrames
 
 
 class BodyState(NamedTuple):
@@ -28,7 +29,7 @@ class StepContext:
     """What reward and termination terms may read at one env step."""
 
     state: BodyState
-    reference_state: BodyState
+    reference_state: MotionFrames
     commands: torch.Tensor
     previous_actions: torch.Tensor
     actions: torch.Tensor
@@ -152,6 +153,6 @@ class MDP:
         )
         return policy, self.style_obs(state, local_frame)
 
-    def style_obs(self, state: BodyState, local_frame: bool) -> torch.Tensor:
+    def style_obs(self, state: BodyState | MotionFrames, local_frame: bool) -> torch.Tensor:
         """The style observation alone, for reference clips, which have no commands."""
         return torch.cat([OBSERVATIONS[name].fn(state, local_frame) for name in self._style_obs], dim=-1)

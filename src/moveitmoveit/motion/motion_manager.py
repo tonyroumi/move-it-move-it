@@ -1,7 +1,7 @@
 import torch
 
 from moveitmoveit.motion.behavior import RandomKeyPresses
-from moveitmoveit.motion.motion_set import MotionSet
+from moveitmoveit.motion.motion_manifest import MotionManifest
 from moveitmoveit.motion.specs import MotionSpec
 
 LOCOMOTION = -1
@@ -16,7 +16,7 @@ class MotionManager:
 
     def __init__(
         self,
-        manifest: MotionSet,
+        manifest: MotionManifest,
         num_envs: int,
         device: torch.device | str,
         step_dt: float = 1.0,

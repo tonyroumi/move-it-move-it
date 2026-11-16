@@ -1,15 +1,8 @@
-"""Behavior helpers: stable-posture completion, clip phase, and training's random key presses.
-`MotionManager` runs the behaviors themselves."""
-
 import torch
 
 
-
-
 class RandomKeyPresses:
-    """Training's stand-in for a person at the keyboard. It writes raw key levels, which the env
-    latches with the same MotionManager it uses in play.
-    """
+    """Training's stand-in for a person at the keyboard."""
 
     def __init__(
         self,

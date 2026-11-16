@@ -9,10 +9,10 @@ from moveitmoveit.env_cfg import MotionLearningEnvCfg
 from moveitmoveit.mdp import BodyState, MDP, StepContext, observation_dim
 from moveitmoveit.mdp.commands import COMMAND_DIM
 from moveitmoveit.motion.motion_manager import MotionManager
-from moveitmoveit.motion.motion_set import MotionSet
+from moveitmoveit.motion.motion_manifest import MotionManifest
 from moveitmoveit.motion.library import MotionLibrary
 from moveitmoveit.motion.manifest import load_manifest
-
+from moveitmoveit.utils.transforms import apply_random_yaw
 
 class MotionLearningEnv(DirectRLEnv):
     cfg: MotionLearningEnvCfg
@@ -22,14 +22,14 @@ class MotionLearningEnv(DirectRLEnv):
         cfg.amp_observation_space = observation_dim(cfg.style_obs)
         super().__init__(cfg, render_mode, **kwargs)
 
-        self.motion_library = MotionLibrary(self.motion_set.files, self.device)
+        self.motion_library = MotionLibrary(self.motion_manifest.files, self.device)
 
         motion_specs = load_manifest(cfg.motion_manifest, self.motion_library.duration.tolist())
 
-        self.motion_set = MotionSet(motion_specs, self.device)
-        self.motion_library = MotionLibrary(self.motion_set.files, self.device)
+        self.motion_manifest = MotionManifest(motion_specs, self.device)
+        self.motion_library = MotionLibrary(self.motion_manifest.files, self.device)
         self.motion_manager = MotionManager(
-            self.motion_set,
+            self.motion_manifest,
             self.num_envs,
             self.device,
             self.step_dt,
@@ -66,6 +66,8 @@ class MotionLearningEnv(DirectRLEnv):
         key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
         self.ref_body_index = self.robot.data.body_names.index("torso")
         self.key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
+        self.dof_indexes = self.motion_library.get_dof_index(self.robot.data.joint_names)
+        self.root_body_index = self.motion_library.get_body_index(["torso"])[0]
 
         self.extras = {}
 
@@ -173,9 +175,9 @@ class MotionLearningEnv(DirectRLEnv):
         num_samples = env_ids.shape[0]
 
         # Reference state init
-        motion_ids = self.motion_set.sample_ids(num_samples)
+        motion_ids = self.motion_manifest.sample_ids(num_samples)
         times = self.motion_library.sample_times(motion_ids)
-        times = torch.where(self.motion_set.random_start[motion_ids], times, torch.zeros_like(times))
+        times = torch.where(self.motion_manifest.random_start[motion_ids], times, torch.zeros_like(times))
         frames = self.motion_library.frames(motion_ids, times)
         self.motion_manager.reset(env_ids, motion_ids, times)
 
@@ -187,11 +189,7 @@ class MotionLearningEnv(DirectRLEnv):
 
         self._write_robot_state(env_ids, root_state, dof_pos, dof_vel)
 
-        # Seed amp observation buffer with initial frames
-        # The style_obs works for now because BodyState and MotionFrames have the same fields
-        # perhaps we can go through all motions and give them what they need. or not. 
-        seeded_frames = self.motion_library.history(self.cfg.num_amp_observations)
-        self.amp_observation_buffer[env_ids] = self.mdp.style_obs(seeded_frames, yaw)
+        self.amp_observation_buffer[env_ids] = self._amp_observations(motion_ids, times, yaw)
 
     def _get_observations(self) -> dict:
         self._resample_commands()
@@ -211,7 +209,7 @@ class MotionLearningEnv(DirectRLEnv):
         return policy_obs
 
     def _get_rewards(self) -> torch.Tensor:
-        self.extras["style_reward_weight"] = self.motion_manager.style_reward_weight
+        self.extras["style_reward_weight"] = self.motion_manifest.style_reward_weight
         context = self._step_context()
         total, self.extras["reward_terms_raw"], self.extras["reward_terms"] = self.mdp.rewards(
             context, self.motion_manager.active_specs()
@@ -225,7 +223,7 @@ class MotionLearningEnv(DirectRLEnv):
     def _step_context(self) -> StepContext:
         return StepContext(
             self.current_state,
-            self.motion_manager.current_reference_state(),
+            self.motion_library.frames(self.motion_manager.motion_ids, self.episode_length_buf),
             self.commands,
             self.previous_actions,
             self.actions,
@@ -246,7 +244,7 @@ class MotionLearningEnv(DirectRLEnv):
         resample_env_ids = resample.nonzero(as_tuple=False).squeeze(-1)
         if resample_env_ids.numel() > 0:
             motion_ids = self.motion_manager.get_base_motion_ids(resample_env_ids)
-            self.commands[resample_env_ids] = self.motion_set.sample_commands(motion_ids)
+            self.commands[resample_env_ids] = self.motion_manifest.sample_commands(motion_ids)
 
             # a new goal or episode: progress toward the old goal no longer means anything
             self.mdp.reset_memory(resample_env_ids)
@@ -274,8 +272,40 @@ class MotionLearningEnv(DirectRLEnv):
         return root_state, frames.dof_positions, frames.dof_velocities
 
     def style_batch(self, num_samples: int) -> torch.Tensor:
-        """Sample reference style observations for the agent, with history flattened per sample."""
-        motion_ids = self.motion_set.sample_ids(num_samples)
-        batch = self.motion_library.sample_batch(motion_ids)     
+        """Sample reference style observations with history flattened per sample."""
+        motion_ids = self.motion_manifest.sample_ids(num_samples)
+        times = self.motion_library.sample_times(motion_ids)
         yaw = random_yaw_orientation(num_samples, self.device) if self.cfg.random_reset else None
-        return self.mdp.style_obs(batch, yaw).flatten(1)
+        return self._amp_observations(motion_ids, times, yaw)
+
+    def _amp_observations(
+        self, motion_ids: torch.Tensor, times: torch.Tensor, yaw: torch.Tensor | None
+    ) -> torch.Tensor:
+        """Build style observations from reference motion history."""
+        num_samples = motion_ids.shape[0]
+        history_length = self.cfg.num_amp_observations
+
+        frames = self.motion_library.history(motion_ids, times, history_length)
+        if yaw is not None:
+            body_positions, body_rotations, body_linear_velocities, body_angular_velocities = apply_random_yaw(
+                yaw,
+                self.root_body_index,
+                frames.body_positions,
+                frames.body_rotations,
+                frames.body_linear_velocities,
+                frames.body_angular_velocities,
+            )
+
+        root = self.root_body_index
+        state = BodyState(
+            dof_positions=frames.dof_positions[:, self.dof_indexes],
+            dof_velocities=frames.dof_velocities[:, self.dof_indexes],
+            root_positions=body_positions[:, root],
+            root_rotations=body_rotations[:, root],
+            root_linear_velocities=body_linear_velocities[:, root],
+            root_angular_velocities=body_angular_velocities[:, root],
+            key_body_positions=body_positions[:, self.key_body_indexes],
+        )
+
+        observations = self.mdp.style_obs(state, self.local_frame)
+        return observations.reshape(num_samples, -1)

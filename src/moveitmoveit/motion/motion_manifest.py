@@ -1,11 +1,18 @@
 import torch
+import yaml
 
 from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
-from moveitmoveit.motion.manifest import load_manifest
-from moveitmoveit.motion.specs import MotionSpec
+from moveitmoveit.motion.specs import MotionSpec, parse_motion
 
 
-class MotionSet:
+def load_manifest(path: str, durations: list[float]) -> list[MotionSpec]:
+    """Read a manifest. A motion's position in the returned list is its motion id."""
+    with open(path) as f:
+        motions = yaml.safe_load(f)["motions"]
+    return [parse_motion(name, motion, durations[i]) for i, (name, motion) in enumerate(motions.items())]
+
+
+class MotionManifest:
     """The motions a manifest declares"""
 
     def __init__(self, specs: list[MotionSpec], device: torch.device | str):
@@ -28,7 +35,7 @@ class MotionSet:
         self.durations = torch.tensor([spec.duration for spec in specs], dtype=torch.float, device=self.device)
 
     @classmethod
-    def from_manifest(cls, path: str, device: torch.device | str) -> "MotionSet":
+    def from_manifest(cls, path: str, device: torch.device | str) -> "MotionManifest":
         return cls(load_manifest(path), device)
 
     @property
