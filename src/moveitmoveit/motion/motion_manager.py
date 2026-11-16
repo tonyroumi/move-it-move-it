@@ -1,8 +1,10 @@
 import torch
 
+from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
 from moveitmoveit.motion.behavior import RandomKeyPresses
 from moveitmoveit.motion.manifest import Manifest
 from moveitmoveit.motion.specs import MotionSpec
+from moveitmoveit.state import BodyState
 
 LOCOMOTION = -1
 
@@ -35,6 +37,7 @@ class MotionManager:
             self.manifest.motion_behavior == LOCOMOTION, self.manifest.sample_prob, torch.zeros_like(self.manifest.sample_prob)
         )
 
+        self.commands = torch.zeros(num_envs, COMMAND_DIM, device=device)
         self.motion_ids = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.base_motion_ids = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.clip_offsets = torch.zeros(num_envs, device=device)
@@ -72,7 +75,20 @@ class MotionManager:
         self._held[env_ids] = False
         self._key_presses.reset(env_ids)
 
-    def step(self, time: torch.Tensor, resample_cmds: bool, keys: torch.Tensor) -> None:
+    def resample_commands(self, env_ids: torch.Tensor, state: BodyState) -> None:
+        """Sample base-motion commands and anchor goal offsets at the sampling position once."""
+        commands = self.manifest.sample_commands(self.base_motion_ids[env_ids])
+        commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += state.root_positions[env_ids, :2]
+        self.commands[env_ids] = commands
+
+    def set_commands(self, commands: torch.Tensor, env_ids: torch.Tensor | None = None) -> None:
+        """Store externally supplied commands; goal coordinates are already world-space targets."""
+        if env_ids is None:
+            self.commands[:] = commands
+        else:
+            self.commands[env_ids] = commands
+
+    def step(self, time: torch.Tensor, resample_cmds: bool) -> None:
         """Advance each env's motion to episode `time`: complete running behaviors at phase 1, start
         behaviors, and record the phase and behavior the policy observes. """
         complete = (self.phase(time) >= 1.0)
@@ -83,7 +99,8 @@ class MotionManager:
             if restart.numel() > 0:
                 self.start(restart, self.manifest.sample_behaviors(restart.numel()), time[restart])
         else:
-            self.update(self._key_presses.step() if resample_cmds else keys, complete, time)
+            keys = self._key_presses.step() if resample_cmds else self.commands[:, self.manifest.behavior_keys]
+            self.update(keys, complete, time)
 
         self.motion_ids = self._running_motion_ids()
         self.motion_phase = self.phase(time)
@@ -132,6 +149,10 @@ class MotionManager:
     def current_behaviors(self) -> torch.Tensor:
         """Each env's running behavior as a one-hot encoding"""
         return self.behaviors
+
+    def current_goals(self) -> torch.Tensor:
+        """Goal activation for the currently running motions, not their locomotion bases."""
+        return self.manifest.has_goal[self.motion_ids]
 
     def phase(self, time: torch.Tensor) -> torch.Tensor:
         progress = clip_phase(self.clip_times(time), self.manifest.durations[self.motion_ids])

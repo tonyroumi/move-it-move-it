@@ -6,6 +6,17 @@ from typing import NamedTuple
 import torch
 
 
+@dataclass(frozen=True)
+class Skeleton:
+    """Robot body indices and clip mappings into the robot's joint and key-body ordering."""
+
+    dof_indexes: list[int]
+    root_body_index: int
+    key_body_indexes: list[int]
+    robot_root_body_index: int
+    robot_key_body_indexes: list[int]
+
+
 class BodyState(NamedTuple):
     dof_positions: torch.Tensor
     dof_velocities: torch.Tensor
@@ -19,7 +30,7 @@ class BodyState(NamedTuple):
 
 @dataclass
 class StepContext:
-    """What reward and termination terms may read at one env step."""
+    """Per-step inputs for command observations, rewards, and termination checks."""
 
     state: BodyState
     reference_state: BodyState

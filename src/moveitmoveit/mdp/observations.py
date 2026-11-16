@@ -7,8 +7,7 @@ import torch
 
 from isaaclab.utils.math import quat_apply_inverse
 
-from moveitmoveit.mdp.commands import CommandIndex
-from moveitmoveit.utils.transforms import quaternion_to_tangent_and_normal, world_to_heading_frame_xy
+from moveitmoveit.utils.transforms import quaternion_to_tangent_and_normal
 
 if TYPE_CHECKING:
     from moveitmoveit.state import BodyState
@@ -23,6 +22,7 @@ OBSERVATIONS: dict[str, ObservationTerm] = {}
 
 
 def observation(dim: int):
+    """Register a read-only observation of body state."""
     def register(fn):
         OBSERVATIONS[fn.__name__] = ObservationTerm(fn, dim)
         return fn
@@ -71,21 +71,3 @@ def key_body_offsets(state: BodyState, local_frame: bool) -> torch.Tensor:
         rotations = state.root_rotations.unsqueeze(1).expand(-1, offsets.shape[1], -1)
         offsets = quat_apply_inverse(rotations, offsets)
     return offsets.flatten(1)
-
-
-def goal_offset(
-    commands: torch.Tensor, state: BodyState, local_frame: bool, goal_active: torch.Tensor
-) -> torch.Tensor:
-    goal = commands[:, CommandIndex.GOAL_X:CommandIndex.GOAL_Y + 1]
-    offset = goal - state.root_positions[:, :2]
-    if local_frame:
-        offset = world_to_heading_frame_xy(state.root_rotations, offset)
-    return torch.where(goal_active.unsqueeze(-1), offset, torch.zeros_like(offset))
-
-
-def command_observation(
-    state: BodyState, commands: torch.Tensor, local_frame: bool, goal_active: torch.Tensor
-) -> torch.Tensor:
-    observation = commands.clone()
-    observation[:, CommandIndex.GOAL_X:CommandIndex.GOAL_Y + 1] = goal_offset(commands, state, local_frame, goal_active)
-    return observation

@@ -5,11 +5,11 @@ from dataclasses import dataclass
 
 import torch
 
-from moveitmoveit.mdp.observations import OBSERVATIONS, command_observation
+from moveitmoveit.mdp.commands import command_observation
+from moveitmoveit.mdp.observations import OBSERVATIONS
 from moveitmoveit.mdp.rewards import REWARDS
 from moveitmoveit.mdp.terminations import TERMINATIONS
 from moveitmoveit.motion.specs import MotionSpec
-from moveitmoveit.motion.library import MotionFrames
 from moveitmoveit.state import BodyState, StepContext
 
 
@@ -52,7 +52,6 @@ class MDP:
         self, specs: list[MotionSpec]
     ) -> dict[str, RewardTable]:
         tables = {}
-
         for name, term in REWARDS.items():
             configs = [spec.rewards.get(name) for spec in specs]
             if all(config is None for config in configs):
@@ -116,7 +115,7 @@ class MDP:
     def rewards(
         self, c: StepContext, spec_ids: torch.Tensor
     ) -> tuple[torch.Tensor, dict, dict]:
-        """Compute rewards using per-environment spec IDs."""
+        """Compute each running motion's rewards using per-environment table IDs."""
         c.memory = self._memory
 
         total = torch.zeros(len(spec_ids), device=self.device)
@@ -165,20 +164,17 @@ class MDP:
         local_frame: bool,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """The policy and the style observation."""
-        state = context.state
-
-        commands = command_observation(state, context.commands, local_frame, context.goal_active)
         policy = torch.cat(
             [
-                *(OBSERVATIONS[name].fn(state, local_frame) for name in self._policy_obs),
-                commands,
+                *(OBSERVATIONS[name].fn(context.state, local_frame) for name in self._policy_obs),
+                command_observation(context, local_frame),
                 context.behaviors,
                 context.phase.unsqueeze(-1),
             ],
             dim=-1,
         )
-        return policy, self.style_obs(state, local_frame)
+        return policy, self.style_obs(context.state, local_frame)
 
-    def style_obs(self, state: BodyState | MotionFrames, local_frame: bool) -> torch.Tensor:
-        """The style observation alone, for reference clips, which have no commands."""
+    def style_obs(self, state: BodyState, local_frame: bool) -> torch.Tensor:
+        """Style observations depend only on body state, including for reference clips."""
         return torch.cat([OBSERVATIONS[name].fn(state, local_frame) for name in self._style_obs], dim=-1)
