@@ -125,10 +125,6 @@ class Manifest:
     def sample_ids(self, num_samples: int) -> torch.Tensor:
         return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
 
-    def specs_for(self, motion_ids: torch.Tensor) -> list[MotionSpec]:
-        """The spec each env is running, in `motion_ids` order."""
-        return [self.specs[int(motion_id)] for motion_id in motion_ids.tolist()]
-
     def sample_commands(self, motion_ids: torch.Tensor) -> torch.Tensor:
         """Sample each motion's declared command ranges. Goal slots stay offsets; the env places them."""
         low = self.command_low[motion_ids]

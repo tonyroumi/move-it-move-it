@@ -189,13 +189,19 @@ class MotionLibrary:
             ),
         )
 
-    def history(self, motion_ids: torch.Tensor, times: torch.Tensor, num_steps: int) -> MotionFrames:
-        """``num_steps`` states, ``dt`` apart, ending at each sample's time, newest first."""
+    def history(
+        self,
+        motion_ids: torch.Tensor,
+        times: torch.Tensor,
+        num_steps: int,
+        step_dt: float | None = None,
+    ) -> MotionFrames:
+        """History ending at each sample's time, newest first; defaults to clip frame spacing."""
         motion_ids = torch.as_tensor(motion_ids, dtype=torch.long, device=self.device)
         times = torch.as_tensor(times, dtype=torch.float32, device=self.device)
-        # step back num_steps times, dt apart, from each sample's time -> (N * num_steps,)
+        spacing = self.dt if step_dt is None else step_dt
         steps = torch.arange(num_steps, device=self.device)
-        history_times = (times.unsqueeze(-1) - self.dt * steps).flatten()
+        history_times = (times.unsqueeze(-1) - spacing * steps).flatten()
         return self.frames(motion_ids.repeat_interleave(num_steps), history_times)
 
     def get_dof_index(self, dof_names: list[str]) -> list[int]:

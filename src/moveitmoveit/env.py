@@ -13,6 +13,7 @@ from moveitmoveit.motion.motion_manager import MotionManager
 from moveitmoveit.motion.library import MotionFrames, MotionLibrary
 from moveitmoveit.utils.transforms import apply_random_yaw
 
+
 class MotionLearningEnv(DirectRLEnv):
     cfg: MotionLearningEnvCfg
 

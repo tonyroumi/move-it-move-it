@@ -163,10 +163,6 @@ class MotionManager:
         behavior_ids = behavior_motion_ids[self.mode.clamp_min(0)]
         return torch.where(self.active, behavior_ids, self.base_motion_ids)
 
-    def active_specs(self) -> list[MotionSpec]:
-        """The spec of the motion each env runs, whose rewards and terminations apply."""
-        return self.manifest.specs_for(self.motion_ids)
-
     def current_phase(self) -> torch.Tensor:
         """Each env's behavior phase, as the last `step` recorded it."""
         return self.motion_phase
