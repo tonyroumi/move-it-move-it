@@ -58,11 +58,11 @@ class MotionLearningEnv(DirectRLEnv):
             self.robot.data.joint_pos.torch,
             self.robot.data.joint_vel.torch,
             self.robot.data.joint_acc.torch,
-            self.robot.data.body_pos_w.torch[:, self.skeleton.robot_root_body_index],
-            self.robot.data.body_quat_w.torch[:, self.skeleton.robot_root_body_index],
-            self.robot.data.body_lin_vel_w.torch[:, self.skeleton.robot_root_body_index],
-            self.robot.data.body_ang_vel_w.torch[:, self.skeleton.robot_root_body_index],
-            self.robot.data.body_pos_w.torch[:, self.skeleton.robot_key_body_indexes],
+            self.robot.data.body_pos_w.torch[:, self.skeleton.root_body_index],
+            self.robot.data.body_quat_w.torch[:, self.skeleton.root_body_index],
+            self.robot.data.body_lin_vel_w.torch[:, self.skeleton.root_body_index],
+            self.robot.data.body_ang_vel_w.torch[:, self.skeleton.root_body_index],
+            self.robot.data.body_pos_w.torch[:, self.skeleton.key_body_indexes],
         )
 
     def reference_state(self) -> BodyState:
@@ -77,8 +77,12 @@ class MotionLearningEnv(DirectRLEnv):
             dof_indexes=self.motion_library.get_dof_index(self.robot.data.joint_names),
             root_body_index=self.motion_library.get_body_index(["torso"])[0],
             key_body_indexes=self.motion_library.get_body_index(key_body_names),
-            robot_root_body_index=self.robot.data.body_names.index("torso"),
-            robot_key_body_indexes=[self.robot.data.body_names.index(name) for name in key_body_names],
+        )
+        assert self.robot.data.body_names.index("torso") == self.skeleton.root_body_index, (
+            "Robot and motion clips must use the same torso body index."
+        )
+        assert [self.robot.data.body_names.index(name) for name in key_body_names] == self.skeleton.key_body_indexes, (
+            "Robot and motion clips must use the same key-body indices."
         )
 
         self.extras = {}

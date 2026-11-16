@@ -14,7 +14,6 @@ from moveitmoveit.state import BodyState, StepContext
 
 
 def observation_dim(names: Iterable[str]) -> int:
-    """Size of the observation these terms produce."""
     return sum(OBSERVATIONS[name].dim for name in names)
 
 
@@ -115,7 +114,6 @@ class MDP:
     def rewards(
         self, c: StepContext, spec_ids: torch.Tensor
     ) -> tuple[torch.Tensor, dict, dict]:
-        """Compute each running motion's rewards using per-environment table IDs."""
         c.memory = self._memory
 
         total = torch.zeros(len(spec_ids), device=self.device)
@@ -140,7 +138,6 @@ class MDP:
     def died(
         self, c: StepContext, spec_ids: torch.Tensor
     ) -> torch.Tensor:
-        """Evaluate enabled termination conditions."""
         died = torch.zeros(
             len(spec_ids), device=self.device, dtype=torch.bool
         )
@@ -163,7 +160,6 @@ class MDP:
         context: StepContext,
         local_frame: bool,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """The policy and the style observation."""
         policy = torch.cat(
             [
                 *(OBSERVATIONS[name].fn(context.state, local_frame) for name in self._policy_obs),

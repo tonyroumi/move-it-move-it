@@ -51,7 +51,6 @@ class MotionManager:
 
     @staticmethod
     def motion_files(manifest: str) -> list[str]:
-        """Clip paths in manifest motion order, for loading the motion library."""
         return manifest_files(manifest)
 
     @property
@@ -79,7 +78,7 @@ class MotionManager:
         return self.mode != LOCOMOTION
 
     def reset(self, env_ids: torch.Tensor, motion_ids: torch.Tensor, times: torch.Tensor):
-        """Start env_ids in motion_ids at their clip times and release their behavior keys. """
+        """Start the given envs in the specified motions at the given clip times and release behavior keys."""
         mode = self.manifest.motion_behavior[motion_ids]
         is_behavior = mode != LOCOMOTION
 
@@ -101,21 +100,23 @@ class MotionManager:
         self._key_presses.reset(env_ids)
 
     def resample_commands(self, env_ids: torch.Tensor, state: BodyState) -> None:
-        """Sample base-motion commands and anchor goal offsets at the sampling position once."""
+        """Sample base-motion commands and convert goal offsets into world-space targets."""
         commands = self.manifest.sample_commands(self.base_motion_ids[env_ids])
         commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += state.root_positions[env_ids, :2]
         self.commands[env_ids] = commands
 
     def set_commands(self, commands: torch.Tensor, env_ids: torch.Tensor | None = None) -> None:
-        """Store externally supplied commands; goal coordinates are already world-space targets."""
+        """Store externally supplied commands"""
         if env_ids is None:
             self.commands[:] = commands
         else:
             self.commands[env_ids] = commands
 
     def step(self, time: torch.Tensor, resample_cmds: bool) -> None:
-        """Advance each env's motion to episode `time`: complete running behaviors at phase 1, start
-        behaviors, and record the phase and behavior the policy observes. """
+        """
+        Advance all environments to the given episode time: finish completed behaviors,
+        start new ones, and update observed phase and one-hot behavior.
+        """
         complete = (self.phase(time) >= 1.0)
 
         if self.manifest.always_on:
@@ -133,9 +134,9 @@ class MotionManager:
         self.behaviors = (self.mode.unsqueeze(-1) == behavior_indexes).float()
 
     def update(self, keys: torch.Tensor, complete: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
-        """Set each env's mode for this step: back to locomotion if its behavior is complete, then
-        to a behavior whose key was just pressed, if the env is in locomotion. Returns the envs a
-        press started.
+        """
+        Return completed behaviors to locomotion, then start the lowest-index newly pressed
+        behavior for envs in locomotion. Returns the envs that started a behavior.
         """
         held = keys > 0.5
         pressed = held & ~self._held
@@ -151,12 +152,12 @@ class MotionManager:
         return start
 
     def start(self, env_ids: torch.Tensor, behaviors: torch.Tensor, start_time: torch.Tensor) -> None:
-        """Run `behaviors` in `env_ids` with no key press, on clip clocks that read 0 at `start_time`."""
+        """Force the given envs into the specified behaviors with a phase origin at start_time."""
         self.mode[env_ids] = behaviors
         self.start_time[env_ids] = start_time
 
     def _running_motion_ids(self) -> torch.Tensor:
-        """The motion each env runs: its behavior's motion while one is running, else its base motion."""
+        """Return the motion ID each env is currently tracking (behavior motion if active, else base)."""
         behavior_motion_ids = self.manifest.behavior_motion_ids
         if behavior_motion_ids.numel() == 0:
             return self.base_motion_ids.clone()
@@ -164,15 +165,13 @@ class MotionManager:
         return torch.where(self.active, behavior_ids, self.base_motion_ids)
 
     def current_phase(self) -> torch.Tensor:
-        """Each env's behavior phase, as the last `step` recorded it."""
         return self.motion_phase
 
     def current_behaviors(self) -> torch.Tensor:
-        """Each env's running behavior as a one-hot encoding"""
+        """One-hot encoding of the behavior currently running in each env."""
         return self.behaviors
 
     def current_goals(self) -> torch.Tensor:
-        """Goal activation for the currently running motions, not their locomotion bases."""
         return self.manifest.has_goal[self.motion_ids]
 
     def phase(self, time: torch.Tensor) -> torch.Tensor:
@@ -180,8 +179,7 @@ class MotionManager:
         return torch.where(self.active, progress, torch.zeros_like(progress))
 
     def clip_times(self, time: torch.Tensor) -> torch.Tensor:
-        """Each env's time at episode `time` in the clip it tracks
-        """
+        """Absolute time within the tracked clip at the given episode time (looping or linear)."""
         duration = self.manifest.durations[self.motion_ids]
         locomotion_times = self.clip_offsets + time
         wrapped = torch.remainder(locomotion_times, duration.clamp_min(1e-6))

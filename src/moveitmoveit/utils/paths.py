@@ -1,5 +1,4 @@
 from pathlib import Path
-import contextlib
 import os
 
 
@@ -9,73 +8,3 @@ MOVEITMOVEIT_DATA_DIR = Path(os.environ.get(
 ))
 
 CONFIGS_DIR = _REPO_ROOT / "configs"
-
-
-def _dir_mtime(path: str) -> float:
-    """Latest mtime of a directory and its direct entries, or -1 if it can't be read."""
-    try:
-        latest = os.path.getmtime(path)
-    except OSError:
-        return -1.0
-    try:
-        for entry in os.scandir(path):
-            with contextlib.suppress(OSError):
-                latest = max(latest, entry.stat().st_mtime)
-    except OSError:
-        pass
-    return latest
-
-
-def _find_most_recent_run_dir(log_root_path: str) -> str:
-    """Return the run directory under `log_root_path` most recently written to."""
-    if not os.path.isdir(log_root_path):
-        raise FileNotFoundError(f"Log directory does not exist: {log_root_path}")
-
-    run_dirs = [
-        entry.path for entry in os.scandir(log_root_path) if entry.is_dir()
-    ]
-    if not run_dirs:
-        raise FileNotFoundError(f"No run directories found under: {log_root_path}")
-
-    def run_key(run_dir: str) -> float:
-        checkpoints_dir = os.path.join(run_dir, "checkpoints")
-        if os.path.isdir(checkpoints_dir):
-            return _dir_mtime(checkpoints_dir)
-        return _dir_mtime(run_dir)
-
-    return max(run_dirs, key=run_key)
-
-
-def _checkpoint_in_run_dir(run_dir: str, step: int = None) -> str:
-    """Resolve checkpoints/{step}.pt or checkpoints/best_agent.pt within a single run directory."""
-    if step is not None:
-        checkpoint_path = os.path.join(run_dir, "checkpoints", f"{step}.pt")
-        if not os.path.isfile(checkpoint_path):
-            raise FileNotFoundError(f"No checkpoint for step {step} found in run: {checkpoint_path}")
-        return os.path.abspath(checkpoint_path)
-
-    checkpoint_path = os.path.join(run_dir, "checkpoints", "best_agent.pt")
-    if not os.path.isfile(checkpoint_path):
-        raise FileNotFoundError(f"No best_agent.pt found in run: {checkpoint_path}")
-    return os.path.abspath(checkpoint_path)
-
-
-def resolve_checkpoint(log_root_path: str, checkpoint: str = None, step: int = None) -> str:
-    """`checkpoint` if given, else the {step}.pt or best_agent.pt checkpoint of the most
-    recently written run under `log_root_path`."""
-    if checkpoint:
-        return os.path.abspath(checkpoint)
-
-    most_recent_run_dir = _find_most_recent_run_dir(log_root_path)
-    return _checkpoint_in_run_dir(most_recent_run_dir, step)
-
-
-def resolve_checkpoint_from_run_dir(run_dir: str, checkpoint: str = None, step: int = None) -> str:
-    """`checkpoint` if given, else the {step}.pt or best_agent.pt checkpoint of `run_dir` itself
-    (unlike `resolve_checkpoint`, no search for the most recent run)."""
-    if checkpoint:
-        return os.path.abspath(checkpoint)
-
-    if not os.path.isdir(run_dir):
-        raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
-    return _checkpoint_in_run_dir(run_dir, step)

@@ -52,7 +52,6 @@ class RolloutStorage(nn.Module):
             advantages: torch.Tensor | None = None,
             returns: torch.Tensor | None = None,
             old_actions_log_prob: torch.Tensor | None = None,
-            dones: torch.Tensor | None = None,
         ) -> None:
             """Initialize a batch container over rollout data."""
             self.observations: torch.Tensor | None = observations
@@ -74,9 +73,6 @@ class RolloutStorage(nn.Module):
             self.old_actions_log_prob: torch.Tensor | None = old_actions_log_prob
             """Batch of log probabilities of the old actions."""
 
-            self.dones: torch.Tensor | None = dones
-            """Batch of done flags (distillation only)."""
-
     def __init__(
         self,
         num_envs: int,
@@ -89,7 +85,6 @@ class RolloutStorage(nn.Module):
         self.device = device
         self.num_transitions_per_env = num_transitions_per_env
         self.num_envs = num_envs
-        self.action_dim = action_dim
 
         # Core
         self.observations = torch.zeros(num_transitions_per_env, num_envs, obs_dim, device=device)

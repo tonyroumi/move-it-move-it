@@ -22,9 +22,6 @@ class CircularBuffer:
         self._write_idx = 0
         self._size = 0
 
-        self._total_appended = 0
-        self._last_window_total = 0
-
     def append(self, samples: torch.Tensor) -> None:
         """Append one sample or a batch, keeping only the newest `capacity` samples."""
         if samples.ndim == self._buffer.ndim - 1:
@@ -42,7 +39,6 @@ class CircularBuffer:
             self._buffer.copy_(samples)
             self._write_idx = 0
             self._size = self.capacity
-            self._total_appended += num_samples
             return
 
         first_count = min(
@@ -68,8 +64,6 @@ class CircularBuffer:
             self.capacity,
         )
 
-        self._total_appended += num_samples
-
     def sample(self, batch_size: int) -> torch.Tensor:
         """Uniformly sample `batch_size` stored samples, with replacement."""
         if self._size == 0:
@@ -84,40 +78,9 @@ class CircularBuffer:
 
         return self._buffer[indices]
 
-    def _slice_circular(self, start: int, count: int) -> torch.Tensor:
-        """`count` samples from physical index `start`, wrapping around the end of storage."""
-        if count == 0:
-            return self._buffer[:0]
-
-        end = start + count
-        if end <= self.capacity:
-            return self._buffer[start:end]
-
-        first_part = self._buffer[start:]
-        second_part = self._buffer[:end - self.capacity]
-        return torch.cat((first_part, second_part), dim=0)
-
-    def get_since_last(self) -> torch.Tensor:
-        """Samples appended since the previous call, oldest first."""
-        num_new = min(
-            self._total_appended - self._last_window_total,
-            self._size,
-        )
-
-        self._last_window_total = self._total_appended
-
-        if num_new == 0:
-            return self._buffer[:0]
-
-        # the window ends at the most recent write, physical index (write_idx - 1)
-        start = (self._write_idx - num_new) % self.capacity
-        return self._slice_circular(start, num_new)
-
     def clear(self) -> None:
         self._write_idx = 0
         self._size = 0
-        self._total_appended = 0
-        self._last_window_total = 0
 
     def __len__(self) -> int:
         return self._size

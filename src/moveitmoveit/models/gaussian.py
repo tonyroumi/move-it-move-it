@@ -69,11 +69,6 @@ class GaussianMLP(MLP):
         return self.distribution.log_prob(actions).sum(dim=-1)
 
     @property
-    def dist(self) -> torch.distributions:
-        """The action distribution."""
-        return self.distribution
-
-    @property
     def mean(self) -> torch.Tensor:
         """Mean of the action distribution."""
         return self.distribution.mean

@@ -6,14 +6,12 @@ from moveitmoveit.motion.specs import MotionSpec, parse_motion
 
 
 def manifest_files(path: str) -> list[str]:
-    """The clip file of each manifest motion, in motion id order."""
     with open(path) as f:
         motions = yaml.safe_load(f)["motions"]
     return [motion["file"] for motion in motions.values()]
 
 
 def load_manifest(path: str, durations: list[float]) -> list[MotionSpec]:
-    """Read a manifest. A motion's position in the returned list is its motion id."""
     with open(path) as f:
         motions = yaml.safe_load(f)["motions"]
     return [parse_motion(name, motion, durations[i]) for i, (name, motion) in enumerate(motions.items())]
@@ -26,27 +24,21 @@ class Manifest:
         self.device = device
         self.specs = specs
 
-        self.names = [spec.name for spec in specs]
-        self.name_to_id = {name: i for i, name in enumerate(self.names)}
         self.num_motions = len(specs)
-        self.files = [spec.file for spec in specs]
 
         self._build_command_tables(specs)
         self._build_sample_prob_table(specs)
         self._build_behavior_tables(specs)
-        self._build_trigger_rates_and_weights()
 
         self.loop = torch.tensor([spec.loop for spec in specs], dtype=torch.bool, device=self.device)
         self.random_start = torch.tensor([spec.random_start for spec in specs], dtype=torch.bool, device=self.device)
         self.amp = torch.tensor([spec.amp for spec in specs], dtype=torch.bool, device=self.device)
         self.durations = torch.tensor([spec.duration for spec in specs], dtype=torch.float, device=self.device)
 
-    @classmethod
-    def from_manifest(cls, path: str, device: torch.device | str) -> "Manifest":
-        return cls(load_manifest(path), device)
+        self._build_trigger_rates_and_weights()
 
     def style_reward_weight(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        """The AMP style reward weight of the motion each env runs, its manifest `amp`."""
+        """The AMP style reward weight of the motion each env runs"""
         return self.amp[motion_ids]
 
     def _build_command_tables(self, specs: list[MotionSpec]):
@@ -66,7 +58,6 @@ class Manifest:
                 self.command_high[motion_id, index] = high
 
     def _build_trigger_rates_and_weights(self) -> None:
-        """Compute behavior sampling weights and trigger frequency."""
         self.trigger_rate = 0.0
         self.trigger_weights = torch.zeros(self.num_behaviors, device=self.device)
 
@@ -126,7 +117,6 @@ class Manifest:
         return torch.multinomial(self.sample_prob, num_samples=num_samples, replacement=True)
 
     def sample_commands(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        """Sample each motion's declared command ranges. Goal slots stay offsets; the env places them."""
         low = self.command_low[motion_ids]
         high = self.command_high[motion_ids]
 
@@ -138,5 +128,4 @@ class Manifest:
         return commands
 
     def sample_behaviors(self, num_samples: int) -> torch.Tensor:
-        """Behavior indices drawn by trigger_weights"""
         return torch.multinomial(self.trigger_weights, num_samples=num_samples, replacement=True)

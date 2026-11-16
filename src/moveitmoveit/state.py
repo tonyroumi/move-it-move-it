@@ -8,13 +8,9 @@ import torch
 
 @dataclass(frozen=True)
 class Skeleton:
-    """Robot body indices and clip mappings into the robot's joint and key-body ordering."""
-
     dof_indexes: list[int]
     root_body_index: int
     key_body_indexes: list[int]
-    robot_root_body_index: int
-    robot_key_body_indexes: list[int]
 
 
 class BodyState(NamedTuple):

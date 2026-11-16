@@ -24,7 +24,6 @@ class Logger:
         assert backend in ("tensorboard", "wandb", "both", "none"), (
             f"Unknown backend: {backend}"
         )
-        self.backend = backend
         self.log_dir = log_dir
         self.total_timesteps = total_timesteps
         self.write_interval = write_interval
@@ -211,37 +210,6 @@ class Logger:
         # reset data containers
         self._tracking_data.clear()
         self._tracking_step.clear()
-
-    def log_scalar(self, tag: str, value: float, step: int) -> None:
-        """Log a single scalar value."""
-        if self._tb_writer is not None:
-            self._tb_writer.add_scalar(tag, value, step)
-        if self._wandb is not None:
-            self._wandb.log({tag: value}, step=step)
-
-    def log_scalars(self, metrics: Dict[str, float], step: int) -> None:
-        """Log multiple scalars at once (e.g. reward, loss, kl in one call)."""
-        if self._tb_writer is not None:
-            for tag, value in metrics.items():
-                self._tb_writer.add_scalar(tag, value, step)
-        if self._wandb is not None:
-            self._wandb.log(metrics, step=step)
-
-    def log_histogram(self, tag: str, values, step: int) -> None:
-        """Log a histogram (e.g. action distribution, gradient norms)."""
-        if self._tb_writer is not None:
-            self._tb_writer.add_histogram(tag, values, step)
-        if self._wandb is not None:
-            import wandb
-
-            self._wandb.log({tag: wandb.Histogram(values)}, step=step)
-
-    def log_video(self, tag: str, video, step: int, fps: int = 30) -> None:
-        """Log a video, e.g. shape (N, T, C, H, W) as expected by tensorboard."""
-        if self._tb_writer is not None:
-            self._tb_writer.add_video(tag, video, step, fps=fps)
-        if self._wandb is not None:
-            self._wandb.log({tag: self._wandb.Video(video, fps=fps)}, step=step)
 
     def close(self) -> None:
         """Flush and close all backends."""

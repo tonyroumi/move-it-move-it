@@ -60,35 +60,6 @@ class MotionLibrary:
         for motion_file, nf, dur in zip(motion_files, self.num_frames.tolist(), self.duration.tolist()):
             print(f"Motion loaded ({motion_file}): duration: {dur} sec, frames: {nf}")
 
-    @property
-    def info(self) -> torch.Tensor:
-        return self.duration
-
-    @property
-    def num_motions(self) -> int:
-        """Number of motion clips."""
-        return self.dof_positions.shape[0]
-
-    @property
-    def dof_names(self) -> list[str]:
-        """Skeleton DOF names."""
-        return self._dof_names
-
-    @property
-    def body_names(self) -> list[str]:
-        """Skeleton rigid body names."""
-        return self._body_names
-
-    @property
-    def num_dofs(self) -> int:
-        """Number of skeleton's DOFs."""
-        return len(self._dof_names)
-
-    @property
-    def num_bodies(self) -> int:
-        """Number of skeleton's rigid bodies."""
-        return len(self._body_names)
-
     def _interpolate(
         self,
         data: torch.Tensor,
