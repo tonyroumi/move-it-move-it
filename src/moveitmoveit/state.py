@@ -7,7 +7,7 @@ import torch
 
 
 @dataclass(frozen=True)
-class Skeleton:
+class SkeletonMap:
     dof_indexes: list[int]
     root_body_index: int
     key_body_indexes: list[int]

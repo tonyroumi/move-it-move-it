@@ -150,7 +150,7 @@ def main():
                 start_time = time.time()
 
                 if keyboard is not None:
-                    root_index = env.unwrapped.skeleton.root_body_index
+                    root_index = env.unwrapped.robot_root_body_index
                     command = keyboard.advance(
                         env.unwrapped.robot.data.body_pos_w.torch[:, root_index, :2],
                         env.unwrapped.robot.data.body_quat_w.torch[:, root_index],

@@ -7,7 +7,7 @@ from isaaclab.utils.math import quat_apply, quat_apply_yaw, random_yaw_orientati
 
 from moveitmoveit.env_cfg import MotionLearningEnvCfg
 from moveitmoveit.mdp import MDP, observation_dim
-from moveitmoveit.state import BodyState, Skeleton, StepContext
+from moveitmoveit.state import BodyState, SkeletonMap, StepContext
 from moveitmoveit.mdp.commands import COMMAND_DIM
 from moveitmoveit.motion.motion_manager import MotionManager
 from moveitmoveit.motion.library import MotionFrames, MotionLibrary
@@ -58,31 +58,27 @@ class MotionLearningEnv(DirectRLEnv):
             self.robot.data.joint_pos.torch,
             self.robot.data.joint_vel.torch,
             self.robot.data.joint_acc.torch,
-            self.robot.data.body_pos_w.torch[:, self.skeleton.root_body_index],
-            self.robot.data.body_quat_w.torch[:, self.skeleton.root_body_index],
-            self.robot.data.body_lin_vel_w.torch[:, self.skeleton.root_body_index],
-            self.robot.data.body_ang_vel_w.torch[:, self.skeleton.root_body_index],
-            self.robot.data.body_pos_w.torch[:, self.skeleton.key_body_indexes],
+            self.robot.data.body_pos_w.torch[:, self.robot_root_body_index],
+            self.robot.data.body_quat_w.torch[:, self.robot_root_body_index],
+            self.robot.data.body_lin_vel_w.torch[:, self.robot_root_body_index],
+            self.robot.data.body_ang_vel_w.torch[:, self.robot_root_body_index],
+            self.robot.data.body_pos_w.torch[:, self.robot_key_body_indexes],
         )
 
     def reference_state(self) -> BodyState:
         time = self.episode_length_buf.to(torch.float32) * self.step_dt
         motion_ids = self.motion_manager.motion_ids
         frames = self.motion_library.frames(motion_ids, self.motion_manager.clip_times(time))
-        return clip_state(frames, self.skeleton, self.random_yaw_quat if self.cfg.random_reset else None)
+        return clip_state(frames, self.skeleton_map, self.random_yaw_quat if self.cfg.random_reset else None)
 
     def _setup_env(self):
         key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
-        self.skeleton = Skeleton(
+        self.robot_root_body_index = self.robot.data.body_names.index("torso")
+        self.robot_key_body_indexes = [self.robot.data.body_names.index(name) for name in key_body_names]
+        self.skeleton_map = SkeletonMap(
             dof_indexes=self.motion_library.get_dof_index(self.robot.data.joint_names),
             root_body_index=self.motion_library.get_body_index(["torso"])[0],
             key_body_indexes=self.motion_library.get_body_index(key_body_names),
-        )
-        assert self.robot.data.body_names.index("torso") == self.skeleton.root_body_index, (
-            "Robot and motion clips must use the same torso body index."
-        )
-        assert [self.robot.data.body_names.index(name) for name in key_body_names] == self.skeleton.key_body_indexes, (
-            "Robot and motion clips must use the same key-body indices."
         )
 
         self.extras = {}
@@ -198,7 +194,7 @@ class MotionLearningEnv(DirectRLEnv):
         if self.cfg.random_reset:
             yaw = random_yaw_orientation(num_samples, self.device)
             self.random_yaw_quat[env_ids] = yaw
-        root_state, dof_pos, dof_vel = self._compute_robot_state(env_ids, clip_state(frames, self.skeleton, yaw))
+        root_state, dof_pos, dof_vel = self._compute_robot_state(env_ids, clip_state(frames, self.skeleton_map, yaw))
 
         self._write_robot_state(env_ids, root_state, dof_pos, dof_vel)
 
@@ -296,13 +292,13 @@ class MotionLearningEnv(DirectRLEnv):
         frames = self.motion_library.history(motion_ids, times, history_length, self.step_dt)
         if yaw is not None:
             yaw = yaw.repeat_interleave(history_length, dim=0)
-        state = clip_state(frames, self.skeleton, yaw)
+        state = clip_state(frames, self.skeleton_map, yaw)
 
         observations = self.mdp.style_obs(state, self.local_frame)
         return observations.reshape(num_samples, -1)
 
 
-def clip_state(frames: MotionFrames, skeleton: Skeleton, yaw: torch.Tensor | None = None) -> BodyState:
+def clip_state(frames: MotionFrames, skeleton_map: SkeletonMap, yaw: torch.Tensor | None = None) -> BodyState:
     """Map clip frames into robot-ordered state, optionally yawed about the clip root."""
     body_positions = frames.body_positions
     body_rotations = frames.body_rotations
@@ -311,22 +307,22 @@ def clip_state(frames: MotionFrames, skeleton: Skeleton, yaw: torch.Tensor | Non
     if yaw is not None:
         body_positions, body_rotations, body_linear_velocities, body_angular_velocities = apply_random_yaw(
             yaw,
-            skeleton.root_body_index,
+            skeleton_map.root_body_index,
             body_positions,
             body_rotations,
             body_linear_velocities,
             body_angular_velocities,
         )
 
-    root = skeleton.root_body_index
-    dof_positions = frames.dof_positions[:, skeleton.dof_indexes]
+    root = skeleton_map.root_body_index
+    dof_positions = frames.dof_positions[:, skeleton_map.dof_indexes]
     return BodyState(
         dof_positions=dof_positions,
-        dof_velocities=frames.dof_velocities[:, skeleton.dof_indexes],
+        dof_velocities=frames.dof_velocities[:, skeleton_map.dof_indexes],
         dof_accelerations=torch.zeros_like(dof_positions),  # clips carry none; no term reads them
         root_positions=body_positions[:, root],
         root_rotations=body_rotations[:, root],
         root_linear_velocities=body_linear_velocities[:, root],
         root_angular_velocities=body_angular_velocities[:, root],
-        key_body_positions=body_positions[:, skeleton.key_body_indexes],
+        key_body_positions=body_positions[:, skeleton_map.key_body_indexes],
     )

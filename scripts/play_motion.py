@@ -90,7 +90,7 @@ def main():
                 frames = unwrapped.motion_library.frames(motion_ids, times)
 
                 root_state, dof_pos, dof_vel = unwrapped._compute_robot_state(
-                    env_ids, clip_state(frames, unwrapped.skeleton)
+                    env_ids, clip_state(frames, unwrapped.skeleton_map)
                 )
                 unwrapped._write_robot_state(env_ids, root_state, dof_pos, dof_vel)
 
