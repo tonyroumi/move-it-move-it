@@ -1,5 +1,3 @@
-"""Script to play back a single motion clip in IsaacLab."""
-
 import argparse
 import contextlib
 import os
@@ -47,7 +45,6 @@ if args_cli.record:
 
 
 def main():
-    # only the env config is used; no agent runs here
     env_cfg, _ = resolve_task_config(TASK_ID, agent_cfg_entry_point("PPO"))
 
     motion_file = os.path.abspath(args_cli.motion)

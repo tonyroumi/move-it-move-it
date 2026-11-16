@@ -30,7 +30,6 @@ with contextlib.suppress(ImportError):
 TASK_ID = "MoveIt-Humanoid-v0"
 
 parser = argparse.ArgumentParser(description="Play a checkpoint of an agent.")
-parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
 parser.add_argument(
     "--checkpoint",
     type=str,
@@ -78,7 +77,7 @@ def main():
         update_class_from_dict(env_cfg, load_yaml(os.path.join(params_dir, "env.yaml")))
         agent_cfg = load_yaml(os.path.join(params_dir, "agent.yaml"))
 
-        env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+        env_cfg.scene.num_envs = 1
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
         env_cfg.camera_type = args_cli.camera if args_cli.camera is not None else env_cfg.camera_type
         env_cfg.random_reset = False
@@ -151,7 +150,7 @@ def main():
                 start_time = time.time()
 
                 if keyboard is not None:
-                    root_index = env.unwrapped.skeleton.robot_root_body_index
+                    root_index = env.unwrapped.skeleton.root_body_index
                     command = keyboard.advance(
                         env.unwrapped.robot.data.body_pos_w.torch[:, root_index, :2],
                         env.unwrapped.robot.data.body_quat_w.torch[:, root_index],
