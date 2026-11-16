@@ -68,7 +68,7 @@ def main():
 
     with launch_simulation(env_cfg, args_cli):
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
-        env_cfg.motion_manifest = args_cli.manifest
+        env_cfg.manifest = args_cli.manifest
 
         log_root_path = os.path.join(
             "logs",

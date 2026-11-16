@@ -151,13 +151,12 @@ def main():
                 start_time = time.time()
 
                 if keyboard is not None:
-                    root_index = env.unwrapped.ref_body_index
+                    root_index = env.unwrapped.skeleton.robot_root_body_index
                     command = keyboard.advance(
                         env.unwrapped.robot.data.body_pos_w.torch[:, root_index, :2],
                         env.unwrapped.robot.data.body_quat_w.torch[:, root_index],
                     )
-                    env.unwrapped.commands[:] = command
-                    env.unwrapped.goal_active[:] = keyboard.mode == "point_goal"
+                    env.unwrapped.motion_manager.set_commands(command)
                     if goal_marker is not None:
                         goal_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
                         goal_marker.visualize(translations=torch.nn.functional.pad(goal_xy, (0, 1), value=0.1))

@@ -2,7 +2,7 @@ import torch
 
 from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
 from moveitmoveit.motion.behavior import RandomKeyPresses
-from moveitmoveit.motion.manifest import Manifest
+from moveitmoveit.motion.manifest import Manifest, load_manifest, manifest_files
 from moveitmoveit.motion.specs import MotionSpec
 from moveitmoveit.state import BodyState
 
@@ -18,12 +18,13 @@ class MotionManager:
 
     def __init__(
         self,
-        manifest: Manifest,
+        manifest: str,
+        durations: list[float],
         num_envs: int,
         device: torch.device | str,
         step_dt: float = 1.0,
     ):
-        self.manifest = manifest
+        self.manifest = Manifest(load_manifest(manifest, durations), device)
 
         self._key_presses = RandomKeyPresses(
             num_envs,
@@ -47,6 +48,30 @@ class MotionManager:
         self.behaviors = torch.zeros(num_envs, self.manifest.num_behaviors, device=device)
 
         self._held = torch.zeros(num_envs, self.manifest.num_behaviors, dtype=torch.bool, device=device)
+
+    @staticmethod
+    def motion_files(manifest: str) -> list[str]:
+        """Clip paths in manifest motion order, for loading the motion library."""
+        return manifest_files(manifest)
+
+    @property
+    def specs(self) -> list[MotionSpec]:
+        return self.manifest.specs
+
+    @property
+    def num_behaviors(self) -> int:
+        return self.manifest.num_behaviors
+
+    def sample_ids(self, num_samples: int) -> torch.Tensor:
+        return self.manifest.sample_ids(num_samples)
+
+    def reset_times(self, motion_ids: torch.Tensor, times: torch.Tensor) -> torch.Tensor:
+        """Use sampled reset times only for motions that allow random starts."""
+        return torch.where(self.manifest.random_start[motion_ids], times, torch.zeros_like(times))
+
+    def style_reward_weight(self) -> torch.Tensor:
+        """AMP style reward weights for the currently running motions."""
+        return self.manifest.style_reward_weight(self.motion_ids)
 
     @property
     def active(self) -> torch.Tensor:

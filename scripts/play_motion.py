@@ -54,6 +54,8 @@ def main():
     motion_name = os.path.splitext(os.path.basename(motion_file))[0]
 
     with launch_simulation(env_cfg, args_cli):
+        from moveitmoveit.env import clip_state
+
         env_cfg.scene.num_envs = 1
         env_cfg.random_reset = False
         env_cfg.camera_type = args_cli.camera if args_cli.camera is not None else env_cfg.camera_type
@@ -62,7 +64,7 @@ def main():
         with tempfile.NamedTemporaryFile("w", suffix=".yaml") as manifest:
             yaml.safe_dump({"motions": {motion_name: {"file": motion_file}}}, manifest)
             manifest.flush()
-            env_cfg.motion_manifest = manifest.name
+            env_cfg.manifest = manifest.name
             env = gym.make(TASK_ID, cfg=env_cfg, render_mode="rgb_array" if args_cli.record else None)
         unwrapped = env.unwrapped
 
@@ -88,9 +90,11 @@ def main():
                 start_time = time.time()
 
                 times = torch.full((unwrapped.num_envs,), clip_time, device=unwrapped.device)
-                frames = motion_manager.reference_state(motion_ids, times)
+                frames = unwrapped.motion_library.frames(motion_ids, times)
 
-                root_state, dof_pos, dof_vel = unwrapped._compute_robot_state(env_ids, frames)
+                root_state, dof_pos, dof_vel = unwrapped._compute_robot_state(
+                    env_ids, clip_state(frames, unwrapped.skeleton)
+                )
                 unwrapped._write_robot_state(env_ids, root_state, dof_pos, dof_vel)
 
                 unwrapped.scene.write_data_to_sim()
