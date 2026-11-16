@@ -47,12 +47,15 @@ class MotionManifest:
         self.command_low = torch.zeros(self.num_motions, COMMAND_DIM, device=self.device)
         self.command_high = torch.zeros_like(self.command_low)
         self.command_zero_prob = torch.zeros(self.num_motions, device=self.device)
+        self.has_goal = torch.zeros(self.num_motions, dtype=torch.bool, device=self.device)
 
         for motion_id, spec in enumerate(specs):
             self.command_zero_prob[motion_id] = spec.zero_command_prob
 
             for key, (low, high) in spec.commands.items():
                 index = CommandIndex[key.upper()]
+                if index in (CommandIndex.GOAL_X, CommandIndex.GOAL_Y):
+                    self.has_goal[motion_id] = True
                 self.command_low[motion_id, index] = low
                 self.command_high[motion_id, index] = high
 

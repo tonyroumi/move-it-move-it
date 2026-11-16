@@ -7,11 +7,10 @@ from isaaclab.utils.math import quat_apply, quat_apply_yaw, quat_mul, random_yaw
 
 from moveitmoveit.env_cfg import MotionLearningEnvCfg
 from moveitmoveit.mdp import BodyState, MDP, StepContext, observation_dim
-from moveitmoveit.mdp.commands import COMMAND_DIM
+from moveitmoveit.mdp.commands import COMMAND_DIM, CommandIndex
 from moveitmoveit.motion.motion_manager import MotionManager
-from moveitmoveit.motion.motion_manifest import MotionManifest
+from moveitmoveit.motion.motion_manifest import MotionManifest, load_manifest
 from moveitmoveit.motion.library import MotionLibrary
-from moveitmoveit.motion.manifest import load_manifest
 from moveitmoveit.utils.transforms import apply_random_yaw
 
 class MotionLearningEnv(DirectRLEnv):
@@ -82,6 +81,7 @@ class MotionLearningEnv(DirectRLEnv):
         )
 
         self.commands = torch.zeros(self.num_envs, COMMAND_DIM, device=self.device)
+        self.goal_active = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
         self.actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self.previous_actions = torch.zeros_like(self.actions)
@@ -229,6 +229,7 @@ class MotionLearningEnv(DirectRLEnv):
             self.actions,
             self.motion_manager.current_phase(),
             self.motion_manager.current_behaviors(),
+            self.goal_active,
         )
 
     def _resample_commands(self, dones: torch.Tensor | None = None):
@@ -244,7 +245,17 @@ class MotionLearningEnv(DirectRLEnv):
         resample_env_ids = resample.nonzero(as_tuple=False).squeeze(-1)
         if resample_env_ids.numel() > 0:
             motion_ids = self.motion_manager.get_base_motion_ids(resample_env_ids)
-            self.commands[resample_env_ids] = self.motion_manifest.sample_commands(motion_ids)
+            commands = self.motion_manifest.sample_commands(motion_ids)
+            goal_active = self.motion_manifest.has_goal[motion_ids]
+            # Sampled goals are offsets; store a fixed world target until the next resample.
+            goal = commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
+            commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] = torch.where(
+                goal_active.unsqueeze(-1),
+                goal + self.current_state.root_positions[resample_env_ids, :2],
+                torch.zeros_like(goal),
+            )
+            self.commands[resample_env_ids] = commands
+            self.goal_active[resample_env_ids] = goal_active
 
             # a new goal or episode: progress toward the old goal no longer means anything
             self.mdp.reset_memory(resample_env_ids)

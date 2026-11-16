@@ -130,7 +130,7 @@ class MotionManager:
         return self.motion_phase
 
     def current_behaviors(self) -> torch.Tensor:
-        """Each env's running behavior as a one-hot (N, num_behaviors), as the last `step` recorded it."""
+        """Each env's running behavior as a one-hot encoding"""
         return self.behaviors
 
     def phase(self, time: torch.Tensor) -> torch.Tensor:

@@ -35,6 +35,7 @@ class StepContext:
     actions: torch.Tensor
     phase: torch.Tensor
     behaviors: torch.Tensor
+    goal_active: torch.Tensor
     memory: dict[str, torch.Tensor] = field(default_factory=dict)
 
 
@@ -141,7 +142,7 @@ class MDP:
         """The policy and the style observation."""
         state = context.state
 
-        commands = command_observation(state, local_frame)
+        commands = command_observation(state, context.commands, local_frame, context.goal_active)
         policy = torch.cat(
             [
                 *(OBSERVATIONS[name].fn(state, local_frame) for name in self._policy_obs),

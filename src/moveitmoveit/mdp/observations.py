@@ -74,12 +74,19 @@ def key_body_offsets(state: BodyState, local_frame: bool) -> torch.Tensor:
     return offsets.flatten(1)
 
 
-def goal_offset(commands: torch.Tensor, state: BodyState, local_frame: bool) -> torch.Tensor:
-    offset = commands[:, CommandIndex.GOAL_X:CommandIndex.GOAL_Y + 1] - state.root_positions[:, :2]
+def goal_offset(
+    commands: torch.Tensor, state: BodyState, local_frame: bool, goal_active: torch.Tensor
+) -> torch.Tensor:
+    goal = commands[:, CommandIndex.GOAL_X:CommandIndex.GOAL_Y + 1]
+    offset = goal - state.root_positions[:, :2]
     if local_frame:
         offset = world_to_heading_frame_xy(state.root_rotations, offset)
-    return offset
+    return torch.where(goal_active.unsqueeze(-1), offset, torch.zeros_like(offset))
 
 
-def command_observation(state: BodyState, commands: torch.Tensor, local_frame: bool,) -> torch.Tensor:
-    return goal_offset(commands, state, local_frame)
+def command_observation(
+    state: BodyState, commands: torch.Tensor, local_frame: bool, goal_active: torch.Tensor
+) -> torch.Tensor:
+    observation = commands.clone()
+    observation[:, CommandIndex.GOAL_X:CommandIndex.GOAL_Y + 1] = goal_offset(commands, state, local_frame, goal_active)
+    return observation

@@ -76,7 +76,8 @@ def target_hit(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     """Reward for being close to the goal position (xy)."""
     root_xy = c.state.root_positions[:, :2]
     goal = c.commands[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
-    return torch.exp(-scale * torch.sum((root_xy - goal) ** 2, dim=-1))
+    value = torch.exp(-scale * torch.sum((root_xy - goal) ** 2, dim=-1))
+    return torch.where(c.goal_active, value, torch.zeros_like(value))
 
 
 @reward(scale=1.0)
@@ -105,8 +106,9 @@ def progress(c: StepContext, scale: torch.Tensor) -> torch.Tensor:
     distance = torch.norm(goal - root_xy, dim=-1)
     previous = c.memory.get("goal_distance", distance)
     previous = torch.where(torch.isnan(previous), distance, previous)
-    c.memory["goal_distance"] = distance
-    return scale * (previous - distance)
+    c.memory["goal_distance"] = torch.where(c.goal_active, distance, torch.full_like(distance, float("nan")))
+    value = scale * (previous - distance)
+    return torch.where(c.goal_active, value, torch.zeros_like(value))
 
 
 @reward(scale=4.0)
