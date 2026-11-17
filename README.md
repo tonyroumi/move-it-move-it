@@ -42,9 +42,9 @@
 
 # Overview
 
-The following codebase provides a flexible RL environment for learning stylistic humanoid control.
+The following codebase provides a flexible RL environment for learning diverse stylistic motions.
 
-The environment is driven by a single manifest file that supports learning diverse control behaviors through motion-specific
+The environment is driven by a single manifest file that supports  motion-specific
 rewards, termination conditions, task commands, behavior triggers, and optional AMP-style rewards. 
 
 
