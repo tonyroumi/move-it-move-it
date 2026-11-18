@@ -5,7 +5,6 @@ from moveitmoveit.agents.ppo import PPOCfg
 
 @dataclass(kw_only=True)
 class AMPCfg(PPOCfg):
-
     discriminator_buffer_capacity: int = 100_000
     """Maximum number of discriminator transitions stored in the replay buffer."""
 

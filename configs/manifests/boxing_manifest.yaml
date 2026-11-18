@@ -1,0 +1,90 @@
+
+motions:
+  bounce:
+    file: data/boxing/orthodox_bounce.npz
+    sample_prob: 0.6
+
+    rewards:
+      heading_motion_tracking:
+        weight: 25.0
+        dof_scale: 0.5
+        key_body_scale: 1.0
+      action_rate_l2:
+        weight: 0.5
+        scale: 1.0
+      joint_acc:
+        weight: 0.1
+        scale: 1.0e-4
+
+    termination:
+      unhealthy:
+        height_threshold: 0.55
+
+  cross_right:
+    file: data/boxing/orthodox_cross_right.npz
+    sample_prob: 0.2
+    trigger: binary_key_0
+    amp: 0.0
+    random_start: true
+
+    rewards:
+      heading_motion_tracking:
+        weight: 25.0
+        dof_scale: 0.5
+        key_body_scale: 1.0
+      action_rate_l2:
+        weight: 0.5
+        scale: 1.0
+      joint_acc:
+        weight: 0.1
+        scale: 1.0e-4
+
+    termination:
+      deviation_from_motion:
+        threshold: 3.0
+
+  jab_left:
+    file: data/boxing/orthodox_jab_left.npz
+    sample_prob: 0.2
+    trigger: binary_key_1
+    amp: 0.0
+    random_start: true
+
+    rewards:
+      heading_motion_tracking:
+        weight: 25.0
+        dof_scale: 0.5
+        key_body_scale: 1.0
+      action_rate_l2:
+        weight: 0.5
+        scale: 1.0
+      joint_acc:
+        weight: 0.1
+        scale: 1.0e-4
+
+    termination:
+      deviation_from_motion:
+        threshold: 3.0
+
+  combo:
+    file: data/boxing/orthodox_combo_123_crop.npz
+    sample_prob: 0.2
+    trigger: binary_key_2
+    amp: 0.0
+    random_start: true
+
+    rewards:
+      heading_motion_tracking:
+        weight: 25.0
+        dof_scale: 0.5
+        key_body_scale: 1.0
+      action_rate_l2:
+        weight: 0.5
+        scale: 1.0
+      joint_acc:
+        weight: 0.1
+        scale: 1.0e-4
+
+    termination:
+      deviation_from_motion:
+        threshold: 3.0

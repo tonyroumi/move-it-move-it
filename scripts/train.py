@@ -1,4 +1,4 @@
-""" Script to train an RL agent. """
+"""Script to train an agent."""
 
 import argparse
 import contextlib
@@ -22,7 +22,7 @@ from isaaclab_tasks.utils import (
     setup_preset_cli,
 )
 
-import moveitmoveit
+from moveitmoveit import ALGOS, agent_cfg_entry_point
 from moveitmoveit.utils.logger import Logger
 from moveitmoveit.utils.paths import CONFIGS_DIR
 
@@ -33,11 +33,23 @@ with contextlib.suppress(ImportError):
 
 TASK_ID = "MoveIt-Humanoid-v0"
 
-parser = argparse.ArgumentParser(description="Train an agent to MOVE in IsaacLab")
+parser = argparse.ArgumentParser(description="Train a motion-conditioned RL policy in Isaac Lab.")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint to resume training.")
-parser.add_argument("--algo", type=str, required=True, choices=["PPO", "AMP"], help="RL algorithm.")
-parser.add_argument("--manifest", type=str, required=True, help="Manifest file",)
+parser.add_argument(
+    "--algo",
+    type=str,
+    required=True,
+    choices=ALGOS,
+    help="Trainer: PPO trains on the task reward alone; AMP adds a discriminator's style reward.",
+)
+parser.add_argument("--manifest", type=str, required=True, help="Manifest file")
+parser.add_argument(
+    "--name",
+    type=str,
+    required=True,
+    help="Experiment name: sets experiment.experiment_name and names the log directory.",
+)
 
 add_launcher_args(parser)
 args_cli, hydra_args = setup_preset_cli(parser)
@@ -45,24 +57,19 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 
 def main():
-    """Train an agent."""
-    # env_cfg is still resolved through the hydra/task machinery so `env.scene.*`
-    # style CLI overrides keep working, even though there's only one task now
-    env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
+    env_cfg, agent_cfg = resolve_task_config(TASK_ID, agent_cfg_entry_point(args_cli.algo))
 
-    # seed/experiment/logger/description are shared across algorithms, so they live in their
-    # own config rather than being duplicated in each agents/<algo>.yaml
     with open(os.path.join(CONFIGS_DIR, "experiment.yaml"), "r") as f:
         experiment_cfg = yaml.safe_load(f)
     agent_cfg["seed"] = experiment_cfg["seed"]
     agent_cfg["experiment"] = experiment_cfg["experiment"]
+    agent_cfg["experiment"]["experiment_name"] = args_cli.name
     agent_cfg["logger"] = experiment_cfg["logger"]
 
     with launch_simulation(env_cfg, args_cli):
         env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
-        env_cfg.motion_manifest = args_cli.manifest
+        env_cfg.manifest = args_cli.manifest
 
-        # specify directory for logging experiments: directory/experiment_name/algorithm/run
         log_root_path = os.path.join(
             "logs",
             agent_cfg["experiment"]["directory"],
@@ -112,7 +119,7 @@ def main():
             runner.agent.load_checkpoint(resume_path, env.unwrapped.device)
 
         try:
-            runner.learn()
+            runner.learn(agent_cfg["runner"]["timesteps"])
 
             print(f"Training time: {round(time.time() - start_time, 2)} seconds")
 
@@ -123,7 +130,6 @@ def main():
             env.close()
         except KeyboardInterrupt:
             env.close()
-            pass
 
 
 if __name__ == "__main__":

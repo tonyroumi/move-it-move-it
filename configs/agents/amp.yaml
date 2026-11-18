@@ -1,45 +1,17 @@
 models:
   actor:
-    hidden_layers: [512, 512, 512]
+    hidden_layers: [1028, 512, 256]
     activation: relu
     noise_std_type: fixed
     init_noise_std: 0.055
-    # weight_init:
-    #   type: uniform
-    #   trunk:
-    #     enabled: false
-    #     zero_bias: true
-    #   output:
-    #     enabled: false
-    #     gain: 0.01
-    #     zero_bias: true
 
   critic:
-    hidden_layers: [512, 512, 512]
+    hidden_layers: [1028, 512, 256]
     activation: relu
-    # weight_init:
-    #   type: uniform
-    #   trunk:
-    #     enabled: false
-    #     gain: 1.0
-    #     zero_bias: true
-    #   output:
-    #     enabled: false
-    #     zero_bias: true
 
   discriminator:
-    hidden_layers: [512, 512, 512]
+    hidden_layers: [1028, 512, 256]
     activation: relu
-    # weight_init:
-    #   type: uniform
-    #   trunk:
-    #     enabled: false
-    #     gain: 1.0
-    #     zero_bias: true
-    #   output:
-    #     enabled: false
-    #     gain: 1.0
-    #     zero_bias: true
 
 agent:
   class_type: AMP
@@ -47,7 +19,7 @@ agent:
   num_transitions_per_env: 16
 
   num_mini_batches: 2
-  num_learning_epochs: 6
+  num_learning_epochs: 8
   learning_rate: 0.00005
 
   clip_param: 0.2
@@ -82,4 +54,4 @@ agent:
 
 
 runner:
-  timesteps: 250000000
+  timesteps: 2000000000

@@ -1,1 +1,1 @@
-from .on_policy_runner import OnPolicyRunner
+from moveitmoveit.runners.on_policy_runner import OnPolicyRunner

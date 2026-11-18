@@ -1,1 +1,1 @@
-from .running_standard_scaler import RunningStandardScaler
+from moveitmoveit.resources.running_standard_scaler import RunningStandardScaler

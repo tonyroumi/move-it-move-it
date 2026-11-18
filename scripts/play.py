@@ -1,4 +1,4 @@
-""" Script to play a checkpoint of an RL agent. """
+"""Script to play a checkpoint of an RL agent."""
 
 import argparse
 import contextlib
@@ -9,9 +9,8 @@ import time
 import gymnasium as gym
 import torch
 
-import moveitmoveit
-from moveitmoveit.commands import CommandIndex
-from moveitmoveit.utils.paths import CONFIGS_DIR, resolve_checkpoint, resolve_checkpoint_from_run_dir
+from moveitmoveit import agent_cfg_entry_point
+from moveitmoveit.mdp.commands import CommandIndex
 from moveitmoveit.utils.logger import Logger
 
 from isaaclab.utils.dict import update_class_from_dict
@@ -25,81 +24,32 @@ from isaaclab_tasks.utils import (
     setup_preset_cli,
 )
 
-# PLACEHOLDER: Extension template (do not remove this comment)
 with contextlib.suppress(ImportError):
     import isaaclab_tasks_experimental  # noqa: F401
 
 TASK_ID = "MoveIt-Humanoid-v0"
 
 parser = argparse.ArgumentParser(description="Play a checkpoint of an agent.")
-parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
-parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint.")
 parser.add_argument(
-    "--algo",
+    "--checkpoint",
     type=str,
-    default=None,
-    choices=["PPO", "AMP"],
-    help="RL algorithm whose runs to search under, as written by train.py. Ignored if --log-dir is given.",
-)
-parser.add_argument(
-    "--log-dir",
-    type=str,
-    default=None,
-    help=(
-        "Path to a specific run's log directory, as written by train.py (contains params/ and "
-        "checkpoints/). When given, the env and agent configs are loaded from "
-        "<log-dir>/params/{env,agent}.yaml instead of being re-resolved from the task registry, "
-        "and the checkpoint defaults to <log-dir>/checkpoints/ rather than the most recently "
-        "written run. Ignored for config resolution if not provided (task registry is used instead)."
-    ),
-)
-parser.add_argument(
-    "--step",
-    type=int,
-    default=None,
-    help=(
-        "Timestep of the checkpoint to play (checkpoints/{step}.pt). Taken from --log-dir if given, "
-        "otherwise from the most recently written run directory. Defaults to checkpoints/best_agent.pt. "
-        "Ignored if --checkpoint is provided."
-    ),
+    required=True,
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument(
     "--joystick",
-    action="store_true",
-    default=False,
-    help=(
-        "Drive the policy's velocity command live from the keyboard instead of the env's sampled commands."
-        " Requires a task configured with env.reward_type=joystick and a non-headless renderer."
-    ),
-)
-parser.add_argument(
-    "--joystick-overlay",
-    action="store_true",
-    default=False,
-    help="With --joystick, overlay a faint keyboard on the renderer highlighting the currently held keys.",
-)
-parser.add_argument(
-    "--joystick-mode",
     type=str,
-    default="velocity",
-    choices=["velocity", "point_goal"],
+    default="none",
+    choices=["none", "velocity", "point_goal"],
     help=(
-        "With --joystick, which command the keyboard drives: 'velocity' for the SE(2) lin/yaw"
-        " command (original behavior), or 'point_goal' for the 2D goal point, moved with the same"
-        " up/down/left/right keys."
+        "Drive the policy's command live from the keyboard instead of the env's sampled commands"
     ),
 )
 parser.add_argument(
-    "--camera_type",
+    "--camera",
     type=str,
     default=None,
     choices=["facing", "third-person", "none"],
-    help=(
-        "Scripted camera mode: 'facing' follows in front of the robot looking back at it,"
-        " 'third-person' follows behind and above it, 'none' disables scripted camera updates."
-        " Defaults to the task's configured camera_type."
-    ),
 )
 parser.add_argument("--record", action="store_true", default=False, help="Record a video of the rollout.")
 parser.add_argument(
@@ -114,40 +64,12 @@ if args_cli.record:
 
 
 def main():
-    """Play with skrl agent."""
-    env_cfg, agent_cfg = resolve_task_config(TASK_ID, "agent_cfg_entry_point")
-
-    # seed/experiment/logger are shared across algorithms, so they live in their own config
-    # rather than being duplicated in each agents/<algo>.yaml
-    experiment_cfg = load_yaml(os.path.join(CONFIGS_DIR, "experiment.yaml"))
-    agent_cfg["seed"] = experiment_cfg["seed"]
-    agent_cfg["experiment"] = experiment_cfg["experiment"]
-    agent_cfg["logger"] = experiment_cfg["logger"]
+    env_cfg, _ = resolve_task_config(TASK_ID, agent_cfg_entry_point("PPO"))
 
     with launch_simulation(env_cfg, args_cli):
-        # override configurations with non-hydra CLI arguments
+        resume_path = os.path.abspath(args_cli.checkpoint)
+        log_dir = os.path.dirname(os.path.dirname(resume_path))
 
-        if args_cli.log_dir:
-            resume_path = resolve_checkpoint_from_run_dir(log_dir, checkpoint=args_cli.checkpoint, step=args_cli.step)
-        else:
-            if args_cli.algo is None:
-                raise ValueError("--algo is required to locate runs when --log-dir is not given.")
-
-            # specify directory for logging experiments: directory/experiment_name/algorithm/run
-            log_root_path = os.path.join(
-                "logs",
-                agent_cfg["experiment"]["directory"],
-                agent_cfg["experiment"]["experiment_name"],
-                args_cli.algo,
-            )
-            log_root_path = os.path.abspath(log_root_path)
-
-            print(f"[INFO] Loading experiment from directory: {log_root_path}")
-
-            resume_path = resolve_checkpoint(log_root_path, checkpoint=args_cli.checkpoint, step=args_cli.step)
-            log_dir = os.path.dirname(os.path.dirname(resume_path))
-
-        # load the env/agent configs as they were dumped by train.py
         params_dir = os.path.join(log_dir, "params")
 
         print(f"[INFO] Loading configs from run directory: {log_dir}")
@@ -155,42 +77,26 @@ def main():
         update_class_from_dict(env_cfg, load_yaml(os.path.join(params_dir, "env.yaml")))
         agent_cfg = load_yaml(os.path.join(params_dir, "agent.yaml"))
 
-        env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+        env_cfg.scene.num_envs = 1
         env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
-        env_cfg.camera_type = args_cli.camera_type if args_cli.camera_type is not None else env_cfg.camera_type
+        env_cfg.camera_type = args_cli.camera if args_cli.camera is not None else env_cfg.camera_type
+        env_cfg.random_reset = False
+
+        env_cfg.resample_commands = args_cli.joystick == "none"
         args_cli.seed = agent_cfg["seed"]
 
         # create isaac environment
         env = gym.make(TASK_ID, cfg=env_cfg, render_mode="rgb_array" if args_cli.record else None)
 
         keyboard = None
-        keyboard_overlay = None
         goal_marker = None
-        if args_cli.joystick_overlay and not args_cli.joystick:
-            raise ValueError("--joystick-overlay requires --joystick.")
-        if args_cli.joystick:
-            if args_cli.headless:
-                raise ValueError("--joystick requires a renderer; do not combine it with --headless.")
-            if not hasattr(env.unwrapped, "commands"):
-                raise ValueError(
-                    f"--joystick requires a command-conditioned task (got '{args_cli.task}', which has no"
-                    " `commands` buffer)."
-                )
+        if args_cli.joystick != "none":
+            from moveitmoveit.utils.keyboard import Keyboard
 
-            from isaaclab.devices import Se2KeyboardCfg
+            keyboard = Keyboard(args_cli.joystick, dt=env.unwrapped.step_dt, device=env.unwrapped.device)
+            print(keyboard)
 
-            se2_keyboard_cfg = Se2KeyboardCfg(
-                sim_device=env.unwrapped.device,
-                v_x_sensitivity=1.5,
-                v_y_sensitivity=1.0,
-                omega_z_sensitivity=1.0,
-            )
-
-            if args_cli.joystick_mode == "point_goal":
-                from moveitmoveit.utils.keyboard import PointGoalKeyboard
-
-                keyboard = PointGoalKeyboard(se2_keyboard_cfg)
-
+            if args_cli.joystick == "point_goal":
                 import isaaclab.sim as sim_utils
                 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 
@@ -205,16 +111,6 @@ def main():
                         },
                     )
                 )
-            else:
-                from moveitmoveit.utils.keyboard import Keyboard
-
-                keyboard = Keyboard(se2_keyboard_cfg)
-            print(keyboard)
-
-            if args_cli.joystick_overlay:
-                from moveitmoveit.utils.keyboard_overlay import KeyboardOverlay
-
-                keyboard_overlay = KeyboardOverlay()
 
         # get environment (step) dt for real-time evaluation
         try:
@@ -254,22 +150,15 @@ def main():
                 start_time = time.time()
 
                 if keyboard is not None:
-                    command = keyboard.advance().to(env.unwrapped.device)
-                    command = command.unsqueeze(0).expand(env.unwrapped.num_envs, -1).clone()
-                    if args_cli.joystick_mode == "point_goal":
-                        root_positions_xy = env.unwrapped.robot.data.body_pos_w.torch[
-                            :, env.unwrapped.ref_body_index, :2
-                        ]
-                        command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1] += root_positions_xy
-
-                        goal_positions_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
-                        goal_height = torch.full(
-                            (goal_positions_xy.shape[0], 1), 0.1, device=goal_positions_xy.device
-                        )
-                        goal_marker.visualize(translations=torch.cat((goal_positions_xy, goal_height), dim=-1))
-                    env.unwrapped.commands[:] = command
-                if keyboard_overlay is not None:
-                    keyboard_overlay.update()
+                    root_index = env.unwrapped.robot_root_body_index
+                    command = keyboard.advance(
+                        env.unwrapped.robot.data.body_pos_w.torch[:, root_index, :2],
+                        env.unwrapped.robot.data.body_quat_w.torch[:, root_index],
+                    )
+                    env.unwrapped.motion_manager.set_commands(command)
+                    if goal_marker is not None:
+                        goal_xy = command[:, CommandIndex.GOAL_X : CommandIndex.GOAL_Y + 1]
+                        goal_marker.visualize(translations=torch.nn.functional.pad(goal_xy, (0, 1), value=0.1))
 
                 with torch.inference_mode():
                     actions = runner.agent.act(obs, deterministic=True)
@@ -287,8 +176,7 @@ def main():
             # close the simulator
             env.close()
         except KeyboardInterrupt:
-            if keyboard_overlay is not None:
-                keyboard_overlay.close()
+            pass
 
 
 if __name__ == "__main__":

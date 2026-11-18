@@ -1,20 +1,11 @@
 import torch
 
-from isaaclab.utils.math import (
-    euler_xyz_from_quat,
-    normalize,
-    quat_apply,
-    quat_apply_inverse,
-    quat_apply_yaw,
-    quat_conjugate,
-    quat_mul,
-    random_yaw_orientation,
-    scale_transform,
-)
+from isaaclab.utils.math import quat_apply, quat_mul
 
 
 @torch.jit.script
 def quaternion_to_tangent_and_normal(q: torch.Tensor) -> torch.Tensor:
+    """The rotated x (tangent) and z (normal) axes, concatenated: (..., 6)."""
     ref_tangent = torch.zeros_like(q[..., :3])
     ref_normal = torch.zeros_like(q[..., :3])
     ref_tangent[..., 0] = 1
@@ -23,31 +14,29 @@ def quaternion_to_tangent_and_normal(q: torch.Tensor) -> torch.Tensor:
     normal = quat_apply(q, ref_normal)
     return torch.cat([tangent, normal], dim=len(tangent.shape) - 1)
 
-@torch.jit.script
-def normalize_angle(x: torch.Tensor) -> torch.Tensor:
-    return torch.atan2(torch.sin(x), torch.cos(x))
 
 @torch.jit.script
-def compute_heading_and_up(
-    torso_rotation: torch.Tensor,
-    inv_start_rot: torch.Tensor,
-    to_target: torch.Tensor,
-    vec0: torch.Tensor,
-    vec1: torch.Tensor,
-    up_idx: int,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Compute heading and up vectors for locomotion tasks."""
-    num_envs = torso_rotation.shape[0]
-    target_dirs = normalize(to_target)
+def world_to_heading_frame_xy(
+    rotations: torch.Tensor,
+    vectors_xy: torch.Tensor,
+) -> torch.Tensor:
+    """Rotate world-frame XY vectors into the body's yaw-only heading frame."""
+    x_axis = torch.zeros_like(rotations[..., :3])
+    x_axis[..., 0] = 1.0
 
-    torso_quat = quat_mul(torso_rotation, inv_start_rot)
-    up_vec = quat_apply(torso_quat, vec1).view(num_envs, 3)
-    heading_vec = quat_apply(torso_quat, vec0).view(num_envs, 3)
-    up_proj = up_vec[:, up_idx]
-    heading_proj = torch.bmm(heading_vec.view(num_envs, 1, 3), target_dirs.view(num_envs, 3, 1)).view(num_envs)
+    heading = quat_apply(rotations, x_axis)
+    yaw = torch.atan2(heading[..., 1], heading[..., 0])
 
-    return torso_quat, up_proj, heading_proj, up_vec, heading_vec
+    cos, sin = torch.cos(yaw), torch.sin(yaw)
+    x, y = vectors_xy.unbind(dim=-1)
 
+    return torch.stack(
+        (cos * x + sin * y, -sin * x + cos * y),
+        dim=-1,
+    )
+
+
+@torch.jit.script
 def apply_random_yaw(
     quat: torch.Tensor,
     ref_body_index: int,
@@ -59,49 +48,29 @@ def apply_random_yaw(
     """Apply a yaw rotation to a sampled reference motion about its root."""
     num_bodies = body_positions.shape[1]
 
-    # Root position is the pivot of the rotation.
     root_position = body_positions[:, ref_body_index]
 
     # Express body positions as world-frame offsets from the root.
     body_offsets = body_positions - root_position.unsqueeze(1)
 
-    # Expand yaw rotation across all bodies.
-    quat = quat.unsqueeze(1).expand(-1, num_bodies, 4)
 
+    quat = quat.unsqueeze(1).expand(-1, num_bodies, 4)
     # Rotate the offsets, then translate back to the root.
-    # The resulting positions are still world-frame positions.
-    body_positions = (
-        root_position.unsqueeze(1)
-        + quat_apply(quat, body_offsets)
-    )
+    body_positions = root_position.unsqueeze(1) + quat_apply(quat, body_offsets)
 
     # Rotate world-frame orientations and velocities.
     body_rotations = quat_mul(quat, body_rotations)
     body_linear_velocities = quat_apply(quat, body_linear_velocities)
     body_angular_velocities = quat_apply(quat, body_angular_velocities)
 
-    return (
-        body_positions,
-        body_rotations,
-        body_linear_velocities,
-        body_angular_velocities,
+    return body_positions, body_rotations, body_linear_velocities, body_angular_velocities
+
+
+def heading_frame(vectors: torch.Tensor, root_rotations: torch.Tensor) -> torch.Tensor:
+    """Express world-frame vectors in the root's heading frame. """
+    rotations = root_rotations.reshape(
+        root_rotations.shape[0], *([1] * (vectors.ndim - 2)), 4
     )
 
-@torch.jit.script
-def compute_rot(
-    torso_quat: torch.Tensor,
-    velocity: torch.Tensor,
-    ang_velocity: torch.Tensor,
-    targets: torch.Tensor,
-    torso_positions: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Compute rotation-related quantities for locomotion tasks."""
-    vel_loc = quat_apply_inverse(torso_quat, velocity)
-    angvel_loc = quat_apply_inverse(torso_quat, ang_velocity)
-
-    roll, pitch, yaw = euler_xyz_from_quat(torso_quat)
-
-    walk_target_angle = torch.atan2(targets[:, 1] - torso_positions[:, 1], targets[:, 0] - torso_positions[:, 0])
-    angle_to_target = walk_target_angle - yaw
-
-    return vel_loc, angvel_loc, roll, pitch, yaw, angle_to_target
+    xy = world_to_heading_frame_xy(rotations, vectors[..., :2])
+    return torch.cat((xy, vectors[..., 2:]), dim=-1)

@@ -12,18 +12,10 @@ from collections.abc import Generator
 
 
 class RolloutStorage(nn.Module):
-    """Storage for the data collected during a rollout.
-
-    The rollout storage is populated by adding transitions during the rollout phase. It then returns a generator for
-    learning.
-    """
+    """Storage for the data collected during a rollout, served back as mini-batches for learning."""
 
     class Transition:
-        """Storage for a single state transition.
-
-        This class is populated incrementally during the rollout phase and then passed to
-        :meth:`RolloutStorage.add_transition` to record the data.
-        """
+        """A single transition, filled in during the rollout and recorded by `add_transition`."""
 
         def __init__(self) -> None:
             """Initialize an empty transition container."""
@@ -50,11 +42,7 @@ class RolloutStorage(nn.Module):
             self.__init__()
 
     class Batch:
-        """A batch of data yielded by the rollout storage generators.
-
-        This class provides named access to mini-batch fields. Fields are optional to support different training modes
-        (RL vs distillation) and architectures (feedforward vs recurrent).
-        """
+        """A mini-batch yielded by `mini_batch_generator`, with named access to its fields."""
 
         def __init__(
             self,
@@ -64,7 +52,6 @@ class RolloutStorage(nn.Module):
             advantages: torch.Tensor | None = None,
             returns: torch.Tensor | None = None,
             old_actions_log_prob: torch.Tensor | None = None,
-            dones: torch.Tensor | None = None,
         ) -> None:
             """Initialize a batch container over rollout data."""
             self.observations: torch.Tensor | None = observations
@@ -86,9 +73,6 @@ class RolloutStorage(nn.Module):
             self.old_actions_log_prob: torch.Tensor | None = old_actions_log_prob
             """Batch of log probabilities of the old actions."""
 
-            self.dones: torch.Tensor | None = dones
-            """Batch of done flags (distillation only)."""
-
     def __init__(
         self,
         num_envs: int,
@@ -101,7 +85,6 @@ class RolloutStorage(nn.Module):
         self.device = device
         self.num_transitions_per_env = num_transitions_per_env
         self.num_envs = num_envs
-        self.action_dim = action_dim
 
         # Core
         self.observations = torch.zeros(num_transitions_per_env, num_envs, obs_dim, device=device)
@@ -135,10 +118,12 @@ class RolloutStorage(nn.Module):
         # Increment the counter
         self.step += 1
 
-    def set_advantage(self, advantage: torch.Tensor) -> None:
-        self.advantages.copy_(advantage)
+    def set_advantages(self, advantages: torch.Tensor) -> None:
+        """Store the rollout's advantages."""
+        self.advantages.copy_(advantages)
 
     def set_returns(self, returns: torch.Tensor) -> None:
+        """Store the rollout's returns."""
         self.returns.copy_(returns)
 
     def clear(self) -> None:
@@ -147,7 +132,7 @@ class RolloutStorage(nn.Module):
 
     def mini_batch_generator(self, num_mini_batches: int) -> Generator[Batch, None, None]:
         """Yield shuffled flat mini-batches for feedforward RL updates."""
-        batch_size = self.num_envs * self.num_transitions_per_env 
+        batch_size = self.num_envs * self.num_transitions_per_env
 
         assert batch_size % num_mini_batches == 0, (
             f"Batch size ({batch_size}) must be divisible by "

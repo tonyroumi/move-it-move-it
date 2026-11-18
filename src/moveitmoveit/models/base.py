@@ -3,10 +3,29 @@ from typing import List, Optional
 import torch
 import torch.nn as nn
 
-from moveitmoveit.utils.model import get_activation
+
+ACTIVATIONS = {
+    "relu": nn.ReLU,
+    "elu": nn.ELU,
+    "tanh": nn.Tanh,
+    "sigmoid": nn.Sigmoid,
+    "leaky_relu": nn.LeakyReLU,
+    "selu": nn.SELU,
+}
+
+
+def get_activation(name: str) -> nn.Module:
+    """Resolve an activation function by name."""
+    if name not in ACTIVATIONS:
+        raise ValueError(
+            f"Unknown activation: '{name}'. Choose from {list(ACTIVATIONS.keys())}"
+        )
+    return ACTIVATIONS[name]()
 
 
 class MLP(nn.Module):
+    """Fully connected trunk with a linear output head."""
+
     def __init__(
         self,
         in_channels,
@@ -16,10 +35,8 @@ class MLP(nn.Module):
         weight_init: Optional[dict] = None,
     ):
         super().__init__()
-        self.in_channels = in_channels
+        
         self.out_channels = out_channels
-        self.hidden_layers = hidden_layers
-        self.activation = activation
 
         trunk_layers = []
         dims = [in_channels] + hidden_layers
@@ -61,9 +78,6 @@ class MLP(nn.Module):
             init_fn(self.output_head, output_config.get("gain", 1.0))
         if output_config.get("zero_bias", False):
             self._init_linear_bias_zeros(self.output_head)
-    
-    def trainable_parameters(self) -> List[nn.Parameter]:
-        return [p for p in self.parameters() if p.requires_grad]
 
     @property
     def grad_norm(self):

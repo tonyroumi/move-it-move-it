@@ -1,0 +1,12 @@
+seed: 42
+
+experiment:
+  directory: "learning_motion"
+  experiment_name: "dance_with_locomotion"
+
+logger:
+  backend: tensorboard
+  write_interval: 1
+  checkpoint_interval: 200
+
+description: ""

@@ -1,4 +1,2 @@
-from .ppo import PPO
-from .ppo_cfg import PPOCfg
-
-__all__ = ["PPO", "PPOCfg"]
+from moveitmoveit.agents.ppo.ppo import PPO
+from moveitmoveit.agents.ppo.ppo_cfg import PPOCfg

@@ -14,26 +14,35 @@ from moveitmoveit.resources import RunningStandardScaler
 from moveitmoveit.storage import CircularBuffer
 from moveitmoveit.utils.logger import Logger
 
-from .amp_cfg import AMPCfg
-from ..ppo import PPO
+from moveitmoveit.agents.amp.amp_cfg import AMPCfg
+from moveitmoveit.agents.ppo import PPO
 
 
 class AMP(PPO):
-    """Adversarial Motion Priors (AMP) algorithm. """
+    """
+    Adversarial Motion Priors (AMP) algorithm.
+
+    Reference:
+        Peng, X. B., Ma, Z., Abbeel, P., Levine, S., & Kanazawa, A. (2021).
+        AMP: Adversarial Motion Priors for Stylized Physics-Based Character Control.
+        ACM Transactions on Graphics, 40(4), Article 144.
+        https://doi.org/10.1145/3450626.3459670
+    """
+    
     cfg: AMPCfg
 
     def __init__(self, cfg: AMPCfg, logger: Logger):
         super().__init__(cfg=cfg, logger=logger)
 
     def init(self, env: DirectRLEnv, cfg: dict):
-        self.collect_reference_motions: Callable = env.unwrapped.collect_reference_motions
+        self.style_batch: Callable = env.unwrapped.style_batch
 
         super().init(env, cfg)
 
     def _initialize_models(self, env: DirectRLEnv, model_cfg: dict) -> None:
         super()._initialize_models(env, model_cfg)
 
-        self.amp_obs_dim = self.collect_reference_motions(1).shape[-1]
+        self.amp_obs_dim = self.style_batch(1).shape[-1]
         self.discriminator = MLP(
             in_channels=self.amp_obs_dim,
             out_channels=1,
@@ -47,6 +56,7 @@ class AMP(PPO):
 
     def _initialize_optimizer(self) -> None:
         super()._initialize_optimizer()
+
         self.disc_optimizer = torch.optim.Adam(
             itertools.chain(
                 self.discriminator.parameters()
@@ -56,7 +66,8 @@ class AMP(PPO):
 
     def _initialize_storage(self, env: DirectRLEnv) -> None:
         super()._initialize_storage(env)
-        self._amp_observations_buf = CircularBuffer(
+
+        self._amp_observation_buffer = CircularBuffer(
             capacity=self.cfg.discriminator_buffer_capacity,
             sample_shape=(self.amp_obs_dim,),
             device=env.unwrapped.device,
@@ -70,7 +81,6 @@ class AMP(PPO):
         truncated: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
-
         with torch.no_grad():
             disc_logits = self.discriminator(
                 self._disc_obs_preprocessor(infos["amp_obs"])
@@ -79,9 +89,14 @@ class AMP(PPO):
                 torch.maximum(1 - 1 / (1 + torch.exp(-disc_logits)), torch.tensor(0.0001, device=rewards.device))
             ).view(rewards.shape)
 
-        self._amp_observations_buf.append(infos["amp_obs"])
+        self._amp_observation_buffer.append(infos["amp_obs"])
 
         weighted_style_reward = style_reward * self.cfg.style_reward_lambda
+        
+        style_reward_weight = infos.get("style_reward_weight")
+        if style_reward_weight is not None:
+            weighted_style_reward = weighted_style_reward * style_reward_weight.view(rewards.shape)
+            
         rewards = self.cfg.goal_reward_lambda * rewards + weighted_style_reward
 
         infos["reward_terms_raw"]["style"] = style_reward
@@ -96,10 +111,9 @@ class AMP(PPO):
             self._update_discriminator()
 
     def _update_discriminator(self) -> None:
-        """Run one round of discriminator gradient updates."""
         for _ in range(self.cfg.disc_num_updates):
-            ref_motion = self.collect_reference_motions(self.cfg.disc_batch_size)
-            agent_motion = self._amp_observations_buf.sample(self.cfg.disc_batch_size)
+            ref_motion = self.style_batch(self.cfg.disc_batch_size)
+            agent_motion = self._amp_observation_buffer.sample(self.cfg.disc_batch_size)
 
             ref_motion = self._disc_obs_preprocessor(ref_motion, train=True)
             agent_motion = self._disc_obs_preprocessor(agent_motion, train=True)
@@ -109,9 +123,9 @@ class AMP(PPO):
             ref_logits = self.discriminator(ref_motion)
 
             discriminator_loss = 0.5 * (
-                    nn.BCEWithLogitsLoss()(agent_logits, torch.zeros_like(agent_logits))
-                    + torch.nn.BCEWithLogitsLoss()(ref_logits, torch.ones_like(ref_logits))
-                )
+                nn.BCEWithLogitsLoss()(agent_logits, torch.zeros_like(agent_logits))
+                + nn.BCEWithLogitsLoss()(ref_logits, torch.ones_like(ref_logits))
+            )
 
             if self.cfg.disc_logit_reg:
                 logit_weights = torch.flatten(self.discriminator.get_logit_weights())
@@ -162,7 +176,6 @@ class AMP(PPO):
             self.logger.step_metric(2)
 
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:
-        """Save the agent's models to the specified path."""
         path = os.path.join(self.logger.log_dir, "checkpoints")
         os.makedirs(path, exist_ok=True)
 
@@ -173,17 +186,19 @@ class AMP(PPO):
             "discriminator": self.discriminator.state_dict(),
             "obs_preprocessor": self._obs_preprocessor.state_dict(),
             "disc_obs_preprocessor": self._disc_obs_preprocessor.state_dict(),
+            "value_preprocessor": self._value_preprocessor.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "disc_optimizer": self.disc_optimizer.state_dict(),
         }, f"{path}/{filename}")
 
     def load_checkpoint(self, path: str, device: torch.device) -> None:
-        """Load the agent's models from the specified path."""
         checkpoint = torch.load(path, map_location=device)
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
         self.discriminator.load_state_dict(checkpoint["discriminator"])
         self._obs_preprocessor.load_state_dict(checkpoint["obs_preprocessor"])
         self._disc_obs_preprocessor.load_state_dict(checkpoint["disc_obs_preprocessor"])
+        if "value_preprocessor" in checkpoint:
+            self._value_preprocessor.load_state_dict(checkpoint["value_preprocessor"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         self.disc_optimizer.load_state_dict(checkpoint["disc_optimizer"])

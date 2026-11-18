@@ -1,99 +1,50 @@
-# Project Overview
+# CLAUDE.md
 
-`moveitmoveit` is a lightweight motion learning framework built around IsaacLab.
-It implements RL algorithms from scratch and trains a single humanoid model on
-a variety of motions/behaviors, where each motion's rewards, commands, and
-termination conditions are declared in a **motion manifest** (YAML) rather than
-hardcoded per-behavior.
+## Project
 
-# Architecture
+`moveitmoveit` is an IsaacLab RL environment for learning task-driven humanoid behaviors guided by
+reference motions (AMP and DeepMimic-style tracking). A single YAML **manifest** declares the
+motions, their commands, rewards, terminations, behavior triggers, and AMP style weight.
 
-- `moveitmoveit/agents/`
-  - RL agents: PPO, AMP
-- `moveitmoveit/models/`
-  - neural network architectures such as MLP and GaussianMLP
-- `moveitmoveit/storage/`
-  - rollout storage, `RolloutBuffer`/`CircularBuffer` 
-- `moveitmoveit/env.py` / `moveitmoveit/env_cfg.py`
-  - the single `MotionLearningEnv(DirectRLEnv)` — no `envs/` package, since there is and will only
-    ever be one environment (the same robot, driven by the motion manifest)
-- `moveitmoveit/motion_manager.py`
-  - per-motion command/reward/termination tables built from the motion manifest, per-env clip assignment
-- `moveitmoveit/motion/`
-  - `motion_loader.py` — reference motion clip loading and state sampling
-  - `motion_viewer.py` — standalone motion clip visualization
+## Layout
 
-## Motion Manifest
+- `src/moveitmoveit/env.py`, `env_cfg.py` — the gym env `MoveIt-Humanoid-v0` (registered in `__init__.py`).
+- `src/moveitmoveit/mdp/` — observation, command, reward, and termination terms. Each is a plain
+  function registered with a decorator (`@reward(...)`, `@termination(...)`, `@command(...)`,
+  `@observation(dim)`); manifests reference them by function name.
+- `src/moveitmoveit/motion/` — manifest parsing (`manifest.py`, `specs.py`), motion library, behaviors.
+- `src/moveitmoveit/agents/` — PPO and AMP trainers; `runners/`, `storage/`, `models/` support them.
+- `configs/agents/*.yaml` — algorithm hyperparameters. `configs/manifests/*.yaml` — experiments.
+- `scripts/` — `train.py`, `play.py`, `play_motion.py`, plus helper shell scripts.
+- `data/` (motion `.npz` clips) and `logs/` (checkpoints, TensorBoard) are local and not committed.
 
-Each motion has a manifest YAML (`data/motions/<motion>.yaml`) that
-declares its reward composition and termination condition.
-# Coding Conventions
+## Running
 
-- Python 3.12
-- PyTorch
-- Avoid unnecessary abstractions.
-- Do not modify unrelated code.
-- Preserve existing type hints.
-- Prefer small focused classes/functions.
+**Never run IsaacLab.** Do not invoke `isaaclab.sh`, the scripts below, or any wrapper that launches
+it (`run_seq.sh`, `scripts/play_latest.sh`, `scripts/record_motions.py`). The user runs these
+themselves; the commands are listed for reference only.
 
-# Environment
+If a change needs a sim run to verify, give the user the exact command to run instead.
 
-IsaacLab 3.0
-Isaac Sim 6.0
-PyTorch
-Ubuntu Linux
+## Conventions
 
-Run IsaacLab Python scripts through:
+- Keep docstrings short and descriptive of *what* a value is (match existing style).
+- There is no test suite or pytest config.
 
-./isaaclab.sh -p <script>
+## Working practices for agents
 
-# Working Guidelines
+- **Plan non-trivial changes.** For multi-file work, outline the approach before writing code and
+  confirm with the user if the design is ambiguous.
+- **Small, focused diffs.** Change only what the task needs; no drive-by refactors, renames, or
+  reformatting of unrelated code.
+- **Ask when blocked.** If a requirement is unclear or a change affects training behavior (reward
+  scales, observation layout, checkpoint compatibility), flag it rather than guessing.
 
-## Scope Control
+## Commits and branches
 
-- Do exactly what was requested and no more.
-- Make the smallest change necessary to satisfy the request.
-- Do not refactor, rename, reorganize, optimize, or clean up unrelated code.
-- Do not change APIs, interfaces, tensor shapes, configuration structure, or behavior unless explicitly requested.
-- Do not introduce new abstractions, helper classes, utilities, or dependencies unless they are necessary for the requested change.
-- Do not modify nearby code merely because it could be improved.
-- Preserve the existing coding style and architecture unless the task specifically asks to change them.
-
-If you notice an unrelated bug, design issue, or possible improvement:
-- Mention it separately.
-- Do not fix it unless explicitly asked.
-
-If the requested change appears to require a broader modification than expected:
-- Explain why.
-- Describe the minimum broader change required.
-- Do not proceed with the broader change unless it is clearly necessary to complete the request.
-
-## Before Editing
-
-Before making significant changes:
-
-1. Inspect the relevant implementation and its dependencies.
-2. Determine the exact scope of the requested change.
-3. Identify important tensor shapes, data flow, and behavioral assumptions.
-4. Prefer modifying existing code over introducing new architecture.
-5. Make the smallest necessary modification.
-
-## Behavioral Preservation
-
-Unless explicitly requested otherwise:
-
-- Preserve existing behavior outside the requested change.
-- Preserve function signatures and public APIs.
-- Preserve configuration defaults.
-- Preserve tensor shapes and device/dtype behavior.
-- Preserve existing logging and diagnostics.
-- Preserve comments and documentation that remain correct.
-- Do not silently change algorithmic semantics.
-
-## Response Discipline
-
-When asked to implement a specific change:
-
-- Focus the response on that change.
-- Do not propose multiple alternative architectures unless asked.
-- Clearly identify any assumptions you had to make.
+- Work on a feature branch; do not commit directly to `main`.
+- Keep commits focused and atomic.
+- Use an imperative, capitalized commit subject with no trailing period.
+- Inspect staged changes before committing.
+- Do not add AI co-author or attribution lines.
+- Prefer follow-up commits over amending commits while addressing review feedback.

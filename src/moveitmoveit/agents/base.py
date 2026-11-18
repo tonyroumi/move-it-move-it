@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
 import collections
 
-import torch
-import torch.optim
 import numpy as np
+import torch
 
 from isaaclab.envs import DirectRLEnv
 
@@ -21,7 +19,7 @@ class BaseCfg(ABC):
 
 
 class BaseAgent(ABC):
-    """ Abstract base class for a learning agent. """
+    """Abstract base class for a learning agent."""
 
     def __init__(
         self,
@@ -52,19 +50,17 @@ class BaseAgent(ABC):
 
     def init(self, env: DirectRLEnv, cfg: dict) -> None:
         """Initialize the agent with the environment and configuration."""
-        self._step_dt = env.unwrapped.step_dt # policy frequency
-        self._motion_names = env.unwrapped._motion_manager.motion_names
+        self._step_dt = env.unwrapped.step_dt  # policy step period
         self._cmd_dim = env.unwrapped.command_dim
 
-        self._obs_preprocessor = self._build_observations_preprocessor(env)
+        self._obs_preprocessor = self._build_observation_preprocessor(env)
         self._action_preprocessor = self._build_action_preprocessor(env)
 
         self._initialize_models(env, cfg["models"])
         self._initialize_optimizer()
         self._initialize_storage(env)
 
-    def _build_observations_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
-        """Normalizes the environment's raw observation via running statistics."""
+    def _build_observation_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
         obs_size = env.observation_space.shape[-1]
         return RunningStandardScaler(
             size=obs_size, unscaled_dims=self._cmd_dim
@@ -98,7 +94,7 @@ class BaseAgent(ABC):
 
     @abstractmethod
     def act(self, observations: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
-        """Sample actions for the current observations. """
+        """Sample actions for the current observations."""
         pass
 
     @abstractmethod
@@ -110,8 +106,6 @@ class BaseAgent(ABC):
         truncated: torch.Tensor,
         infos: dict | None = None,
     ) -> None:
-        """Record reward, done flags, and optional step info, then flush the
-        current transition into the rollout buffer. """
         self._track_episode_stats(rewards, terminated | truncated, infos or {})
 
     def _track_episode_stats(
@@ -228,11 +222,35 @@ class BaseAgent(ABC):
                         timestep,
                     )
 
+            # Per-step means over the same episodes as the episode sums above: the window's
+            # summed reward over its summed steps (equivalently mean sum / mean length), so each
+            # step weighs the same however long its episode was.
+            reward_per_step = float(np.sum(track_rewards) / np.sum(track_timesteps))
+            self.logger.track_data(
+                "Performance/Episode Reward per Step (mean)",
+                reward_per_step,
+                timestep,
+            )
+            for prefix, terms in (
+                ("Reward Terms Per Step", self._track_reward_terms),
+                ("Reward Terms Raw Per Step", self._track_reward_terms_raw),
+            ):
+                for name, values in terms.items():
+                    if len(values):
+                        # A term's deque is extended alongside the episode lengths, so its
+                        # episodes are the most recent len(values) of them.
+                        self.logger.track_data(
+                            f"{prefix}/{name}",
+                            np.sum(values) / np.sum(track_timesteps[-len(values):]),
+                            timestep,
+                        )
+
             core_performance = {
                 "Episode Reward (mean)": self.mean_episode_reward,
                 "Episode Reward (max)": float(np.max(track_rewards)),
                 "Episode Reward (min)": float(np.min(track_rewards)),
                 "Episode Length (mean)": float(np.mean(track_timesteps)),
+                "Reward per Step (mean)": reward_per_step,
             }
 
             mean_episode_time = float(
@@ -256,11 +274,11 @@ class BaseAgent(ABC):
 
     @abstractmethod
     def inference(self) -> None:
-        """Inference Mode """
+        """Inference mode."""
 
     @abstractmethod
     def train(self) -> None:
-        """Train mode"""
+        """Train mode."""
 
     @abstractmethod
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:

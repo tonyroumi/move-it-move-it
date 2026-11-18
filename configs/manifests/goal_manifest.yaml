@@ -1,0 +1,22 @@
+motions:
+  walk_to_goal:
+    file: data/locomotion/walk.npz
+    sample_prob: 1.0
+
+    commands:
+      goal_x: [-5.0, 5.0]
+      goal_y: [-5.0, 5.0]
+
+    zero_command_prob: 0.25
+
+    rewards:
+      progress:
+        weight: 1.0
+        scale: 30.0
+      target_hit:
+        weight: 0.5
+        scale: 0.5
+
+    termination:
+      unhealthy: 
+        height_threshold: 0.55

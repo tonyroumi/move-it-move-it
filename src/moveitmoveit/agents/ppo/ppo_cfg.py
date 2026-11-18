@@ -5,8 +5,7 @@ from moveitmoveit.agents.base import BaseCfg
 
 @dataclass(kw_only=True)
 class PPOCfg(BaseCfg):
-
-    num_transitions_per_env: int = 32 
+    num_transitions_per_env: int = 32
     """Number of transitions in a rollout."""
 
     num_mini_batches: int = 1
@@ -22,10 +21,10 @@ class PPOCfg(BaseCfg):
     """Maximum gradient norm used for gradient clipping."""
 
     clip_param: float = 0.2
-    """PPO clipping parameter ε used to constrain policy updates. """
+    """PPO clipping parameter ε used to constrain policy updates."""
 
     value_loss_clip_param: float = 1.0
-    """Value loss clipped parameter used to constrain critic updates. """
+    """Value loss clipping parameter used to constrain critic updates."""
 
     value_loss_coef: float = 1.0
     """Coefficient applied to the critic/value-function loss."""
@@ -49,8 +48,4 @@ class PPOCfg(BaseCfg):
     """GAE parameter λ controlling the bias-variance tradeoff."""
 
     normalize_advantage_per_mini_batch: bool = False
-    """Whether to normalize advantages independently within each mini-batch.
-
-    If False, advantages should typically be normalized over the full rollout
-    batch before it is divided into mini-batches.
-    """
+    """Whether to normalize advantages within each mini-batch rather than over the full rollout."""

@@ -9,13 +9,13 @@ import torch.nn.functional as F
 from isaaclab.envs import DirectRLEnv
 
 from moveitmoveit.models import GaussianMLP, MLP
-from moveitmoveit.storage import RolloutStorage
 from moveitmoveit.resources import RunningStandardScaler
+from moveitmoveit.storage import RolloutStorage
 from moveitmoveit.utils.logger import Logger
 from moveitmoveit.utils.utils import explained_variance, fraction_outside_bounds
 
-from .ppo_cfg import PPOCfg
-from ..base import BaseAgent
+from moveitmoveit.agents.ppo.ppo_cfg import PPOCfg
+from moveitmoveit.agents.base import BaseAgent
 
 
 def compute_gae(
@@ -25,14 +25,13 @@ def compute_gae(
     dones: torch.Tensor,
     gae_lambda: float,
     discount: float,
-)-> torch.Tensor:
-
+) -> tuple[torch.Tensor, torch.Tensor]:
     advantage = 0
     advantages = torch.zeros_like(rewards)
     steps = rewards.shape[0]
 
     for i in reversed(range(steps)):
-        next_values = values[i+1] if i < steps - 1 else last_values
+        next_values = values[i + 1] if i < steps - 1 else last_values
 
         advantage = (
             rewards[i] - values[i] + discount * (1 - dones[i]) * (next_values + gae_lambda * advantage)
@@ -44,7 +43,18 @@ def compute_gae(
 
     return advantages, gae_returns
 
+
 class PPO(BaseAgent):
+    """
+    Proximal Policy Optimization (PPO) algorithm.
+
+    Reference:
+        Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017).
+        Proximal Policy Optimization Algorithms.
+        arXiv preprint arXiv:1707.06347.
+        https://arxiv.org/abs/1707.06347
+    """
+
     cfg: PPOCfg
 
     def __init__(self, cfg: dict, logger: Logger):
@@ -65,31 +75,9 @@ class PPO(BaseAgent):
         ).to(env.unwrapped.device)
 
         self._value_preprocessor = RunningStandardScaler(size=1).to(env.unwrapped.device)
-        self._command_preprocessor = self._build_command_preprocessor(env)
-
-    def _build_command_preprocessor(self, env: DirectRLEnv) -> RunningStandardScaler:
-        """Maps raw commands to [-1, 1]. Seeded once from the widest low/high any motion
-        uses for each command in the manifest, and never updated with `train=True`, so
-        commands are scaled to a fixed, known range rather than normalized empirically."""
-        command_low = env.unwrapped._motion_manager.command_low
-        command_high = env.unwrapped._motion_manager.command_high
-
-        low = command_low.min(dim=0).values
-        high = command_high.max(dim=0).values
-
-        return RunningStandardScaler(
-            size=self._cmd_dim,
-            mean=0.5 * (low + high),
-            variance=(0.5 * (high - low)) ** 2,
-        ).to(env.unwrapped.device)
 
     def _preprocess_observations(self, observations: torch.Tensor, train: bool = False) -> torch.Tensor:
-        """Normalizes the proprioceptive prefix against running statistics and the
-        trailing raw command block against the fixed command range, then reassembles
-        them into the input the actor/critic expect."""
-        normed = self._obs_preprocessor(observations, train=train)
-        proprioceptive, commands = normed[..., :-self._cmd_dim], normed[..., -self._cmd_dim:]
-        return torch.cat((proprioceptive, self._command_preprocessor(commands)), dim=-1)
+        return self._obs_preprocessor(observations, train=train)
 
     def _initialize_storage(self, env: DirectRLEnv) -> None:
         self.storage = RolloutStorage(
@@ -112,13 +100,13 @@ class PPO(BaseAgent):
     def act(self, observations: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
         with torch.no_grad():
             normed_obs = self._preprocess_observations(observations)
-            
+
             actions = self.actor(normed_obs, deterministic=deterministic)
             values = self.critic(normed_obs)
 
             self.transition.observations = observations
-            self.transition.actions = actions # raw sampled action
-            self.transition.actions_log_prob = self.actor.get_actions_log_prob(actions) #log_prob
+            self.transition.actions = actions  # raw sampled action
+            self.transition.actions_log_prob = self.actor.get_actions_log_prob(actions)
             self.transition.values = self._value_preprocessor(values, inverse=True)
 
             scaled_actions = self._action_preprocessor(actions, inverse=True)
@@ -159,20 +147,19 @@ class PPO(BaseAgent):
             self.cfg.gae_lambda,
             self.cfg.discount,
         )
-        # Advantages are tracked after every rollout. 
+
         self.logger.add_info("Advantage", advantages.mean().item(), 1)
         self.logger.step_metric(1)
 
-        if (not self.cfg.normalize_advantage_per_mini_batch):
+        if not self.cfg.normalize_advantage_per_mini_batch:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        self.storage.set_advantage(advantages)
+        self.storage.set_advantages(advantages)
         self.storage.set_returns(self._value_preprocessor(returns, train=True))
 
         for epoch in range(self.cfg.num_learning_epochs):
             for batch in self.storage.mini_batch_generator(self.cfg.num_mini_batches):
-
-                if (self.cfg.normalize_advantage_per_mini_batch):
+                if self.cfg.normalize_advantage_per_mini_batch:
                     advantage = (batch.advantages - batch.advantages.mean()) / (batch.advantages.std() + 1e-8)
                 else:
                     advantage = batch.advantages
@@ -190,10 +177,8 @@ class PPO(BaseAgent):
                     kl_divergence = ((torch.exp(log_ratio) - 1) - log_ratio).mean()
 
                 ratio = torch.exp(actions_log_prob - batch.old_actions_log_prob)
-                surrogate = advantage * ratio 
-                surrogate_clipped = advantage * torch.clip(
-                            ratio, 1.0 - self.cfg.clip_param, 1.0 + self.cfg.clip_param
-                )
+                surrogate = advantage * ratio
+                surrogate_clipped = advantage * torch.clip(ratio, 1.0 - self.cfg.clip_param, 1.0 + self.cfg.clip_param)
 
                 policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
 
@@ -206,7 +191,9 @@ class PPO(BaseAgent):
                     )
                 value_loss = self.cfg.value_loss_coef * F.mse_loss(values, batch.returns)
 
-                loss = policy_loss + value_loss #- self.cfg.entropy_coef * self.actor.entropy
+                entropy = self.actor.entropy.mean()
+
+                loss = policy_loss + value_loss - self.cfg.entropy_coef * entropy
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -241,7 +228,6 @@ class PPO(BaseAgent):
         self.storage.clear()
 
     def train(self) -> None:
-        """Train mode"""
         self.actor.train()
         self.critic.train()
 
@@ -250,7 +236,6 @@ class PPO(BaseAgent):
         self.critic.eval()
 
     def write_checkpoint(self, timestep: int, filename: str | None = None) -> None:
-        """Save the agent's models to the specified path."""
         path = os.path.join(self.logger.log_dir, "checkpoints")
         os.makedirs(path, exist_ok=True)
 
@@ -259,13 +244,15 @@ class PPO(BaseAgent):
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
             "_obs_preprocessor": self._obs_preprocessor.state_dict(),
+            "value_preprocessor": self._value_preprocessor.state_dict(),
             "optimizer": self.optimizer.state_dict(),
         }, f"{path}/{filename}")
 
     def load_checkpoint(self, path: str, device: torch.device) -> None:
-        """Load the agent's models from the specified path."""
         checkpoint = torch.load(path, map_location=device)
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
         self._obs_preprocessor.load_state_dict(checkpoint["_obs_preprocessor"])
+        if "value_preprocessor" in checkpoint:
+            self._value_preprocessor.load_state_dict(checkpoint["value_preprocessor"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])

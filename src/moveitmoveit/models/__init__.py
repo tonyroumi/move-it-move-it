@@ -1,2 +1,2 @@
-from .base import MLP
-from .gaussian import GaussianMLP
+from moveitmoveit.models.base import MLP
+from moveitmoveit.models.gaussian import GaussianMLP

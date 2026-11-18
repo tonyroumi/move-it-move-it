@@ -1,0 +1,37 @@
+models:
+  actor:
+    hidden_layers: [1024, 512]
+    activation: relu
+    noise_std_type: fixed
+    init_noise_std: 0.055
+
+  critic:
+    hidden_layers: [1024, 512]
+    activation: relu
+
+agent:
+  class_type: PPO
+
+  num_transitions_per_env: 16
+
+  num_mini_batches: 4
+  num_learning_epochs: 6
+  learning_rate: 0.00005
+
+  clip_param: 0.2
+  value_loss_coef: 2.0
+  entropy_coef: 0.0
+  max_grad_norm: 0.0
+  use_clipped_value_loss: False
+  value_loss_clip_param: 0.2
+
+  desired_kl: 0.01
+  adaptive_kl: False
+  
+  gae_lambda: 0.95
+  discount: 0.99
+  normalize_advantage_per_mini_batch: False
+
+
+runner:
+  timesteps: 500000000
