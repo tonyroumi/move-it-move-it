@@ -1,8 +1,8 @@
 seed: 42
 
 experiment:
-  directory: "locomotion"
-  experiment_name: "point_goal"
+  directory: "learning_motion"
+  experiment_name: "dance_with_locomotion"
 
 logger:
   backend: tensorboard

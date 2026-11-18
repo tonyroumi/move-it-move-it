@@ -1,48 +1,27 @@
 # move-it-move-it 
 
 
+
 <table align="center" width="100%">
   <tr>
-    <td align="center" width="33%">
-      <a href="docs/videos/humanoid_motion_hero.mp4">
-        <img src="docs/videos/humanoid_motion_hero.gif" width="100%">
+    <td align="center" width="50%">
+      <a href="docs/videos/humanoid_dance.gif">
+        <img src="docs/videos/humanoid_dance.gif" width="100%">
       </a>
-      <sub><b>Humanoid Motion Imitation</b></sub>
+      <sub><b>Locomotion with Dancing</b></sub>
     </td>
-    <td align="center" width="17%">
+    <td align="center" width="50%">
       <a href="docs/videos/standing_broad_jump.mp4">
-        <img src="docs/videos/standing_broad_jump.gif" width="100%">
+        <img src="docs/videos/humanoid_jump.gif" width="100%">
       </a>
-      <sub><b>Standing Broad Jump</b></sub>
-      <br>
-      <a href="docs/videos/walk.mp4">
-        <img src="docs/videos/walk.gif" width="100%">
-      </a>
-      <sub><b>Walking</b></sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="docs/videos/humanoid_motion_hero.mp4">
-        <img src="docs/videos/humanoid_motion_hero.gif" width="100%">
-      </a>
-      <sub><b>Humanoid Motion Imitation</b></sub>
-    </td>
-    <td align="center" width="17%">
-      <a href="docs/videos/standing_broad_jump.mp4">
-        <img src="docs/videos/standing_broad_jump.gif" width="100%">
-      </a>
-      <sub><b>Standing Broad Jump</b></sub>
-      <br>
-      <a href="docs/videos/walk.mp4">
-        <img src="docs/videos/walk.gif" width="100%">
-      </a>
-      <sub><b>Walking</b></sub>
+      <sub><b>Locomotion with Jumping</b></sub>
     </td>
   </tr>
 </table>
 
 # Overview
 
-The following codebase provides a flexible RL environment for learning diverse stylistic motions.
+The following codebase provides a flexible RL environment for learning stylistic motions.
 
 The environment is driven by a single manifest file that supports  motion-specific
 rewards, termination conditions, task commands, behavior triggers, and optional AMP-style rewards. 

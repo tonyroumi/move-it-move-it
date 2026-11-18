@@ -2,20 +2,21 @@
 motions:
   walk_to_goal:
     file: data/locomotion/walk.npz
-    sample_prob: 0.5
+    sample_prob: 0.55
+    amp: 2.0
 
     commands:
       goal_x: [-5.0, 5.0]
       goal_y: [-5.0, 5.0]
-      
+
     zero_command_prob: 0.25
 
     rewards:
       progress:
-        weight: 1.0
+        weight: 3.0
         scale: 30.0
       target_hit:
-        weight: 0.5
+        weight: 1.0
         scale: 0.5
 
     termination:
@@ -23,14 +24,14 @@ motions:
 
   jump:
     file: data/jump/standing_broad_jump.npz
-    sample_prob: 0.5
+    sample_prob: 0.35
     trigger: binary_key_0
     amp: 0.0
-    random_start: false
+    random_start: true
 
     rewards:
       heading_motion_tracking:
-        weight: 25.0
+        weight: 20.0
         dof_scale: 0.5
         key_body_scale: 0.5
       action_rate_l2:
@@ -43,4 +44,4 @@ motions:
     termination:
       unhealthy:
       deviation_from_motion:
-        threshold: 5.0
+        threshold: 3.0

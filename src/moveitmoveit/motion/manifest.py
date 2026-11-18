@@ -32,7 +32,7 @@ class Manifest:
 
         self.loop = torch.tensor([spec.loop for spec in specs], dtype=torch.bool, device=self.device)
         self.random_start = torch.tensor([spec.random_start for spec in specs], dtype=torch.bool, device=self.device)
-        self.amp = torch.tensor([spec.amp for spec in specs], dtype=torch.bool, device=self.device)
+        self.amp = torch.tensor([spec.amp for spec in specs], dtype=torch.float, device=self.device)
         self.durations = torch.tensor([spec.duration for spec in specs], dtype=torch.float, device=self.device)
 
         self._build_trigger_rates_and_weights()
