@@ -21,7 +21,7 @@
 
 # Overview
 
-The following codebase provides a flexible RL environment for learning stylistic motions.
+The following codebase provides a flexible RL environment for learning task-driven behaviors guided by reference motions.
 
 The environment is driven by a single manifest file that supports  motion-specific
 rewards, termination conditions, task commands, behavior triggers, and optional AMP-style rewards. 
